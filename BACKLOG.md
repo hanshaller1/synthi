@@ -24,6 +24,9 @@ Diese Anforderungen werden erst umgesetzt, wenn der Nutzer ausdrücklich dazu au
 - [ ] **SYN-05 – FX-Reihenfolge:** Die Reihenfolge der vier Effekt-Slots veränderbar machen; die eingestellte Reihenfolge muss auch die Signalverarbeitung bestimmen.
 - [ ] **SYN-06 – Unison:** Unison je Track einstellbar machen.
 - [ ] **SYN-07 – FX deaktivieren:** Jeden Effekt-Slot einzeln deaktivieren beziehungsweise auf Bypass schalten können. Nachtrag des Nutzers zum Backlog.
+- [ ] **SYN-08 – Individuelle Effekt-Bedienung und Bilder:** Jede Effektvariante soll eigene, für den jeweiligen Effekt sinnvolle Parameter und ein eigenes passendes Bild beziehungsweise eine eigene Visualisierung bekommen. Das bisher überall gleiche Standardbild ersetzen.
+- [ ] **SYN-09 – LFO-Typen und Modi erweitern:** Zusätzlich zu den bisherigen LFO-Typen **exp**, **ramp** und **random** anbieten. Als zusätzliche Modi **hold**, **one** und **half** ergänzen.
+- [ ] **SYN-10 – Syntheseformen vertiefen:** Bei allen acht Syntheseformen zusätzliche Parameter ergänzen, wo sie musikalisch und technisch sinnvoll sind. Ziel ist mehr Klanggestaltungstiefe; laut Nutzer wirken die bisherigen Engines überwiegend wie Light-Varianten.
 
 ## Master FX
 
