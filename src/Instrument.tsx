@@ -227,6 +227,18 @@ export default function Instrument(props: Props) {
         context={
           <>
             <span className="tag">T{props.track + 1} · {ENGINES.find((e) => e.id === p.engine)?.short}</span>
+            <Select
+              className="panel-engine"
+              label="Syntheseform"
+              value={p.engine}
+              onChange={(engine) => onPatch({ engine: engine as Patch["engine"] })}
+            >
+              {ENGINES.map((engine) => (
+                <option key={engine.id} value={engine.id} title={engine.description}>
+                  {engine.label}
+                </option>
+              ))}
+            </Select>
             <button className="panel-preset" onClick={props.onLibrary}>
               {p.name}
               <FolderOpen size={14} />
@@ -266,20 +278,6 @@ export default function Instrument(props: Props) {
         </div>
         }
       />
-      <div className="engine-selector" aria-label="Syntheseform">
-        {ENGINES.map((e, i) => (
-          <button
-            key={e.id}
-            className={p.engine === e.id ? "selected" : ""}
-            onClick={() => onPatch({ engine: e.id })}
-            title={e.description}
-          >
-            <span>0{i + 1}</span>
-            {e.label}
-            {p.engine === e.id && <i />}
-          </button>
-        ))}
-      </div>
       <div className="instrument-toolbar">
         <div className="tabs" role="tablist" aria-label="Instrument-Bereich">
           {[

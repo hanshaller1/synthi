@@ -860,53 +860,6 @@ h1 > i {
   width: 26px;
   color: #a0a798;
 }
-.engine-selector {
-  display: flex;
-  padding: 0 16px;
-  gap: 0;
-  border-bottom: 1px solid #3e403d;
-  background: #242523;
-  min-height: 41px;
-}
-.engine-selector > button {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 12px 3px;
-  font-size: 9px;
-  white-space: nowrap;
-  color: #899382;
-}
-.engine-selector > button > span {
-  font: 6px var(--mono);
-  color: #5f6b57;
-}
-.engine-selector > button.selected {
-  color: #e6b491;
-  background: #e5ac8605;
-}
-.engine-selector > button.selected > span {
-  color: #ac8963;
-}
-.engine-selector > button.selected:after {
-  position: absolute;
-  bottom: -1px;
-  left: 8px;
-  right: 8px;
-  height: 2px;
-  background: var(--accent);
-  content: "";
-}
-.engine-selector > button > i {
-  width: 3px;
-  height: 3px;
-  background: var(--accent);
-  border-radius: 50%;
-  margin-left: 0;
-}
 .instrument-toolbar {
   height: 43px;
   display: flex;
@@ -3092,13 +3045,6 @@ kbd {
     height: 40px;
     width: 40px;
   }
-  .engine-selector > button {
-    font-size: 11px;
-    padding: 15px 3px;
-  }
-  .engine-selector > button > span {
-    font-size: 7px;
-  }
   .instrument-toolbar {
     height: 48px;
   }
@@ -3242,16 +3188,6 @@ kbd {
   }
   .module {
     padding: 14px 11px;
-  }
-  .engine-selector {
-    padding: 0 9px;
-  }
-  .engine-selector > button {
-    font-size: 8px;
-    gap: 4px;
-  }
-  .engine-selector > button > span {
-    font-size: 5px;
   }
   .module-title h3 {
     font-size: 9px;
@@ -3660,13 +3596,6 @@ kbd {
     font-size: 6px;
   }
   .voice-badge {
-    display: none;
-  }
-  .engine-selector > button {
-    font-size: 7px;
-    gap: 3px;
-  }
-  .engine-selector > button > span {
     display: none;
   }
   .module-grid {
@@ -4186,20 +4115,6 @@ kbd {
   .patch-name {
     font-size: 15px;
     gap: 12px;
-  }
-  .engine-selector {
-    min-height: 40px;
-    overflow-x: auto;
-    padding: 0 6px;
-    justify-content: flex-start;
-  }
-  .engine-selector > button {
-    flex: 1 0 75px;
-    font-size: 8px;
-    padding: 13px 5px;
-  }
-  .engine-selector > button > i {
-    display: none;
   }
   .instrument-toolbar {
     height: 43px;
@@ -5498,15 +5413,6 @@ kbd {
   }
   .voice-badge {
     font-size: 7px;
-  }
-  .engine-selector > button {
-    font-size: 11px;
-  }
-  .engine-selector > button > span {
-    font-size: 7px;
-  }
-  .engine-selector {
-    min-height: 43px;
   }
   .tabs button {
     font-size: 11px;
