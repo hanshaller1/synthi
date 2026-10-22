@@ -21,6 +21,25 @@ npm run preview    # das erstellte Bundle lokal bereitstellen
 
 `dist/` kann auf einem beliebigen statischen HTTPS-Host veröffentlicht werden. Für dieses Projekt werden auf ausdrücklichen Wunsch keine Tests angelegt oder ausgeführt.
 
+## Auf GitHub Pages veröffentlichen
+
+Die App ist für **Deploy from a branch → main → /docs** vorbereitet. Der Ordner `docs/` enthält bereits die gebaute Anwendung als eigenständige `index.html` und eine `.nojekyll`-Datei. GitHub Pages muss kein npm oder TypeScript ausführen. Die eingebetteten Assets funktionieren auch unter dem Projektpfad `/synthi/`.
+
+1. Im GitHub-Repository **Settings → Pages** öffnen.
+2. Bei **Build and deployment → Source** die Option **Deploy from a branch** auswählen.
+3. **Branch: main**, **Folder: /docs** auswählen und **Save** anklicken.
+4. Warten, bis GitHub den Pages-Deployment-Vorgang als erfolgreich anzeigt. Die erwartete Adresse ist `https://hanshaller1.github.io/synthi/`; die tatsächliche Adresse steht anschließend in den Pages-Einstellungen.
+
+Nach Codeänderungen den Veröffentlichungsstand neu erzeugen:
+
+```bash
+npm run build:pages
+```
+
+Die Änderungen an `docs/index.html` zusammen mit dem Quellcode committen und nach `main` pushen. GitHub Pages übernimmt diese Änderungen automatisch. Für diesen Weg sind keine eigenen GitHub-Actions-Workflows oder Tests erforderlich.
+
+Der Quellcode im Repository-Wurzelverzeichnis ist ein Vite-Projekt. **main → /(root)** würde die ungebaute Entwicklungsdatei veröffentlichen; für diese Konfiguration daher ausdrücklich **/docs** verwenden. Die Veröffentlichung über GitHub Pages wird erst durch Speichern der Pages-Einstellungen aktiviert.
+
 ## Fertige HTML-Datei von GitHub laden
 
 Die eigenständige Anwendung liegt unter `release/PHASE.html`. In GitHub die Datei öffnen und mit **Download raw file** herunterladen. Die heruntergeladene Datei mit Chrome oder Edge öffnen, dann **AUDIO START** und **Play** anklicken. Kein npm oder lokaler Entwicklungsserver erforderlich. Die Datei öffnet die Anwendung lokal und ist keine gehostete Webvorschau.

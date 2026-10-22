@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "build:portable": "npm run build && node scripts/portable.mjs"
+    "build:portable": "npm run build && node scripts/portable.mjs",
+    "build:pages": "npm run build:portable && node scripts/pages.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",
