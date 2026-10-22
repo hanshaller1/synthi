@@ -407,6 +407,9 @@ export function Scope({
     />
   );
 }
+const MOBILE_KEYBOARD_QUERY =
+  "(max-width: 620px), (max-width: 960px) and (max-height: 620px) and (pointer: coarse)";
+
 export function Keyboard({
   active,
   onDown,
@@ -420,8 +423,19 @@ export function Keyboard({
   octave: number;
   setOctave: (n: number) => void;
 }) {
+  const [mobile, setMobile] = useState(
+    () => window.matchMedia(MOBILE_KEYBOARD_QUERY).matches,
+  );
+  const octaveCount = mobile ? 2 : KEYBOARD_OCTAVES;
+  useEffect(() => {
+    const query = window.matchMedia(MOBILE_KEYBOARD_QUERY);
+    const update = () => setMobile(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const notes = Array.from(
-      { length: KEYBOARD_OCTAVES * 12 + 1 },
+      { length: octaveCount * 12 + 1 },
       (_, i) => octave * 12 + i,
     ),
     whites = notes.filter((n) => ![1, 3, 6, 8, 10].includes(n % 12)),
@@ -436,8 +450,9 @@ export function Keyboard({
     return () => {
       window.removeEventListener("pointerup", up);
       window.removeEventListener("blur", up);
+      up();
     };
-  }, [onUp]);
+  }, [onUp, octave, octaveCount]);
   const down = (note: number) => {
     if (!held.current.has(note)) {
       held.current.add(note);
@@ -453,7 +468,7 @@ export function Keyboard({
   return (
     <div className="keyboard-section">
       <div className="keyboard-controls">
-        <span className="eyebrow">4 OCTAVES</span>
+        <span className="eyebrow">{octaveCount} OCTAVES</span>
         <div className="octave-buttons">
           <button
             aria-label="Oktave tiefer"

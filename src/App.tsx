@@ -1866,7 +1866,9 @@ export default function App() {
           <label className="toggle-row">
             <span>
               <strong>On-screen keyboard</strong>
-              <small>Vier Oktaven, Touch und Computer-Tastatur</small>
+              <small>
+                Vier Oktaven, auf Smartphones zwei · Touch und Computer-Tastatur
+              </small>
             </span>
             <input
               type="checkbox"
