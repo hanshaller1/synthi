@@ -363,42 +363,42 @@ export default function Instrument(props: Props) {
                   </option>
                 </Select>
               </div>
-              <div className="filter-model-options">
-                <span>
-                  {p.filterType === "comb"
-                    ? "FEEDBACK POLARITY"
-                    : p.filterType === "multimode"
-                      ? "MULTIMODE TYPE"
-                      : "CLASSIC · RESONANT"}
-                </span>
-                {p.filterType === "multimode" && (
-                  <Select
-                    label="Multimode-Charakteristik"
-                    value={p.multimodeType}
-                    onChange={(v) =>
-                      onPatch({ multimodeType: v as MultimodeFilter })
-                    }
-                  >
-                    {MULTIMODE_FILTERS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-                {p.filterType === "comb" && (
-                  <Select
-                    label="Comb-Polarität"
-                    value={p.combPolarity}
-                    onChange={(v) =>
-                      onPatch({ combPolarity: v as Patch["combPolarity"] })
-                    }
-                  >
-                    <option value="positive">Comb + · positive</option>
-                    <option value="negative">Comb − · negative</option>
-                  </Select>
-                )}
-              </div>
+              {(p.filterType === "comb" || p.filterType === "multimode") && (
+                <div className="filter-model-options">
+                  <span>
+                    {p.filterType === "comb"
+                      ? "FEEDBACK POLARITY"
+                      : "MULTIMODE TYPE"}
+                  </span>
+                  {p.filterType === "multimode" && (
+                    <Select
+                      label="Multimode-Charakteristik"
+                      value={p.multimodeType}
+                      onChange={(v) =>
+                        onPatch({ multimodeType: v as MultimodeFilter })
+                      }
+                    >
+                      {MULTIMODE_FILTERS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
+                  {p.filterType === "comb" && (
+                    <Select
+                      label="Comb-Polarität"
+                      value={p.combPolarity}
+                      onChange={(v) =>
+                        onPatch({ combPolarity: v as Patch["combPolarity"] })
+                      }
+                    >
+                      <option value="positive">Comb + · positive</option>
+                      <option value="negative">Comb − · negative</option>
+                    </Select>
+                  )}
+                </div>
+              )}
               <FilterResponse
                 patch={p}
                 locks={props.locks}
@@ -432,7 +432,6 @@ export default function Instrument(props: Props) {
                 {knob("drive", "Drive")}
               </div>
               <div className="filter-envelope-title">
-                <span>FILTER ENVELOPE</span>
                 <label>
                   AMOUNT
                   <input
@@ -467,10 +466,6 @@ export default function Instrument(props: Props) {
                   <Radio size={14} /> Amplifier
                 </h3>
                 <span className="module-index">04</span>
-              </div>
-              <div className="amp-envelope-heading">
-                <span>AMPLITUDE ENVELOPE</span>
-                <span className="tag">ADSR</span>
               </div>
               <EnvelopeGraph
                 kind="amp"

@@ -292,10 +292,6 @@ body,
 .studio-viewport .envelope-knobs output {
   font-size: 8px;
 }
-.studio-viewport .amp-envelope-heading {
-  font-size: 8px;
-  padding-top: 0;
-}
 .studio-viewport .amp-module > .envelope-graph {
   height: clamp(48px, 9vh, 100px);
   margin: 5px 0 8px;

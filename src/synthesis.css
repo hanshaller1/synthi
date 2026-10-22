@@ -210,7 +210,19 @@
 }
 .studio-viewport .synth-grid .filter-envelope-title {
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
+}
+.studio-viewport .synth-grid > .filter-module > .envelope-graph {
+  flex: 1 1 78px;
+  min-height: 50px;
+  max-height: none;
+  height: auto;
+}
+.studio-viewport .synth-grid .amp-module > .envelope-knobs .knob {
+  width: min(100%, clamp(44px, 6.8vh, 64px));
+  height: auto;
+  aspect-ratio: 1;
 }
 .studio-viewport .synth-grid .amp-divider {
   display: block;
@@ -271,11 +283,12 @@
   .studio-viewport .synth-grid .filter-model-options .select-wrap {
     max-width: none;
   }
-  .studio-viewport .synth-grid .amp-envelope-heading {
-    font-size: 8px;
-  }
 }
 @media (max-height: 680px) {
+  .studio-viewport .synth-grid > .filter-module > .envelope-graph {
+    flex-basis: 50px;
+    min-height: 34px;
+  }
   .studio-viewport .synth-grid {
     --source-display-height: 60px;
     --source-selector-height: 26px;

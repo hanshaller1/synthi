@@ -151,8 +151,7 @@
   width: 52px;
   height: 52px;
 }
-.studio-viewport .filter-envelope-title,
-.studio-viewport .amp-envelope-heading {
+.studio-viewport .filter-envelope-title {
   font-size: 10px;
 }
 .studio-viewport .filter-envelope-title > label {

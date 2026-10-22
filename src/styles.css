@@ -1271,21 +1271,6 @@ h1 > i {
 .envelope-knobs .knob-ring {
   stroke-width: 1.7;
 }
-.amp-envelope-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 4px;
-  font: 6px var(--mono);
-  letter-spacing: 0.5px;
-  color: #9ba78f;
-}
-.amp-envelope-heading .tag {
-  font-size: 5px;
-  padding: 3px 4px;
-  border-color: #545e49;
-  color: #9ba68c;
-}
 .amp-module > .envelope-graph {
   height: 83px;
   color: #c7b590;
@@ -3586,10 +3571,6 @@ kbd {
     grid-column: 1/-1;
     margin-bottom: 5px;
   }
-  .amp-envelope-heading {
-    grid-column: 1;
-    grid-row: 2;
-  }
   .amp-module > .envelope-graph {
     grid-column: 1;
     grid-row: 3;
@@ -4629,9 +4610,6 @@ kbd {
     display: block;
     padding: 17px;
   }
-  .amp-envelope-heading {
-    font-size: 7px;
-  }
   .amp-module > .envelope-graph {
     height: 90px;
     margin: 8px 0;
@@ -5431,12 +5409,6 @@ kbd {
   .filter-envelope-title output {
     font-size: 8px;
     width: 24px;
-  }
-  .amp-envelope-heading {
-    font-size: 8px;
-  }
-  .amp-envelope-heading .tag {
-    font-size: 7px;
   }
   .signal-flow {
     font-size: 6px;
