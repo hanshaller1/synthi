@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1a1c1c" />
+    <meta
+      name="description"
+      content="PHASE — Polyphoner Browser-Synthesizer mit acht Syntheseformen, Modulation, Effekten und einem vierstimmigen Parameter-Lock-Sequencer."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>PHASE — Sound in motion</title>
+    <style>
+      body {
+        margin: 0;
+        background: #1b1d1d;
+        color: #dedfda;
+      }
+      #phase-boot {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 28px;
+        box-sizing: border-box;
+        font:
+          15px/1.7 system-ui,
+          sans-serif;
+        text-align: center;
+      }
+      #phase-boot strong {
+        color: #e5ac86;
+        font-size: 30px;
+        letter-spacing: 5px;
+      }
+      #phase-boot p {
+        max-width: 520px;
+        color: #a5aaa0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <main id="phase-boot" role="status">
+        <strong>PHASE</strong>
+        <p>Dein Studio wird gestartet …</p>
+        <p id="phase-boot-help" hidden>
+          Die App konnte noch nicht geladen werden. Bitte die Seite mit Strg +
+          F5 neu laden. Falls GitHub gerade veröffentlicht, den abgeschlossenen
+          Deployment-Vorgang abwarten.
+        </p>
+        <noscript
+          >Zum Starten des Synthesizers bitte JavaScript im Browser
+          aktivieren.</noscript
+        >
+      </main>
+    </div>
+    <script>
+      window.setTimeout(function () {
+        var help = document.getElementById("phase-boot-help");
+        if (help) help.hidden = false;
+      }, 8000);
+    </script>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

@@ -5831,3 +5831,49 @@ kbd {
     font-size: 7px;
   }
 }
+
+.startup-error {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 30px;
+  text-align: center;
+  font-family: system-ui, sans-serif;
+  background: #1b1d1d;
+  color: #dedfda;
+}
+.startup-error > span {
+  font-size: 30px;
+  letter-spacing: 5px;
+  color: #e5ac86;
+}
+.startup-error > h1 {
+  font-size: 24px;
+  display: block;
+  line-height: 1.5;
+  margin-top: 22px;
+}
+.startup-error > p {
+  max-width: 520px;
+  line-height: 1.8;
+  color: #a5aaa0;
+}
+.startup-error > pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 700px;
+  padding: 14px 18px;
+  border: 1px solid #454b40;
+  border-radius: 5px;
+  font: 12px/1.8 var(--mono);
+  color: #e5ac86;
+}
+.startup-error > button {
+  margin-top: 14px;
+  padding: 12px 20px;
+  background: #e5ac86;
+  border-radius: 4px;
+  color: #25241f;
+}
