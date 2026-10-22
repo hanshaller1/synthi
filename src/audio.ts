@@ -1,4 +1,5 @@
 import {
+  TRACK_COUNT,
   CHORDS,
   LOCK_PARAMS,
   clamp,
@@ -6,6 +7,7 @@ import {
   shouldTrigger,
   stepIndex,
 } from "./model";
+import { EffectRack } from "./effects";
 import { PARAMS } from "./model";
 import type { Envelope, Numbers, Param, Patch, Project, Track } from "./model";
 
@@ -37,23 +39,12 @@ type Voice = {
   }[];
   release: (time: number) => void;
 };
-type Bus = {
+type Bus = EffectRack & {
   input: GainNode;
   paraFilter: BiquadFilterNode;
   paraAmp: GainNode;
   level: GainNode;
   pan: StereoPannerNode;
-  distortion: WaveShaperNode;
-  dry: GainNode;
-  chorus: GainNode;
-  chorusDelay: DelayNode;
-  chorusLfo: OscillatorNode;
-  delay: DelayNode;
-  delayWet: GainNode;
-  feedback: GainNode;
-  reverb: ConvolverNode;
-  reverbWet: GainNode;
-  room: number;
   paraStart: number;
   paraPatch: Patch | null;
 };
@@ -77,19 +68,6 @@ function scheduleEnvelope(
     Math.max(EPS, e.sustain * scale),
     start + e.attack + e.decay,
   );
-}
-function impulse(ctx: Context, duration: number): AudioBuffer {
-  const length = Math.ceil(ctx.sampleRate * duration),
-    b = ctx.createBuffer(2, length, ctx.sampleRate);
-  for (let c = 0; c < 2; c++) {
-    const d = b.getChannelData(c);
-    let seed = 7361 + c;
-    for (let i = 0; i < length; i++) {
-      seed = (seed * 16807) % 2147483647;
-      d[i] = (seed / 1073741823.5 - 1) * Math.pow(1 - i / length, 2.8);
-    }
-  }
-  return b;
 }
 function distortionCurve(amount: number): Float32Array<ArrayBuffer> {
   const curve = new Float32Array(2048),
@@ -127,7 +105,7 @@ export class SynthEngine {
   private sampleCache = new Map<string, AudioBuffer>();
   private sampleLoads = new Map<string, Promise<AudioBuffer>>();
   private trackPatches: (Patch | undefined)[] = [];
-  private audible = [true, true, true, true];
+  private audible = Array(TRACK_COUNT).fill(true) as boolean[];
   private defaultSample: AudioBuffer;
   private noise: AudioBuffer;
   private wheel = 0;
@@ -140,14 +118,10 @@ export class SynthEngine {
       for (const param of voice.modwheelParams)
         param.setTargetAtTime(this.wheel, this.context.currentTime, 0.015);
   }
-  bends = [0, 0, 0, 0];
-  private lastNotes = [48, 48, 48, 48];
-  private monoHeld: { note: number; velocity: number; patch: Patch }[][] = [
-    [],
-    [],
-    [],
-    [],
-  ];
+  bends = Array(TRACK_COUNT).fill(0) as number[];
+  private lastNotes = Array(TRACK_COUNT).fill(48) as number[];
+  private monoHeld: { note: number; velocity: number; patch: Patch }[][] =
+    Array.from({ length: TRACK_COUNT }, () => []);
   tempo = 118;
   constructor(context: Context) {
     this.context = context;
@@ -173,74 +147,27 @@ export class SynthEngine {
     );
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    for (let i = 0; i < 4; i++) this.buses.push(this.createBus());
+    for (let i = 0; i < TRACK_COUNT; i++) this.buses.push(this.createBus());
   }
   private createBus(): Bus {
     const c = this.context,
       input = c.createGain(),
       level = c.createGain(),
-      pan = c.createStereoPanner(),
-      distortion = c.createWaveShaper(),
-      dry = c.createGain(),
-      chorus = c.createGain(),
-      chorusDelay = c.createDelay(0.1),
-      chorusLfo = c.createOscillator(),
-      chorusDepth = c.createGain(),
-      delay = c.createDelay(2),
-      delayWet = c.createGain(),
-      feedback = c.createGain(),
-      reverb = c.createConvolver(),
-      reverbWet = c.createGain();
-    distortion.curve = distortionCurve(0.05);
-    distortion.oversample = "2x";
+      pan = c.createStereoPanner();
     const paraFilter = c.createBiquadFilter(),
       paraAmp = c.createGain();
-    paraFilter.connect(paraAmp);
-    paraAmp.connect(input);
+    paraFilter.connect(paraAmp).connect(input);
     paraAmp.gain.value = 0;
-    input.connect(distortion);
-    distortion.connect(dry);
-    dry.connect(level);
-    distortion.connect(chorusDelay);
-    chorusDelay.delayTime.value = 0.018;
-    chorusLfo.frequency.value = 0.65;
-    chorusDepth.gain.value = 0.006;
-    chorusLfo.connect(chorusDepth);
-    chorusDepth.connect(chorusDelay.delayTime);
-    chorusLfo.start();
-    chorusDelay.connect(chorus);
-    chorus.connect(level);
-    distortion.connect(delay);
-    delay.connect(feedback);
-    feedback.connect(delay);
-    delay.connect(delayWet);
-    delayWet.connect(level);
-    distortion.connect(reverb);
-    reverb.buffer = impulse(c, 2.6);
-    reverb.connect(reverbWet);
-    reverbWet.connect(level);
-    level.connect(pan);
-    pan.connect(this.master);
-    return {
+    level.connect(pan).connect(this.master);
+    return Object.assign(new EffectRack(c, input, level), {
       input,
       paraFilter,
       paraAmp,
       level,
       pan,
-      distortion,
-      dry,
-      chorus,
-      chorusDelay,
-      chorusLfo,
-      delay,
-      delayWet,
-      feedback,
-      reverb,
-      reverbWet,
-      room: 2.6,
       paraStart: 0,
-      paraPatch: null,
-    };
+      paraPatch: null as Patch | null,
+    });
   }
   update(project: Project) {
     this.tempo = project.tempo;
@@ -274,17 +201,7 @@ export class SynthEngine {
       }
     };
     smooth("pan", b.pan.pan);
-    smooth("chorus", b.chorus.gain, 0.6);
-    smooth("delayTime", b.delay.delayTime);
-    smooth("delay", b.delayWet.gain, 0.7);
-    smooth("feedback", b.feedback.gain);
-    smooth("reverb", b.reverbWet.gain, 0.7);
-    if (previous?.distortion !== p.distortion)
-      b.distortion.curve = distortionCurve(p.distortion);
-    if (Math.abs(b.room - p.reverbSize) > 0.05) {
-      b.room = p.reverbSize;
-      b.reverb.buffer = impulse(this.context, p.reverbSize);
-    }
+    b.updateEffects(p, previous, t);
     if (previous?.resonance !== p.resonance)
       b.paraFilter.Q.setTargetAtTime(p.resonance, t, 0.025);
     if (p.voiceMode === "para" && previous?.cutoff !== p.cutoff)
@@ -326,13 +243,9 @@ export class SynthEngine {
     const values: [AudioParam, number][] = [
       [b.level.gain, this.audible[track] ? patch.level : 0],
       [b.pan.pan, patch.pan],
-      [b.chorus.gain, patch.chorus * 0.6],
-      [b.delay.delayTime, patch.delayTime],
-      [b.delayWet.gain, patch.delay * 0.7],
-      [b.feedback.gain, patch.feedback],
-      [b.reverbWet.gain, patch.reverb * 0.7],
     ];
     for (const [param, value] of values) param.setValueAtTime(value, when);
+    b.scheduleEffects(patch, when);
   }
   async loadSample(data: string): Promise<AudioBuffer> {
     const cached = this.sampleCache.get(data);
@@ -790,8 +703,13 @@ export class SynthEngine {
       const gain = c.createGain();
       gain.gain.value = mod.amount * target.scale;
       nodes.push(gain);
-      if (mod.source === "lfo1" || mod.source === "lfo2") {
-        const l = p.lfos[mod.source === "lfo1" ? 0 : 1],
+      if (
+        mod.source === "lfo1" ||
+        mod.source === "lfo2" ||
+        mod.source === "lfo3"
+      ) {
+        const index = Number(mod.source.slice(-1)) - 1;
+        const l = p.lfos[index],
           osc = c.createOscillator();
         osc.type = l.shape;
         osc.frequency.value = l.sync ? this.tempo / 60 / l.division : l.rate;
@@ -811,7 +729,7 @@ export class SynthEngine {
         }
         osc.connect(gain);
         lfoControls.push({
-          index: mod.source === "lfo1" ? 0 : 1,
+          index,
           oscillator: osc,
           gain,
           scale: mod.amount * target.scale,
@@ -1035,11 +953,12 @@ export class SynthEngine {
   dispose() {
     this.panic();
     for (const b of this.buses) {
-      b.chorusLfo.stop();
+      b.disposeEffects();
+      b.paraFilter.disconnect();
+      b.paraAmp.disconnect();
       b.input.disconnect();
       b.level.disconnect();
       b.pan.disconnect();
-      b.feedback.disconnect();
     }
     this.master.disconnect();
   }

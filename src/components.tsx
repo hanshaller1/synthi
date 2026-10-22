@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { ChevronDown, X } from "lucide-react";
-import { clamp, noteName } from "./model";
+import { KEYBOARD_OCTAVES, clamp, noteName } from "./model";
 import type { Envelope, Patch } from "./model";
 
 export const formatTime = (v: number) =>
@@ -404,7 +404,10 @@ export function Keyboard({
   octave: number;
   setOctave: (n: number) => void;
 }) {
-  const notes = Array.from({ length: 25 }, (_, i) => octave * 12 + i),
+  const notes = Array.from(
+      { length: KEYBOARD_OCTAVES * 12 + 1 },
+      (_, i) => octave * 12 + i,
+    ),
     whites = notes.filter((n) => ![1, 3, 6, 8, 10].includes(n % 12)),
     held = useRef(new Set<number>());
   useEffect(() => {
@@ -434,7 +437,7 @@ export function Keyboard({
   return (
     <div className="keyboard-section">
       <div className="keyboard-controls">
-        <span className="eyebrow">KEYBOARD</span>
+        <span className="eyebrow">4 OCTAVES</span>
         <div className="octave-buttons">
           <button
             aria-label="Oktave tiefer"
@@ -445,7 +448,7 @@ export function Keyboard({
           <span>{noteName(octave * 12)}</span>
           <button
             aria-label="Oktave höher"
-            onClick={() => setOctave(Math.min(6, octave + 1))}
+            onClick={() => setOctave(Math.min(4, octave + 1))}
           >
             +
           </button>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   AudioLines,
   ChevronLeft,
@@ -24,7 +25,7 @@ import {
   formatTime,
   percent,
 } from "./components";
-import { ENGINES, PARAMS, noteName } from "./model";
+import { ENGINES, FX_OPTIONS, PARAMS, noteName } from "./model";
 import type { Lfo, ModSource, ModTarget, Param, Patch, Wave } from "./model";
 
 type Props = {
@@ -47,6 +48,7 @@ type Props = {
 const sourceNames: Record<ModSource, string> = {
   lfo1: "LFO 1",
   lfo2: "LFO 2",
+  lfo3: "LFO 3",
   velocity: "Velocity",
   keytrack: "Key tracking",
   modwheel: "Mod wheel",
@@ -61,6 +63,9 @@ const targetNames: Record<ModTarget, string> = {
 };
 export default function Instrument(props: Props) {
   const { patch: p, onPatch, onParam, tab, setTab } = props;
+  const [section, setSection] = useState("oscillator");
+  const [activeLfo, setActiveLfo] = useState(0);
+  const [routePage, setRoutePage] = useState(0);
   const knob = (
     key: Param,
     label: string,
@@ -117,10 +122,11 @@ export default function Instrument(props: Props) {
         lfos: p.lfos.map((x, i) => (i === index ? { ...x, ...v } : x)) as [
           Lfo,
           Lfo,
+          Lfo,
         ],
       });
     return (
-      <section className="module lfo-module" key={index}>
+      <section className="module lfo-module" key={index} data-lfo={index}>
         <div className="module-title">
           <h3>
             <Waves size={14} /> LFO {index + 1}
@@ -178,6 +184,9 @@ export default function Instrument(props: Props) {
   return (
     <section
       className="instrument"
+      data-section={section}
+      data-lfo={activeLfo}
+      data-route-page={p.mods.length <= 4 ? 0 : routePage}
       style={{ "--track-color": props.color } as React.CSSProperties}
     >
       <div className="instrument-header">
@@ -274,6 +283,21 @@ export default function Instrument(props: Props) {
       </div>
       {tab === "synth" && (
         <>
+          <nav className="module-switch" aria-label="Synthesizer-Modul">
+            {[
+              ["oscillator", "Klangquelle"],
+              ["filter", "Filter"],
+              ["amp", "Amp / Output"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                className={section === id ? "active" : ""}
+                onClick={() => setSection(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
           <div className="module-grid synth-grid">
             <section className="module oscillator-module">
               <div className="module-title">
@@ -680,7 +704,7 @@ export default function Instrument(props: Props) {
           >
             <span>
               <Waves size={13} />
-              <b>LFO 1</b>
+              <b>3 LFOs</b>
               <span>{p.lfos[0].shape.toUpperCase()}</span>
               <em>
                 {p.lfos[0].sync
@@ -704,15 +728,42 @@ export default function Instrument(props: Props) {
       )}
       {tab === "modulation" && (
         <div className="modulation-layout">
-          <div className="lfo-grid">
-            {lfo(0)}
-            {lfo(1)}
-          </div>
+          <nav className="lfo-switch" aria-label="LFO auswählen">
+            {[0, 1, 2].map((index) => (
+              <button
+                key={index}
+                className={activeLfo === index ? "active" : ""}
+                onClick={() => setActiveLfo(index)}
+              >
+                LFO {index + 1}
+              </button>
+            ))}
+          </nav>
+          <div className="lfo-grid">{[0, 1, 2].map(lfo)}</div>
           <section className="module matrix-module">
             <div className="module-title">
               <h3>
                 <SlidersHorizontal size={14} /> Modulation matrix
               </h3>
+              <nav
+                className="route-pages"
+                aria-label="Modulationsrouten auswählen"
+              >
+                {[0, 1].map((page) => (
+                  <button
+                    key={page}
+                    disabled={page === 1 && p.mods.length < 5}
+                    className={
+                      (p.mods.length <= 4 ? 0 : routePage) === page
+                        ? "active"
+                        : ""
+                    }
+                    onClick={() => setRoutePage(page)}
+                  >
+                    {page ? "5–8" : "1–4"}
+                  </button>
+                ))}
+              </nav>
               <span className="module-index">{p.mods.length} / 8 ROUTES</span>
             </div>
             <div className="matrix-heading">
@@ -723,7 +774,11 @@ export default function Instrument(props: Props) {
               <span />
             </div>
             {p.mods.map((mod, i) => (
-              <div className="matrix-row" key={i}>
+              <div
+                className="matrix-row"
+                key={i}
+                data-route-page={Math.floor(i / 4)}
+              >
                 <Select
                   label={`Modulation ${i + 1} source`}
                   value={mod.source}
@@ -793,14 +848,15 @@ export default function Instrument(props: Props) {
             {p.mods.length < 8 && (
               <button
                 className="add-route"
-                onClick={() =>
+                onClick={() => {
+                  setRoutePage(Math.floor(p.mods.length / 4));
                   onPatch({
                     mods: [
                       ...p.mods,
-                      { source: "lfo2", target: "pitch", amount: 0.05 },
+                      { source: "lfo3", target: "pitch", amount: 0.05 },
                     ],
-                  })
-                }
+                  });
+                }}
               >
                 <Plus size={13} /> Add modulation route
               </button>
@@ -816,8 +872,8 @@ export default function Instrument(props: Props) {
           {[
             {
               title: "Saturation",
+              slot: "saturationMode" as const,
               index: "01",
-              description: "Soft-clipping drive",
               controls: (
                 <>
                   {knob("distortion", "Drive")}
@@ -826,9 +882,9 @@ export default function Instrument(props: Props) {
               ),
             },
             {
-              title: "Stereo chorus",
+              title: "Modulation",
+              slot: "modulationMode" as const,
               index: "02",
-              description: "Modulated delay · 0.65 Hz",
               controls: (
                 <>
                   {knob("chorus", "Wet level")}
@@ -839,9 +895,9 @@ export default function Instrument(props: Props) {
               ),
             },
             {
-              title: "Tape delay",
+              title: "Delay",
+              slot: "delayMode" as const,
               index: "03",
-              description: "Feedback echo",
               controls: (
                 <>
                   {knob("delayTime", "Time", formatTime, true)}
@@ -851,9 +907,9 @@ export default function Instrument(props: Props) {
               ),
             },
             {
-              title: "Space reverb",
+              title: "Reverb",
+              slot: "reverbMode" as const,
               index: "04",
-              description: "Stereo convolution",
               controls: (
                 <>
                   {knob("reverbSize", "Decay", formatTime, true)}
@@ -869,7 +925,23 @@ export default function Instrument(props: Props) {
                 </h3>
                 <span className="module-index">{fx.index}</span>
               </div>
-              <span className="effect-description">{fx.description}</span>
+              <Select
+                label={`${fx.title} Effektvariante`}
+                value={p[fx.slot]}
+                onChange={(value) => onPatch({ [fx.slot]: value })}
+              >
+                {FX_OPTIONS[fx.slot].map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+              <span className="effect-description">
+                {
+                  FX_OPTIONS[fx.slot].find((option) => option.id === p[fx.slot])
+                    ?.description
+                }
+              </span>
               <div className="effect-visual">
                 {Array.from({ length: 25 }, (_, i) => (
                   <i
@@ -882,7 +954,7 @@ export default function Instrument(props: Props) {
                 ))}
               </div>
               <div className="knob-row">{fx.controls}</div>
-              {fx.title === "Tape delay" && (
+              {fx.slot === "delayMode" && (
                 <div className="delay-sync">
                   {[0.25, 0.5, 0.75, 1].map((beat) => (
                     <button

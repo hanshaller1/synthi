@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
+import "./viewport.css";
 
 class StartupBoundary extends Component<
   { children: ReactNode },

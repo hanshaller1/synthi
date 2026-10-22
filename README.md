@@ -1,6 +1,6 @@
 # PHASE — Sound in motion
 
-Eine Synthesizer-Webapplikation mit echter Klangerzeugung im Browser, vier Instrument-Tracks und einem Elektron-inspirierten Parameter-Lock-Sequencer. React, TypeScript, Vite und die native Web Audio API. Kein Backend und kein Konto erforderlich.
+Eine Synthesizer-Webapplikation mit echter Klangerzeugung im Browser, acht Instrument-Tracks und einem Elektron-inspirierten Parameter-Lock-Sequencer. React, TypeScript, Vite und die native Web Audio API. Kein Backend und kein Konto erforderlich.
 
 ## Starten
 
@@ -60,7 +60,7 @@ Browser können lokalen HTML-Dateien Speicher- oder MIDI-Berechtigungen verweige
 
 ## Klangerzeugung
 
-Jeder der vier Tracks besitzt eine eigene Engine, einen Resonanzfilter, zwei ADSR-Hüllkurven, zwei LFOs, eine Modulationsmatrix und eine Effektkette.
+Jeder der acht Tracks besitzt eine eigene Engine, einen Resonanzfilter, zwei ADSR-Hüllkurven, drei LFOs, eine Modulationsmatrix und eine Effektkette.
 
 | Engine      | Klangparameter                                                                                   |
 | ----------- | ------------------------------------------------------------------------------------------------ |
@@ -89,16 +89,27 @@ Die Engine begrenzt gleichzeitig gehaltene Stimmen auf 32 und gibt bei Überlast
 
 - Resonanter 12-dB-Lowpass, Highpass, Bandpass oder Notch; Drive vor dem Filter.
 - Separate ADSR-Hüllkurven für Filter und Lautstärke; bipolare Filter-Envelope-Tiefe.
-- Zwei LFOs mit Sinus, Dreieck, Rechteck und Sägezahn; freie Rate oder Tempo-Synchronisation, Retrigger und Tiefe.
-- Bis zu acht Modulationsrouten: LFO 1/2, Velocity, Keytracking, Modwheel oder Filter-Envelope auf Cutoff, Pitch, Amplitude, Pan oder FM-Index.
-- Saturation, Stereo-Chorus, Feedback-Delay und Stereo-Faltungshall pro Track.
+- Drei LFOs mit Sinus, Dreieck, Rechteck und Sägezahn; freie Rate oder Tempo-Synchronisation, Retrigger und Tiefe.
+- Bis zu acht Modulationsrouten: LFO 1/2/3, Velocity, Keytracking, Modwheel oder Filter-Envelope auf Cutoff, Pitch, Amplitude, Pan oder FM-Index.
+- Vier FX-Slots pro Track mit jeweils fünf Varianten:
+  - **Saturation:** Soft clip, Hard clip, Wavefolder, Bit crush, Diode.
+  - **Modulation:** Chorus, Flanger, Vibrato, Phaser, Tremolo.
+  - **Delay:** Digital, Tape, Ping-pong, Multi-tap, Dub.
+  - **Reverb:** Room, Hall, Plate, Spring, Gated.
+- Die Varianten schalten echte Signalwege, Kennlinien und Impulsantworten um. Spring ist eine synthetische Federhall-Näherung; Bit crush quantisiert die Amplitude.
 - Master-Limiter, Oszilloskop und Pegelanzeige.
 
 Regler ziehen; **Shift** für Feineinstellung. Mit den Pfeiltasten lassen sich fokussierte Regler bedienen, mit Home/End die Grenzen setzen. Doppelklick stellt den Standardwert wieder her. Rechtsklick startet MIDI Learn.
 
+## Arbeitsbereiche
+
+**Synthesizer** und **Sequencer** sind getrennte Hauptregister; nur der ausgewählte Editor ist sichtbar. Die Wiedergabe läuft beim Umschalten weiter. Das Layout nutzt die Browserhöhe ohne Seiten-Scrollleiste. Auf schmalen Displays haben Klangquelle, Filter und Amp sowie die drei LFOs eigene Unterregister; die Modulationsmatrix zeigt vier Routen pro Seite. Das Keyboard zeigt vier Oktaven mit 49 Tasten einschließlich des abschließenden C. Über −/+ oder Z/X lässt sich der angezeigte Bereich verschieben.
+
+Bestehende Projekte mit vier Tracks werden beim Laden um vier leere Tracks erweitert. Bestehende Presets erhalten einen dritten LFO und die Standard-FX-Varianten.
+
 ## Sequencer
 
-Acht Pattern-Speicher **A01–A08**, jeder mit vier Tracks. Pro Track unabhängig:
+Acht Pattern-Speicher **A01–A08**, jeder mit acht Tracks. Pro Track unabhängig:
 
 - 1–64 Steps; vier Seiten mit jeweils 16 Steps.
 - Auflösung 1/8, 1/16 oder 1/32; Forward, Reverse, Ping-pong oder Random.
@@ -110,7 +121,7 @@ Acht Pattern-Speicher **A01–A08**, jeder mit vier Tracks. Pro Track unabhängi
 
 **Step klicken:** Trig ein-/ausschalten. **Shift + Klick** oder **Rechtsklick:** auswählen, ohne den Trig zu verändern. Der Trig-Editor bearbeitet den ausgewählten Step.
 
-**P-LOCK aktivieren**, anschließend Instrument-Regler bewegen: Der Wert wird nur für den ausgewählten Step gespeichert. Locks können auch direkt im Lock-Editor ergänzt, editiert und entfernt werden. Saturation und Hallraum-Größe verändern Knoten-/Buffer-Konfigurationen und sind daher keine Step-Lock-Ziele. Die globalen Pattern- und FX-Regler bleiben separat verfügbar.
+**P-LOCK im Sequencer aktivieren**, ins Hauptregister **Synthesizer** wechseln und einen Instrument-Regler bewegen: Der Wert wird nur für den ausgewählten Step gespeichert. Locks können auch direkt im Lock-Editor ergänzt, editiert und entfernt werden. Saturation und Hallraum-Größe verändern Knoten-/Buffer-Konfigurationen und sind daher keine Step-Lock-Ziele. Die globalen Pattern- und FX-Regler bleiben separat verfügbar.
 
 **Live Rec:** Keyboard-/MIDI-Noten werden am aktuellen Step aufgenommen. Im Stillstand werden Noten schrittweise eingetragen. Ein Step speichert eine Root Note und den gewählten Akkordtyp; Live Rec ist keine zeitlich freie Mehrspuraufnahme.
 
@@ -121,7 +132,7 @@ Die Wiedergabe verwendet einen Lookahead-Scheduler auf der AudioContext-Zeitachs
 Web MIDI in **Chrome oder Edge** über **HTTPS oder localhost** verwenden. In den MIDI-Einstellungen Zugriff erteilen und Geräte auswählen. Ein- und Ausgänge werden bei Gerätewechsel aktualisiert.
 
 - Eingehende Noten spielen den ausgewählten Track; Omni oder ein bestimmter Eingangskanal.
-- Keyboard- und Sequencer-Noten gehen optional an den ausgewählten MIDI-Ausgang, Tracks 1–4 auf Kanälen 1–4.
+- Keyboard- und Sequencer-Noten gehen optional an den ausgewählten MIDI-Ausgang, Tracks 1–8 auf Kanälen 1–8.
 - Pitch Bend ±2 Halbtöne; Sustain CC64; Modwheel CC1; Level CC7; Resonanz CC71; Cutoff CC74.
 - MIDI Learn pro Drehregler, lokal gespeicherte CC-Zuordnungen.
 - Interne oder externe Clock; ausgehende Clock mit 24 PPQN und Start/Stop.

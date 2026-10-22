@@ -1,3 +1,6 @@
+export const TRACK_COUNT = 8;
+export const KEYBOARD_OCTAVES = 4;
+
 export type Engine =
   | "subtractive"
   | "wavetable"
@@ -23,7 +26,13 @@ export type Lfo = {
   retrigger: boolean;
 };
 export type ModSource =
-  "lfo1" | "lfo2" | "velocity" | "keytrack" | "modwheel" | "filterEnv";
+  | "lfo1"
+  | "lfo2"
+  | "lfo3"
+  | "velocity"
+  | "keytrack"
+  | "modwheel"
+  | "filterEnv";
 export type ModTarget = "cutoff" | "pitch" | "amplitude" | "pan" | "fmIndex";
 export type Modulation = {
   source: ModSource;
@@ -78,20 +87,117 @@ export const LOCK_PARAMS: Param[] = (Object.keys(PARAMS) as Param[]).filter(
   (key) => key !== "distortion" && key !== "reverbSize",
 );
 export type Numbers = Record<Param, number>;
-export type Patch = Numbers & {
-  name: string;
-  engine: Engine;
-  wave: Wave;
-  wave2: Wave;
-  filterType: BiquadFilterType;
-  voiceMode: "mono" | "para" | "poly";
-  legato: boolean;
-  lfos: [Lfo, Lfo];
-  mods: Modulation[];
-  sample: string | null;
-  sampleName: string;
-  sampleLoop: boolean;
-};
+export const FX_OPTIONS = {
+  saturationMode: [
+    { id: "soft", label: "Soft clip", description: "Warme, weiche Sättigung" },
+    {
+      id: "hard",
+      label: "Hard clip",
+      description: "Kantiges symmetrisches Clipping",
+    },
+    {
+      id: "fold",
+      label: "Wavefolder",
+      description: "Zurückgefaltete Obertöne",
+    },
+    {
+      id: "crush",
+      label: "Bit crush",
+      description: "Quantisierung von 16 bis 3 Bit",
+    },
+    { id: "diode", label: "Diode", description: "Asymmetrische Sättigung" },
+  ],
+  modulationMode: [
+    {
+      id: "chorus",
+      label: "Chorus",
+      description: "Schwebende Delay-Modulation",
+    },
+    {
+      id: "flanger",
+      label: "Flanger",
+      description: "Kurzes Delay mit Rückkopplung",
+    },
+    {
+      id: "vibrato",
+      label: "Vibrato",
+      description: "Periodische Tonhöhenschwankung",
+    },
+    {
+      id: "phaser",
+      label: "Phaser",
+      description: "Vier modulierte Allpass-Stufen",
+    },
+    {
+      id: "tremolo",
+      label: "Tremolo",
+      description: "Rhythmische Amplitudenmodulation",
+    },
+  ],
+  delayMode: [
+    {
+      id: "digital",
+      label: "Digital",
+      description: "Klare, ungefilterte Wiederholungen",
+    },
+    { id: "tape", label: "Tape", description: "Dunkle, gesättigte Echos" },
+    {
+      id: "pingpong",
+      label: "Ping-pong",
+      description: "Abwechselnde Echos links und rechts",
+    },
+    {
+      id: "multitap",
+      label: "Multi-tap",
+      description: "Drei versetzte Stereo-Taps",
+    },
+    { id: "dub", label: "Dub", description: "Resonantes Bandpass-Feedback" },
+  ],
+  reverbMode: [
+    {
+      id: "room",
+      label: "Room",
+      description: "Kurzer Raum mit frühen Reflexionen",
+    },
+    {
+      id: "hall",
+      label: "Hall",
+      description: "Weites, dichtes Stereo-Hallfeld",
+    },
+    {
+      id: "plate",
+      label: "Plate",
+      description: "Heller, diffus einsetzender Nachhall",
+    },
+    {
+      id: "spring",
+      label: "Spring",
+      description: "Dispersive metallische Federresonanzen",
+    },
+    {
+      id: "gated",
+      label: "Gated",
+      description: "Abrupt abgeschnittene Hallfahne",
+    },
+  ],
+} as const;
+export type FxSlot = keyof typeof FX_OPTIONS;
+type FxSelection = { [K in FxSlot]: (typeof FX_OPTIONS)[K][number]["id"] };
+export type Patch = Numbers &
+  FxSelection & {
+    name: string;
+    engine: Engine;
+    wave: Wave;
+    wave2: Wave;
+    filterType: BiquadFilterType;
+    voiceMode: "mono" | "para" | "poly";
+    legato: boolean;
+    lfos: [Lfo, Lfo, Lfo];
+    mods: Modulation[];
+    sample: string | null;
+    sampleName: string;
+    sampleLoop: boolean;
+  };
 export type Condition = "always" | "1:2" | "2:2" | "1:4" | "fill" | "!fill";
 export type Step = {
   on: boolean;
@@ -247,6 +353,10 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     filterType: "lowpass",
     voiceMode: "poly",
     legato: true,
+    saturationMode: "soft",
+    modulationMode: "chorus",
+    delayMode: "digital",
+    reverbMode: "hall",
     lfos: [
       {
         shape: "sine",
@@ -263,6 +373,14 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
         division: 2,
         depth: 0.25,
         retrigger: true,
+      },
+      {
+        shape: "sine",
+        rate: 0.15,
+        sync: false,
+        division: 8,
+        depth: 0.3,
+        retrigger: false,
       },
     ],
     mods: [{ source: "lfo1", target: "cutoff", amount: 0.2 }],
@@ -432,21 +550,45 @@ export const PRESETS: Patch[] = [
   }),
 ];
 export function makeProject(): Project {
-  const patches = [PRESETS[0], PRESETS[9], PRESETS[10], PRESETS[3]];
-  const tracks = patches.map((patch, i): Track => ({
-    id: i,
-    name: [
-      "Velvet circuit",
-      "Voltage kick",
-      "Air / closed hat",
-      "Glass mathematics",
-    ][i],
-    color: ["#e5ac86", "#aabf9b", "#b0a3cf", "#8cb8bd"][i],
-    patch: clone(patch),
-    mute: false,
-    solo: false,
-    patterns: Array.from({ length: 8 }, makePattern),
-  }));
+  const patches = [
+    PRESETS[0],
+    PRESETS[9],
+    PRESETS[10],
+    PRESETS[3],
+    PRESETS[1],
+    PRESETS[2],
+    PRESETS[4],
+    PRESETS[5],
+  ];
+  const tracks = patches.map(
+    (patch, i): Track => ({
+      id: i,
+      name: [
+        "Velvet circuit",
+        "Voltage kick",
+        "Air / closed hat",
+        "Glass mathematics",
+        PRESETS[1].name,
+        PRESETS[2].name,
+        PRESETS[4].name,
+        PRESETS[5].name,
+      ][i],
+      color: [
+        "#e5ac86",
+        "#aabf9b",
+        "#b0a3cf",
+        "#8cb8bd",
+        "#d4c18a",
+        "#d58d9a",
+        "#89afd9",
+        "#b9c782",
+      ][i],
+      patch: clone(patch),
+      mute: false,
+      solo: false,
+      patterns: Array.from({ length: 8 }, makePattern),
+    }),
+  );
   [
     [0, 3, 6, 8, 10, 14],
     [0, 4, 8, 12],
@@ -524,6 +666,10 @@ export function sanitizePatch(value: unknown): Patch {
   if (["mono", "para", "poly"].includes(String(value.voiceMode)))
     p.voiceMode = value.voiceMode as Patch["voiceMode"];
   p.legato = value.legato !== false;
+  for (const slot of Object.keys(FX_OPTIONS) as FxSlot[]) {
+    const option = FX_OPTIONS[slot].find((item) => item.id === value[slot]);
+    if (option) Object.assign(p, { [slot]: option.id });
+  }
   for (const key of ["wave", "wave2"] as const)
     if (waves.includes(value[key] as Wave)) p[key] = value[key] as Wave;
   if (
@@ -556,7 +702,7 @@ export function sanitizePatch(value: unknown): Patch {
         depth: num(v.depth, 0, 1, 0.3),
         retrigger: v.retrigger === true,
       };
-    }) as [Lfo, Lfo];
+    }) as [Lfo, Lfo, Lfo];
   if (Array.isArray(value.mods))
     p.mods = value.mods
       .slice(0, 8)
@@ -566,6 +712,7 @@ export function sanitizePatch(value: unknown): Patch {
           [
             "lfo1",
             "lfo2",
+            "lfo3",
             "velocity",
             "keytrack",
             "modwheel",
@@ -587,10 +734,10 @@ export function sanitizeProject(value: unknown): Project {
     !isRecord(value) ||
     value.version !== 1 ||
     !Array.isArray(value.tracks) ||
-    value.tracks.length !== 4
+    ![4, TRACK_COUNT].includes(value.tracks.length)
   )
     throw new Error(
-      "Keine gültige PHASE-Projektdatei (Version 1, vier Tracks).",
+      "Keine gültige PHASE-Projektdatei (Version 1, vier oder acht Tracks).",
     );
   const p = makeProject();
   p.name = typeof value.name === "string" ? value.name.slice(0, 80) : p.name;
@@ -600,6 +747,7 @@ export function sanitizeProject(value: unknown): Project {
   p.activePattern = Math.round(num(value.activePattern, 0, 7, 0));
   p.tracks = p.tracks.map((base, i) => {
     const v = (value.tracks as unknown[])[i];
+    if (v === undefined && i >= 4) return base;
     if (!isRecord(v)) throw new Error("Ungültiger Track.");
     base.patch = sanitizePatch(v.patch);
     base.name =

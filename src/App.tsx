@@ -47,6 +47,7 @@ import Sequencer from "./Sequencer";
 import { SynthEngine, Transport, renderProject } from "./audio";
 import { MidiController } from "./midi";
 import {
+  TRACK_COUNT,
   ENGINES,
   LOCK_PARAMS,
   PARAMS,
@@ -100,6 +101,7 @@ export default function App() {
   const [project, setProject] = useState<Project>(makeProject),
     [track, setTrack] = useState(0),
     [tab, setTab] = useState("synth"),
+    [view, setView] = useState<"synthesizer" | "sequencer">("synthesizer"),
     [selectedStep, setSelectedStep] = useState(0),
     [page, setPage] = useState(0),
     [modal, setModal] = useState<ModalName>(null);
@@ -107,10 +109,12 @@ export default function App() {
     [audioReady, setAudioReady] = useState(false),
     [audioBusy, setAudioBusy] = useState(false),
     [recording, setRecording] = useState(false),
-    [playheads, setPlayheads] = useState([-1, -1, -1, -1]),
+    [playheads, setPlayheads] = useState(
+      Array(TRACK_COUNT).fill(-1) as number[],
+    ),
     [lockMode, setLockMode] = useState(false),
     [fill, setFill] = useState(false);
-  const [octave, setOctave] = useState(4),
+  const [octave, setOctave] = useState(3),
     [activeNotes, setActiveNotes] = useState(new Set<number>()),
     [keyboardVisible, setKeyboardVisible] = useState(true),
     [toast, setToast] = useState(""),
@@ -259,7 +263,7 @@ export default function App() {
     engineRef.current?.panic();
     engineRef.current?.restore(projectRef.current);
     setPlaying(false);
-    setPlayheads([-1, -1, -1, -1]);
+    setPlayheads(Array(TRACK_COUNT).fill(-1));
     setActiveNotes(new Set());
     keyboardHeld.current.clear();
     midiHeld.current.clear();
@@ -427,7 +431,7 @@ export default function App() {
                 m.cc >= 0 &&
                 m.cc <= 127 &&
                 m.track >= 0 &&
-                m.track < 4,
+                m.track < TRACK_COUNT,
             ),
           );
       })
@@ -591,7 +595,7 @@ export default function App() {
         return;
       }
       if (key === "x") {
-        setOctave((n) => Math.min(6, n + 1));
+        setOctave((n) => Math.min(4, n + 1));
         return;
       }
       const i = KEYBOARD_KEYS.indexOf(key);
@@ -840,7 +844,7 @@ export default function App() {
   const closeModal = useCallback(() => setModal(null), []);
 
   return (
-    <div className="app-shell">
+    <div className="app-shell studio-viewport">
       <header className="topbar">
         <a
           className="brand"
@@ -848,6 +852,7 @@ export default function App() {
           onClick={(e) => {
             e.preventDefault();
             setTab("synth");
+            setView("synthesizer");
           }}
           aria-label="PHASE Studio"
         >
@@ -1041,7 +1046,7 @@ export default function App() {
         <aside className="rack-sidebar">
           <div className="rack-heading">
             <span className="eyebrow">INSTRUMENT RACK</span>
-            <span>04</span>
+            <span>08</span>
           </div>
           <div className="rack-tracks">
             {project.tracks.map((t, i) => (
@@ -1128,13 +1133,28 @@ export default function App() {
         </aside>
         <main className="studio-main">
           <div className="main-heading">
-            <div>
-              <span className="eyebrow">YOUR SONIC PLAYGROUND</span>
-              <h1>
-                Make something <span>move.</span>
-                <i />
-              </h1>
-            </div>
+            <nav
+              className="workspace-tabs"
+              role="tablist"
+              aria-label="Arbeitsbereich"
+            >
+              <button
+                role="tab"
+                aria-selected={view === "synthesizer"}
+                className={view === "synthesizer" ? "active" : ""}
+                onClick={() => setView("synthesizer")}
+              >
+                <AudioLines size={15} /> Synthesizer
+              </button>
+              <button
+                role="tab"
+                aria-selected={view === "sequencer"}
+                className={view === "sequencer" ? "active" : ""}
+                onClick={() => setView("sequencer")}
+              >
+                <Layers3 size={15} /> Sequencer <span>8 TRACKS</span>
+              </button>
+            </nav>
             <div className="main-heading-actions">
               <IconButton
                 label="Letzte größere Aktion rückgängig"
@@ -1151,31 +1171,35 @@ export default function App() {
               </button>
             </div>
           </div>
-          <Instrument
-            patch={patch}
-            color={current.color}
-            track={track}
-            tempo={project.tempo}
-            tab={tab}
-            setTab={setTab}
-            onPatch={(partial) => {
-              if (partial.voiceMode || partial.engine)
-                engineRef.current?.panic(track);
-              changePatch(partial);
-            }}
-            onParam={setParam}
-            locks={lockMode ? currentStep.locks : {}}
-            onLearn={(param) => {
-              setMidiLearn({ track, param });
-              notify(`MIDI Learn: Bewege einen Hardware-Regler für ${param}.`);
-              if (!midiConnected) setModal("midi");
-            }}
-            onLibrary={() => setModal("library")}
-            onSave={openSavePreset}
-            onRandom={randomizePatch}
-            onPreset={cyclePreset}
-            onSample={(file) => void uploadSample(file)}
-          />
+          {view === "synthesizer" && (
+            <Instrument
+              patch={patch}
+              color={current.color}
+              track={track}
+              tempo={project.tempo}
+              tab={tab}
+              setTab={setTab}
+              onPatch={(partial) => {
+                if (partial.voiceMode || partial.engine)
+                  engineRef.current?.panic(track);
+                changePatch(partial);
+              }}
+              onParam={setParam}
+              locks={lockMode ? currentStep.locks : {}}
+              onLearn={(param) => {
+                setMidiLearn({ track, param });
+                notify(
+                  `MIDI Learn: Bewege einen Hardware-Regler für ${param}.`,
+                );
+                if (!midiConnected) setModal("midi");
+              }}
+              onLibrary={() => setModal("library")}
+              onSave={openSavePreset}
+              onRandom={randomizePatch}
+              onPreset={cyclePreset}
+              onSample={(file) => void uploadSample(file)}
+            />
+          )}
           <div className="between-panels">
             <div className="swing-control">
               <Waves size={12} />
@@ -1196,6 +1220,19 @@ export default function App() {
               </label>
             </div>
             <div className="between-panel-actions">
+              {lockMode && (
+                <button
+                  className="lock-context"
+                  onClick={() =>
+                    setView(
+                      view === "synthesizer" ? "sequencer" : "synthesizer",
+                    )
+                  }
+                  title="Parameter-Lock bearbeiten: im Synthesizer einen Regler bewegen"
+                >
+                  P-LOCK · T{track + 1} / STEP {selectedStep + 1}
+                </button>
+              )}
               <button onClick={duplicatePattern}>
                 <Copy size={12} /> Duplicate pattern
               </button>
@@ -1206,73 +1243,77 @@ export default function App() {
                 <KeyboardIcon size={14} /> Keyboard
               </button>
               <IconButton
-                label="Sequencer vergrößern"
+                label={
+                  view === "sequencer"
+                    ? "Synthesizer anzeigen"
+                    : "Sequencer anzeigen"
+                }
                 onClick={() =>
-                  document
-                    .querySelector(".sequencer")
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                  setView(view === "sequencer" ? "synthesizer" : "sequencer")
                 }
               >
                 <Maximize2 size={13} />
               </IconButton>
             </div>
           </div>
-          <Sequencer
-            project={project}
-            track={track}
-            selectTrack={selectTrack}
-            selectedStep={selectedStep}
-            setStep={setSelectedStep}
-            page={page}
-            setPage={setPage}
-            playheads={playheads}
-            playing={playing}
-            recording={recording}
-            lockMode={lockMode}
-            setLockMode={setLockMode}
-            fill={fill}
-            setFill={setFill}
-            onStep={changeStep}
-            onTrack={changeTrack}
-            onPattern={changePattern}
-            onSelectPattern={(activePattern) => {
-              setLockMode(false);
-              updateProject((p) => ({ ...p, activePattern }));
-            }}
-            onCopy={() => {
-              setClipboard(
-                project.tracks.map((t) =>
-                  clone(t.patterns[project.activePattern]),
-                ),
-              );
-              notify("Pattern aller vier Tracks kopiert.");
-            }}
-            onPaste={() => {
-              if (!clipboard) return;
-              checkpoint();
-              updateProject((p) => ({
-                ...p,
-                tracks: p.tracks.map((t, i) => ({
-                  ...t,
-                  patterns: t.patterns.map((pat, j) =>
-                    j === p.activePattern ? clone(clipboard[i]) : pat,
+          {view === "sequencer" && (
+            <Sequencer
+              project={project}
+              track={track}
+              selectTrack={selectTrack}
+              selectedStep={selectedStep}
+              setStep={setSelectedStep}
+              page={page}
+              setPage={setPage}
+              playheads={playheads}
+              playing={playing}
+              recording={recording}
+              lockMode={lockMode}
+              setLockMode={setLockMode}
+              fill={fill}
+              setFill={setFill}
+              onStep={changeStep}
+              onTrack={changeTrack}
+              onPattern={changePattern}
+              onSelectPattern={(activePattern) => {
+                setLockMode(false);
+                updateProject((p) => ({ ...p, activePattern }));
+              }}
+              onCopy={() => {
+                setClipboard(
+                  project.tracks.map((t) =>
+                    clone(t.patterns[project.activePattern]),
                   ),
-                })),
-              }));
-              notify("Pattern eingefügt.");
-            }}
-            onClear={() => {
-              checkpoint();
-              changePattern(track, {
-                steps: Array.from({ length: 64 }, makeStep),
-              });
-              notify(
-                `Pattern von Track ${track + 1} geleert. Undo ist verfügbar.`,
-              );
-            }}
-            onRandom={randomPattern}
-            hasClipboard={!!clipboard}
-          />
+                );
+                notify("Pattern aller acht Tracks kopiert.");
+              }}
+              onPaste={() => {
+                if (!clipboard) return;
+                checkpoint();
+                updateProject((p) => ({
+                  ...p,
+                  tracks: p.tracks.map((t, i) => ({
+                    ...t,
+                    patterns: t.patterns.map((pat, j) =>
+                      j === p.activePattern ? clone(clipboard[i]) : pat,
+                    ),
+                  })),
+                }));
+                notify("Pattern eingefügt.");
+              }}
+              onClear={() => {
+                checkpoint();
+                changePattern(track, {
+                  steps: Array.from({ length: 64 }, makeStep),
+                });
+                notify(
+                  `Pattern von Track ${track + 1} geleert. Undo ist verfügbar.`,
+                );
+              }}
+              onRandom={randomPattern}
+              hasClipboard={!!clipboard}
+            />
+          )}
           {keyboardVisible && (
             <Keyboard
               active={activeNotes}
@@ -1525,7 +1566,7 @@ export default function App() {
           </label>
           <p className="info-note">
             Eingehende Noten spielen den ausgewählten Track. Ausgehende
-            Keyboard- und Sequencer-Noten: Track 1–4 auf Kanal 1–4. Pitch Bend:
+            Keyboard- und Sequencer-Noten: Track 1–8 auf Kanal 1–8. Pitch Bend:
             ±2 Halbtöne. Sustain: CC64. CC1: Modwheel, CC7: Level, CC71:
             Resonanz, CC74: Cutoff.
           </p>
@@ -1666,7 +1707,7 @@ export default function App() {
             >
               <FilePlus2 size={20} />
               <strong>New project</strong>
-              <span>Vier Tracks, ein leeres Blatt</span>
+              <span>Acht Tracks, ein leeres Blatt</span>
             </button>
           </div>
           <p className="info-note">
@@ -1802,7 +1843,7 @@ export default function App() {
           <label className="toggle-row">
             <span>
               <strong>On-screen keyboard</strong>
-              <small>Zwei Oktaven, Touch und Computer-Tastatur</small>
+              <small>Vier Oktaven, Touch und Computer-Tastatur</small>
             </span>
             <input
               type="checkbox"
@@ -1885,8 +1926,8 @@ export default function App() {
                 <kbd>Shift</kbd> + Klick oder Rechtsklick: Step bearbeiten.
               </p>
               <p>
-                <b>P-LOCK aktivieren</b> und Instrument-Regler bewegen: Der Wert
-                gilt nur für diesen Step.
+                <b>P-LOCK aktivieren</b>, zu <b>Synthesizer</b> wechseln und
+                einen Regler bewegen: Der Wert gilt nur für diesen Step.
               </p>
               <p>
                 Wahrscheinlichkeit, Gate, Microtiming, Retrig und Bedingungen im
@@ -1894,7 +1935,7 @@ export default function App() {
               </p>
               <p>
                 Jeder Track hat eigene Länge (1–64), Geschwindigkeit und
-                Richtung. Acht Pattern-Speicher enthalten jeweils alle vier
+                Richtung. Acht Pattern-Speicher enthalten jeweils alle acht
                 Tracks.
               </p>
               <p>
@@ -1914,8 +1955,9 @@ export default function App() {
                 Samples über <b>Load sample</b> laden (max. 15 MB / 60 s).
               </p>
               <p>
-                Modulation: Zwei LFOs und bis zu acht Routen. Effekte:
-                Saturation, Chorus, Tape Delay und Space Reverb.
+                Modulation: Drei LFOs und bis zu acht Routen. Effekte: vier
+                Slots für Saturation, Modulation, Delay und Reverb mit jeweils
+                fünf Varianten.
               </p>
               <p>
                 Sounds über die Library speichern, Projekte inklusive Samples
