@@ -17,7 +17,6 @@ import {
   Keyboard as KeyboardIcon,
   Layers3,
   LoaderCircle,
-  Maximize2,
   Pause,
   Play,
   PlugZap,
@@ -1194,7 +1193,47 @@ export default function App() {
                 <SlidersHorizontal size={15} /> Master FX
               </button>
             </nav>
+            <div className="swing-control">
+              <Waves size={12} />
+              <label>
+                SWING
+                <input
+                  aria-label="Swing"
+                  type="range"
+                  min="0"
+                  max=".6"
+                  step=".01"
+                  value={project.swing}
+                  onChange={(e) =>
+                    updateProject((p) => ({ ...p, swing: +e.target.value }))
+                  }
+                />
+                <output>{Math.round(project.swing * 100)}%</output>
+              </label>
+            </div>
             <div className="main-heading-actions">
+              {lockMode && (
+                <span className="lock-context" role="status">
+                  P-LOCK · T{track + 1} / STEP {selectedStep + 1}
+                </span>
+              )}
+              <button
+                className="heading-action"
+                onClick={duplicatePattern}
+                aria-label="Pattern duplizieren"
+                title="Pattern duplizieren"
+              >
+                <Copy size={14} /> <span>Duplicate pattern</span>
+              </button>
+              <button
+                onClick={() => setKeyboardVisible((v) => !v)}
+                className={`heading-action ${keyboardVisible ? "active" : ""}`}
+                aria-pressed={keyboardVisible}
+                aria-label={keyboardVisible ? "Keyboard ausblenden" : "Keyboard einblenden"}
+                title={keyboardVisible ? "Keyboard ausblenden" : "Keyboard einblenden"}
+              >
+                <KeyboardIcon size={14} /> <span>Keyboard</span>
+              </button>
               <IconButton
                 label="Letzte größere Aktion rückgängig"
                 disabled={!undoAvailable}
@@ -1203,10 +1242,12 @@ export default function App() {
                 <Undo2 size={15} />
               </IconButton>
               <button
-                className="text-button"
+                className="text-button browse-sounds"
                 onClick={() => setModal("library")}
+                aria-label="Sound-Bibliothek öffnen"
+                title="Sound-Bibliothek öffnen"
               >
-                <FolderOpen size={13} /> Browse sounds <ArrowRight size={12} />
+                <FolderOpen size={13} /> <span>Browse sounds</span> <ArrowRight size={12} />
               </button>
             </div>
           </div>
@@ -1258,62 +1299,6 @@ export default function App() {
               }
             />
           )}
-          <div className="between-panels">
-            <div className="swing-control">
-              <Waves size={12} />
-              <label>
-                SWING
-                <input
-                  aria-label="Swing"
-                  type="range"
-                  min="0"
-                  max=".6"
-                  step=".01"
-                  value={project.swing}
-                  onChange={(e) =>
-                    updateProject((p) => ({ ...p, swing: +e.target.value }))
-                  }
-                />
-                <output>{Math.round(project.swing * 100)}%</output>
-              </label>
-            </div>
-            <div className="between-panel-actions">
-              {lockMode && (
-                <button
-                  className="lock-context"
-                  onClick={() =>
-                    setView(
-                      view === "synthesizer" ? "sequencer" : "synthesizer",
-                    )
-                  }
-                  title="Parameter-Lock bearbeiten: im Synthesizer einen Regler bewegen"
-                >
-                  P-LOCK · T{track + 1} / STEP {selectedStep + 1}
-                </button>
-              )}
-              <button onClick={duplicatePattern}>
-                <Copy size={12} /> Duplicate pattern
-              </button>
-              <button
-                onClick={() => setKeyboardVisible((v) => !v)}
-                className={keyboardVisible ? "active" : ""}
-              >
-                <KeyboardIcon size={14} /> Keyboard
-              </button>
-              <IconButton
-                label={
-                  view === "sequencer"
-                    ? "Synthesizer anzeigen"
-                    : "Sequencer anzeigen"
-                }
-                onClick={() =>
-                  setView(view === "sequencer" ? "synthesizer" : "sequencer")
-                }
-              >
-                <Maximize2 size={13} />
-              </IconButton>
-            </div>
-          </div>
           {view === "sequencer" && (
             <Sequencer
               project={project}

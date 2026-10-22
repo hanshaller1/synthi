@@ -96,13 +96,6 @@
 .studio-viewport .main-heading-actions .text-button {
   font-size: 12px;
 }
-.studio-viewport .between-panels {
-  flex-basis: 30px;
-  min-height: 30px;
-}
-.studio-viewport .between-panel-actions > button:not(.icon-button) {
-  font-size: 11px;
-}
 .studio-viewport .swing-control > label,
 .studio-viewport .swing-control output {
   font-size: 10px;
@@ -1095,10 +1088,6 @@
     flex-basis: 40px;
     min-height: 40px;
   }
-  .studio-viewport .between-panels {
-    flex-basis: 26px;
-    min-height: 26px;
-  }
   .studio-viewport .instrument-header {
     flex-basis: 44px;
     height: 44px;
@@ -1626,14 +1615,6 @@
   }
   .studio-viewport .main-heading-actions .icon-button {
     width: 25px;
-  }
-  .studio-viewport .between-panels {
-    flex-basis: 25px;
-    min-height: 25px;
-    padding: 0 2px 3px;
-  }
-  .studio-viewport .between-panel-actions > button:not(.icon-button) {
-    font-size: 9px;
   }
   .studio-viewport .swing-control > label,
   .studio-viewport .swing-control output {

@@ -1589,14 +1589,6 @@ h1 > i {
   font-size: 6px;
   width: 35px;
 }
-.between-panels {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 2px;
-  color: #80897b;
-  gap: 10px;
-}
 .swing-control {
   display: flex;
   align-items: center;
@@ -1617,26 +1609,6 @@ h1 > i {
   color: #b2b9ab;
   font: 7px var(--mono);
   min-width: 22px;
-}
-.between-panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-}
-.between-panel-actions > button:not(.icon-button) {
-  font-size: 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  color: #85907d;
-}
-.between-panel-actions > button.active {
-  color: #b4bcab;
-}
-.between-panel-actions > .icon-button {
-  width: 20px;
-  height: 20px;
 }
 .sequencer {
   border: 1px solid #464945;
@@ -4214,15 +4186,6 @@ kbd {
   .modulation-strip em {
     font-size: 6px;
   }
-  .between-panels {
-    padding: 14px 1px;
-  }
-  .between-panel-actions {
-    gap: 13px;
-  }
-  .between-panel-actions > button:not(.icon-button) {
-    font-size: 7px;
-  }
   .swing-control > label {
     font-size: 6px;
   }
@@ -4722,18 +4685,9 @@ kbd {
   .modulation-strip em {
     font-size: 6px;
   }
-  .between-panel-actions {
-    gap: 10px;
-  }
-  .between-panel-actions > button:first-child {
-    display: none;
-  }
   .swing-control > label {
     font-size: 6px;
     gap: 7px;
-  }
-  .between-panels {
-    padding: 14px 1px;
   }
   .sequencer-header {
     height: auto;
@@ -5600,9 +5554,6 @@ kbd {
   }
   .sequencer-footer button {
     font-size: 6px;
-  }
-  .between-panel-actions > button:not(.icon-button) {
-    font-size: 9px;
   }
   .swing-control > label {
     font-size: 8px;

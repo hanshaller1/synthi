@@ -149,12 +149,6 @@ body,
   color: #a9b2a2;
   letter-spacing: 0.5px;
 }
-.studio-viewport .between-panels {
-  order: 1;
-  flex: 0 0 30px;
-  min-height: 30px;
-  padding: 0 2px 6px;
-}
 .studio-viewport .instrument,
 .studio-viewport .sequencer {
   order: 2;
@@ -952,19 +946,6 @@ body,
   .studio-viewport .main-heading-actions {
     gap: 0;
   }
-  .studio-viewport .between-panels {
-    flex-basis: 26px;
-    min-height: 26px;
-    padding-bottom: 3px;
-    gap: 3px;
-  }
-  .studio-viewport .between-panel-actions {
-    gap: 7px;
-  }
-  .studio-viewport .between-panel-actions > button:not(.icon-button) {
-    font-size: 8px;
-    gap: 3px;
-  }
   .studio-viewport .swing-control {
     gap: 3px;
   }
@@ -1518,15 +1499,6 @@ body,
     .matrix-row[data-route-page="0"] {
     display: none;
   }
-  .studio-viewport
-    .between-panel-actions
-    > button:first-child:not(.lock-context) {
-    display: none;
-  }
-  .studio-viewport .between-panel-actions .lock-context {
-    font-size: 6px;
-    padding: 3px;
-  }
 }
 @media (max-height: 680px) and (min-width: 761px) {
   .studio-viewport .topbar {
@@ -1566,11 +1538,6 @@ body,
   .studio-viewport .main-heading {
     flex-basis: 33px;
     min-height: 33px;
-  }
-  .studio-viewport .between-panels {
-    flex-basis: 25px;
-    min-height: 25px;
-    padding-bottom: 3px;
   }
   .studio-viewport .module {
     padding: 7px 10px;
