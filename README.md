@@ -2,6 +2,8 @@
 
 Eine Synthesizer-Webapplikation mit echter Klangerzeugung im Browser, acht Instrument-Tracks und einem Elektron-inspirierten Parameter-Lock-Sequencer. React, TypeScript, Vite und die native Web Audio API. Kein Backend und kein Konto erforderlich.
 
+Geplante Änderungen stehen im [Backlog](BACKLOG.md). Ihre Umsetzung beginnt erst nach ausdrücklicher Aufforderung des Nutzers.
+
 ## Starten
 
 Node.js 22.12+ oder 24 und npm verwenden.
