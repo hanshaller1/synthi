@@ -1,3 +1,6 @@
+import SourceEditor from "./SourceEditor";
+import FxRack from "./FxRack";
+import { lfoValue } from "./lfo";
 import { useState } from "react";
 import {
   AudioLines,
@@ -11,7 +14,6 @@ import {
   Save,
   SlidersHorizontal,
   Sparkles,
-  Upload,
   Waves,
   X,
 } from "lucide-react";
@@ -20,13 +22,20 @@ import {
   IconButton,
   Knob,
   Select,
-  Waveform,
   formatHz,
   formatTime,
   percent,
 } from "./components";
-import { ENGINES, FX_OPTIONS, PARAMS, noteName } from "./model";
-import type { Lfo, ModSource, ModTarget, Param, Patch, Wave } from "./model";
+import { ENGINES, PARAMS } from "./model";
+import type {
+  Lfo,
+  LfoShape,
+  LfoMode,
+  ModSource,
+  ModTarget,
+  Param,
+  Patch,
+} from "./model";
 
 type Props = {
   patch: Patch;
@@ -66,6 +75,7 @@ export default function Instrument(props: Props) {
   const [section, setSection] = useState("oscillator");
   const [activeLfo, setActiveLfo] = useState(0);
   const [routePage, setRoutePage] = useState(0);
+  const [modPage, setModPage] = useState("lfos");
   const knob = (
     key: Param,
     label: string,
@@ -87,18 +97,6 @@ export default function Instrument(props: Props) {
       locked={key in props.locks}
       onLearn={() => props.onLearn(key)}
     />
-  );
-  const waveSelect = (key: "wave" | "wave2", label: string) => (
-    <Select
-      label={label}
-      value={p[key]}
-      onChange={(v) => onPatch({ [key]: v })}
-    >
-      <option value="sawtooth">Sawtooth</option>
-      <option value="square">Square</option>
-      <option value="triangle">Triangle</option>
-      <option value="sine">Sine</option>
-    </Select>
   );
   const adsr = (filter: boolean) => (
     <div className="knob-row envelope-knobs">
@@ -139,17 +137,47 @@ export default function Instrument(props: Props) {
             {l.sync ? "SYNC" : "FREE"}
           </button>
         </div>
-        <Waveform patch={{ ...p, engine: "subtractive", wave: l.shape }} />
+        <svg
+          className="waveform lfo-waveform"
+          viewBox="0 0 240 70"
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={`LFO ${index + 1} ${l.shape} ${l.mode}`}
+        >
+          <path
+            d={Array.from(
+              { length: 241 },
+              (_, i) =>
+                `${i ? "L" : "M"}${i},${35 - lfoValue(l.shape, i / 120, 1) * 25}`,
+            ).join(" ")}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+        </svg>
         <div className="lfo-controls">
           <Select
             label={`LFO ${index + 1} Wellenform`}
             value={l.shape}
-            onChange={(v) => change({ shape: v as Wave })}
+            onChange={(v) => change({ shape: v as LfoShape })}
           >
             <option value="sine">Sine</option>
             <option value="triangle">Triangle</option>
             <option value="square">Square</option>
             <option value="sawtooth">Sawtooth</option>
+            <option value="exp">Exp</option>
+            <option value="ramp">Ramp</option>
+            <option value="random">Random</option>
+          </Select>
+          <Select
+            label={`LFO ${index + 1} Modus`}
+            value={l.mode}
+            onChange={(v) => change({ mode: v as LfoMode })}
+          >
+            <option value="free">Free · laufend</option>
+            <option value="hold">Hold · Wert halten</option>
+            <option value="one">One · ein Zyklus</option>
+            <option value="half">Half · halber Zyklus</option>
           </Select>
           <button
             className={`small-button ${l.retrigger ? "on" : ""}`}
@@ -161,6 +189,7 @@ export default function Instrument(props: Props) {
         <div className="knob-row">
           <Knob
             label={l.sync ? "Division" : "Rate"}
+            defaultValue={l.sync ? [4, 2, 8][index] : [0.6, 2, 0.15][index]}
             value={l.sync ? l.division : l.rate}
             min={l.sync ? 0.25 : 0.02}
             max={l.sync ? 16 : 30}
@@ -174,6 +203,7 @@ export default function Instrument(props: Props) {
           />
           <Knob
             label="Depth"
+            defaultValue={[0.35, 0.25, 0.3][index]}
             value={l.depth}
             onChange={(v) => change({ depth: v })}
           />
@@ -185,6 +215,7 @@ export default function Instrument(props: Props) {
     <section
       className="instrument"
       data-section={section}
+      data-mod-page={modPage}
       data-lfo={activeLfo}
       data-route-page={p.mods.length <= 4 ? 0 : routePage}
       style={{ "--track-color": props.color } as React.CSSProperties}
@@ -299,230 +330,13 @@ export default function Instrument(props: Props) {
             ))}
           </nav>
           <div className="module-grid synth-grid">
-            <section className="module oscillator-module">
-              <div className="module-title">
-                <h3>
-                  <AudioLines size={14} />{" "}
-                  {p.engine === "subtractive"
-                    ? "Oscillators"
-                    : ENGINES.find((e) => e.id === p.engine)?.label}
-                </h3>
-                <span className="module-index">01</span>
-              </div>
-              <div className="osc-display">
-                <div className="display-meta">
-                  <span>
-                    {p.engine === "subtractive"
-                      ? "OSC 1 + OSC 2"
-                      : p.engine.toUpperCase()}
-                  </span>
-                  <span>
-                    {p.tune > 0 ? "+" : ""}
-                    {Math.round(p.tune)} ST
-                  </span>
-                </div>
-                <Waveform patch={p} />
-                <div className="display-meta">
-                  <span>32-BIT FLOAT ENGINE</span>
-                  <span>∿</span>
-                </div>
-              </div>
-              {(p.engine === "subtractive" ||
-                p.engine === "ring" ||
-                p.engine === "fm") && (
-                <div className="osc-waves">
-                  <label>
-                    OSC 1{waveSelect("wave", "Oscillator 1 waveform")}
-                  </label>
-                  <label>
-                    {p.engine === "fm" ? "MODULATOR" : "OSC 2"}
-                    {waveSelect("wave2", "Oscillator 2 waveform")}
-                  </label>
-                </div>
-              )}
-              <div className="knob-row osc-knobs">
-                {p.engine === "subtractive" && (
-                  <>
-                    {knob("detune", "Detune", (v) => `${v.toFixed(1)} ct`)}
-                    {knob("mix", "Osc mix")}
-                    {knob("sub", "Sub level")}
-                  </>
-                )}
-                {p.engine === "wavetable" && (
-                  <>
-                    {knob("shape", "WT position")}
-                    {knob("detune", "Detune", (v) => `${v.toFixed(1)} ct`)}
-                    {knob("sub", "Sub level")}
-                  </>
-                )}
-                {p.engine === "fm" && (
-                  <>
-                    {knob(
-                      "fmRatio",
-                      "Ratio",
-                      (v) => `${v.toFixed(2)}×`,
-                      false,
-                      0.25,
-                    )}
-                    {knob("fmIndex", "FM index", (v) => v.toFixed(2))}
-                    {knob("sub", "Sub level")}
-                  </>
-                )}
-                {p.engine === "additive" && (
-                  <>
-                    {knob(
-                      "harmonics",
-                      "Partials",
-                      (v) => `${Math.round(v)}`,
-                      false,
-                      1,
-                    )}
-                    {knob("brightness", "Brightness")}
-                    {knob("shape", "Odd / even")}
-                  </>
-                )}
-                {p.engine === "ring" && (
-                  <>
-                    {knob("fmRatio", "Ratio", (v) => `${v.toFixed(2)}×`)}
-                    {knob("shape", "AM → Ring")}
-                    {knob("sub", "Sub level")}
-                  </>
-                )}
-                {p.engine === "physical" && (
-                  <>
-                    {knob(
-                      "damping",
-                      "Damping",
-                      (v) => `${(v * 100).toFixed(1)}%`,
-                    )}
-                    {knob("brightness", "Excitation")}
-                    {knob(
-                      "tune",
-                      "Transpose",
-                      (v) => `${Math.round(v)} st`,
-                      false,
-                      1,
-                    )}
-                  </>
-                )}
-                {p.engine === "granular" && (
-                  <>
-                    {knob("grainSize", "Grain size", formatTime, true)}
-                    {knob(
-                      "grainDensity",
-                      "Density",
-                      (v) => `${Math.round(v)} / s`,
-                      false,
-                      1,
-                    )}
-                    {knob("position", "Position")}
-                  </>
-                )}
-                {p.engine === "sampler" && (
-                  <>
-                    {knob("sampleStart", "Start")}
-                    {knob("sampleEnd", "End")}
-                    {knob(
-                      "sampleRoot",
-                      "Root note",
-                      (v) => noteName(Math.round(v)),
-                      false,
-                      1,
-                    )}
-                  </>
-                )}
-              </div>
-              {p.engine === "sampler" || p.engine === "granular" ? (
-                <div className="sample-row">
-                  <label className="small-button upload">
-                    <Upload size={12} />
-                    <span>{p.sample ? p.sampleName : "Load sample"}</span>
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) props.onSample(f);
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                  {p.sample && (
-                    <IconButton
-                      label="Sample entfernen; interne Textur verwenden"
-                      onClick={() =>
-                        onPatch({
-                          sample: null,
-                          sampleName: "Built-in texture",
-                        })
-                      }
-                    >
-                      <X size={12} />
-                    </IconButton>
-                  )}
-                  {p.engine === "sampler" ? (
-                    <button
-                      className={`small-button ${p.sampleLoop ? "on" : ""}`}
-                      onClick={() => onPatch({ sampleLoop: !p.sampleLoop })}
-                    >
-                      LOOP
-                    </button>
-                  ) : (
-                    <label className="inline-range">
-                      Spread
-                      <input
-                        aria-label="Grain spread"
-                        type="range"
-                        min="0"
-                        max="1"
-                        step=".01"
-                        value={p.spread}
-                        onChange={(e) => onParam("spread", +e.target.value)}
-                      />
-                    </label>
-                  )}
-                </div>
-              ) : (
-                <div className="osc-bottom">
-                  <label className="inline-range">
-                    NOISE
-                    <input
-                      aria-label="Noise level"
-                      type="range"
-                      min="0"
-                      max="1"
-                      step=".01"
-                      value={p.noise}
-                      onChange={(e) => onParam("noise", +e.target.value)}
-                    />
-                    <output>{percent(p.noise)}</output>
-                  </label>
-                </div>
-              )}
-              {p.voiceMode === "mono" && (
-                <div className="mono-controls">
-                  <button
-                    className={`small-button ${p.legato ? "on" : ""}`}
-                    onClick={() => onPatch({ legato: !p.legato })}
-                  >
-                    LEGATO {p.legato ? "ON" : "OFF"}
-                  </button>
-                  <label>
-                    GLIDE
-                    <input
-                      aria-label="Portamento"
-                      type="range"
-                      min="0"
-                      max="2"
-                      step=".01"
-                      value={p.glide}
-                      onChange={(e) => onParam("glide", +e.target.value)}
-                    />
-                    <output>{formatTime(p.glide)}</output>
-                  </label>
-                </div>
-              )}
-            </section>
+            <SourceEditor
+              patch={p}
+              onPatch={onPatch}
+              onParam={onParam}
+              onSample={props.onSample}
+              knob={knob}
+            />
             <section className="module filter-module">
               <div className="module-title">
                 <h3>
@@ -728,6 +542,20 @@ export default function Instrument(props: Props) {
       )}
       {tab === "modulation" && (
         <div className="modulation-layout">
+          <nav className="mod-mobile-tabs" aria-label="Modulationsbereich">
+            <button
+              className={modPage === "lfos" ? "active" : ""}
+              onClick={() => setModPage("lfos")}
+            >
+              3 LFOs
+            </button>
+            <button
+              className={modPage === "matrix" ? "active" : ""}
+              onClick={() => setModPage("matrix")}
+            >
+              Modulation matrix
+            </button>
+          </nav>
           <nav className="lfo-switch" aria-label="LFO auswählen">
             {[0, 1, 2].map((index) => (
               <button
@@ -868,119 +696,14 @@ export default function Instrument(props: Props) {
         </div>
       )}
       {tab === "effects" && (
-        <div className="effects-grid">
-          {[
-            {
-              title: "Saturation",
-              slot: "saturationMode" as const,
-              index: "01",
-              controls: (
-                <>
-                  {knob("distortion", "Drive")}
-                  {knob("drive", "Pre-filter drive")}
-                </>
-              ),
-            },
-            {
-              title: "Modulation",
-              slot: "modulationMode" as const,
-              index: "02",
-              controls: (
-                <>
-                  {knob("chorus", "Wet level")}
-                  {knob("pan", "Balance", (v) =>
-                    Math.abs(v) < 0.02 ? "Center" : `${Math.round(v * 100)}`,
-                  )}
-                </>
-              ),
-            },
-            {
-              title: "Delay",
-              slot: "delayMode" as const,
-              index: "03",
-              controls: (
-                <>
-                  {knob("delayTime", "Time", formatTime, true)}
-                  {knob("feedback", "Feedback")}
-                  {knob("delay", "Wet level")}
-                </>
-              ),
-            },
-            {
-              title: "Reverb",
-              slot: "reverbMode" as const,
-              index: "04",
-              controls: (
-                <>
-                  {knob("reverbSize", "Decay", formatTime, true)}
-                  {knob("reverb", "Wet level")}
-                </>
-              ),
-            },
-          ].map((fx) => (
-            <section className="module effect-module" key={fx.title}>
-              <div className="module-title">
-                <h3>
-                  <Sparkles size={14} /> {fx.title}
-                </h3>
-                <span className="module-index">{fx.index}</span>
-              </div>
-              <Select
-                label={`${fx.title} Effektvariante`}
-                value={p[fx.slot]}
-                onChange={(value) => onPatch({ [fx.slot]: value })}
-              >
-                {FX_OPTIONS[fx.slot].map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
-              </Select>
-              <span className="effect-description">
-                {
-                  FX_OPTIONS[fx.slot].find((option) => option.id === p[fx.slot])
-                    ?.description
-                }
-              </span>
-              <div className="effect-visual">
-                {Array.from({ length: 25 }, (_, i) => (
-                  <i
-                    key={i}
-                    style={{
-                      height: `${12 + Math.sin(i * 0.7) * Math.sin(i * 1.9) * 25 + 25}px`,
-                      opacity: 0.3 + Math.abs(Math.sin(i * 0.4)) * 0.5,
-                    }}
-                  />
-                ))}
-              </div>
-              <div className="knob-row">{fx.controls}</div>
-              {fx.slot === "delayMode" && (
-                <div className="delay-sync">
-                  {[0.25, 0.5, 0.75, 1].map((beat) => (
-                    <button
-                      className="small-button"
-                      key={beat}
-                      onClick={() =>
-                        onParam(
-                          "delayTime",
-                          Math.min(1.5, (60 / props.tempo) * beat),
-                        )
-                      }
-                    >
-                      {beat === 0.25
-                        ? "1/16"
-                        : beat === 0.5
-                          ? "1/8"
-                          : beat === 0.75
-                            ? "1/8 D"
-                            : "1/4"}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </section>
-          ))}
-        </div>
+        <FxRack
+          patch={p}
+          onPatch={onPatch}
+          onParam={onParam}
+          locks={props.locks}
+          tempo={props.tempo}
+          onLearn={props.onLearn}
+        />
       )}
     </section>
   );

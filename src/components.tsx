@@ -1,3 +1,4 @@
+import { wavetableSpectrum } from "./catalog";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { ChevronDown, X } from "lucide-react";
@@ -271,6 +272,16 @@ export function Waveform({
   patch: Patch;
   compact?: boolean;
 }) {
+  const spectrum =
+    patch.engine === "wavetable"
+      ? wavetableSpectrum(
+          patch.wavetable,
+          patch.shape,
+          patch.wtWarp,
+          patch.wtFormant,
+          patch.brightness,
+        )
+      : null;
   const points = Array.from({ length: 241 }, (_, i) => {
     const t = (i / 240) * 4 * Math.PI;
     let value = 0;
@@ -278,11 +289,16 @@ export function Waveform({
       value = Math.sin(t + Math.sin(t * patch.fmRatio) * patch.fmIndex);
     else if (patch.engine === "ring")
       value = Math.sin(t) * Math.sin(t * patch.fmRatio);
-    else if (patch.engine === "wavetable")
-      value =
-        (1 - patch.shape) * Math.sin(t) +
-        patch.shape * (2 * ((t / Math.PI / 2) % 1) - 1);
-    else if (patch.engine === "additive")
+    else if (spectrum) {
+      let energy = 0;
+      for (let n = 1; n < spectrum.imag.length; n++) {
+        value +=
+          Math.sin(t * n) * spectrum.imag[n] +
+          Math.cos(t * n) * spectrum.real[n];
+        energy += Math.abs(spectrum.imag[n]) + Math.abs(spectrum.real[n]);
+      }
+      value /= Math.max(1, energy * 0.5);
+    } else if (patch.engine === "additive")
       for (let n = 1; n <= Math.round(patch.harmonics); n++)
         value +=
           (Math.sin(t * n) / Math.pow(n, 2.5 - patch.brightness * 1.5)) * 0.55;

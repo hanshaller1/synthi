@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles.css";
 import "./viewport.css";
+import "./studio.css";
 
 class StartupBoundary extends Component<
   { children: ReactNode },

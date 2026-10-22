@@ -1,3 +1,5 @@
+import { FX_CONTROLS, defaultFxSettings } from "./fx-spec";
+import type { FxSettings } from "./fx-spec";
 export const TRACK_COUNT = 8;
 export const KEYBOARD_OCTAVES = 4;
 
@@ -17,8 +19,11 @@ export type Envelope = {
   sustain: number;
   release: number;
 };
+export type LfoShape = Wave | "exp" | "ramp" | "random";
+export type LfoMode = "free" | "hold" | "one" | "half";
 export type Lfo = {
-  shape: Wave;
+  shape: LfoShape;
+  mode: LfoMode;
   rate: number;
   sync: boolean;
   division: number;
@@ -41,6 +46,42 @@ export type Modulation = {
 };
 export const PARAMS = {
   tune: [-24, 24, 0],
+  unison: [1, 8, 1],
+  unisonDetune: [0, 50, 12],
+  unisonWidth: [0, 1, 0.7],
+  osc2Tune: [-24, 24, 0],
+  pulseWidth: [0.05, 0.95, 0.5],
+  drift: [0, 20, 0],
+  wavetable: [0, 31, 0],
+  wtWarp: [-1, 1, 0],
+  wtFormant: [0, 1, 0],
+  fmFeedback: [0, 1, 0],
+  fmDecay: [0.01, 5, 1],
+  fmEnd: [0, 1, 1],
+  fmRatio2: [0.25, 16, 3],
+  fmIndex2: [0, 20, 0],
+  spectralTilt: [-1, 1, 0],
+  spectralPeak: [1, 32, 4],
+  spectralResonance: [0, 1, 0],
+  inharmonicity: [0, 0.04, 0],
+  ringDepth: [0, 1, 1],
+  ringDry: [0, 1, 0],
+  ringBias: [-1, 1, 0],
+  ringOffset: [-2000, 2000, 0],
+  grainScan: [-1, 1, 0],
+  grainPitch: [0, 24, 0],
+  grainReverse: [0, 1, 0],
+  grainPan: [0, 1, 0.5],
+  grainWindow: [0.05, 0.95, 0.4],
+  sampleReverse: [0, 1, 0],
+  sampleFine: [-100, 100, 0],
+  sampleLoopStart: [0, 0.95, 0],
+  sampleLoopEnd: [0.05, 1, 1],
+  sampleFade: [0, 0.1, 0.005],
+  pluckPosition: [0.01, 0.99, 0.2],
+  stringDecay: [0.2, 12, 5],
+  bodySize: [0, 1, 0.2],
+  dispersion: [0, 1, 0.1],
   detune: [0, 50, 9],
   mix: [0, 1, 0.5],
   sub: [0, 1, 0.18],
@@ -84,7 +125,17 @@ export const PARAMS = {
 export type Param = keyof typeof PARAMS;
 // These values are AudioNode topology/buffer changes rather than schedulable AudioParams.
 export const LOCK_PARAMS: Param[] = (Object.keys(PARAMS) as Param[]).filter(
-  (key) => key !== "distortion" && key !== "reverbSize",
+  (key) =>
+    ![
+      "distortion",
+      "reverbSize",
+      "unison",
+      "wavetable",
+      "sampleReverse",
+      "sampleFade",
+      "inharmonicity",
+      "harmonics",
+    ].includes(key),
 );
 export type Numbers = Record<Param, number>;
 export const FX_OPTIONS = {
@@ -193,6 +244,13 @@ export type Patch = Numbers &
     voiceMode: "mono" | "para" | "poly";
     legato: boolean;
     lfos: [Lfo, Lfo, Lfo];
+    fxOrder: FxSlot[];
+    fxEnabled: Record<FxSlot, boolean>;
+    fxSettings: FxSettings;
+    sampleId: string;
+    grainSampleId: string;
+    fmAlgorithm: "serial" | "parallel";
+    excitation: "noise" | "pick" | "bow";
     mods: Modulation[];
     sample: string | null;
     sampleName: string;
@@ -205,6 +263,7 @@ export type Step = {
   chord: "single" | "major" | "minor" | "fifth" | "seventh";
   velocity: number;
   gate: number;
+  span: number;
   probability: number;
   micro: number;
   retrig: number;
@@ -233,12 +292,90 @@ export type Track = {
   solo: boolean;
   patterns: Pattern[];
 };
+export const HEAT_MODES = [
+  "Clean boost",
+  "Saturation",
+  "Enhancement",
+  "Mid drive",
+  "Rough crunch",
+  "Classic distortion",
+  "Round fuzz",
+  "High gain",
+];
+export type MasterFx = {
+  enabled: boolean;
+  driveEnabled: boolean;
+  driveMode: number;
+  drive: number;
+  bias: number;
+  tone: number;
+  lowCut: number;
+  mix: number;
+  output: number;
+  eqEnabled: boolean;
+  eqBands: 2 | 3 | 8;
+  eq2: number[];
+  eq3: number[];
+  eq8: number[];
+  compressorEnabled: boolean;
+  threshold: number;
+  ratio: number;
+  attack: number;
+  release: number;
+  makeup: number;
+  width: number;
+  delayEnabled: boolean;
+  delay: number;
+  delayTime: number;
+  feedback: number;
+  reverbEnabled: boolean;
+  reverb: number;
+  reverbSize: number;
+};
+export const makeMasterFx = (): MasterFx => ({
+  enabled: true,
+  driveEnabled: false,
+  driveMode: 1,
+  drive: 0.2,
+  bias: 0,
+  tone: 12000,
+  lowCut: 20,
+  mix: 1,
+  output: 0,
+  eqEnabled: true,
+  eqBands: 3,
+  eq2: [0, 0],
+  eq3: [0, 0, 0],
+  eq8: Array(8).fill(0),
+  compressorEnabled: false,
+  threshold: -18,
+  ratio: 3,
+  attack: 0.015,
+  release: 0.2,
+  makeup: 0,
+  width: 1,
+  delayEnabled: false,
+  delay: 0.12,
+  delayTime: 0.375,
+  feedback: 0.3,
+  reverbEnabled: false,
+  reverb: 0.15,
+  reverbSize: 2.5,
+});
+export const STEP_SPANS = [0.5, 1, 1.5, 2, 3, 4, 6, 8];
+export function stepLengthLabel(span: number, division: number) {
+  const base = division / span;
+  if (Number.isInteger(Math.log2(base))) return `1/${base}`;
+  if (Number.isInteger(Math.log2(base * 1.5))) return `1/${base * 1.5}·`;
+  return `${span}×`;
+}
 export type Project = {
   version: 1;
   name: string;
   tempo: number;
   swing: number;
   master: number;
+  masterFx: MasterFx;
   activePattern: number;
   tracks: Track[];
 };
@@ -259,14 +396,15 @@ export const ENGINES: {
     id: "wavetable",
     label: "Wavetable",
     short: "TABLE",
-    description: "Stufenloses spektrales Morphing zwischen vier Wellenformen.",
+    description:
+      "32 Wavetables aus acht Familien mit Morphing, Phase-Warp und Formanten.",
   },
   {
     id: "fm",
     label: "FM",
     short: "FM",
     description:
-      "Frequenzmodulation mit zwei Operatoren. Von glockig bis metallisch.",
+      "Drei FM-Operatoren mit Serial/Parallel-Algorithmus, Feedback und Index-Hüllkurve.",
   },
   {
     id: "additive",
@@ -328,6 +466,7 @@ export const makeStep = (): Step => ({
   chord: "single",
   velocity: 0.8,
   gate: 0.65,
+  span: 1,
   probability: 1,
   micro: 0,
   retrig: 1,
@@ -353,6 +492,18 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     filterType: "lowpass",
     voiceMode: "poly",
     legato: true,
+    fxOrder: ["saturationMode", "modulationMode", "delayMode", "reverbMode"],
+    fxEnabled: {
+      saturationMode: true,
+      modulationMode: true,
+      delayMode: true,
+      reverbMode: true,
+    },
+    fxSettings: defaultFxSettings(),
+    sampleId: "sample-13-0",
+    grainSampleId: "grain-2-0",
+    fmAlgorithm: "serial",
+    excitation: "noise",
     saturationMode: "soft",
     modulationMode: "chorus",
     delayMode: "digital",
@@ -360,6 +511,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     lfos: [
       {
         shape: "sine",
+        mode: "free",
         rate: 0.6,
         sync: false,
         division: 4,
@@ -368,6 +520,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
       },
       {
         shape: "triangle",
+        mode: "free",
         rate: 2,
         sync: true,
         division: 2,
@@ -376,6 +529,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
       },
       {
         shape: "sine",
+        mode: "free",
         rate: 0.15,
         sync: false,
         division: 8,
@@ -618,6 +772,7 @@ export function makeProject(): Project {
     tempo: 118,
     swing: 0.12,
     master: 0.7,
+    masterFx: makeMasterFx(),
     activePattern: 0,
     tracks,
   };
@@ -666,6 +821,46 @@ export function sanitizePatch(value: unknown): Patch {
   if (["mono", "para", "poly"].includes(String(value.voiceMode)))
     p.voiceMode = value.voiceMode as Patch["voiceMode"];
   p.legato = value.legato !== false;
+  p.unison = Math.round(p.unison);
+  p.wavetable = Math.round(p.wavetable);
+  const slots = Object.keys(FX_OPTIONS) as FxSlot[];
+  if (
+    Array.isArray(value.fxOrder) &&
+    value.fxOrder.length === 4 &&
+    new Set(value.fxOrder).size === 4 &&
+    value.fxOrder.every((k) => slots.includes(k as FxSlot))
+  )
+    p.fxOrder = [...value.fxOrder] as FxSlot[];
+  if (isRecord(value.fxEnabled))
+    for (const slot of slots)
+      p.fxEnabled[slot] = value.fxEnabled[slot] !== false;
+  if (isRecord(value.fxSettings))
+    for (const [id, controls] of Object.entries(FX_CONTROLS)) {
+      const settings = value.fxSettings[id];
+      if (isRecord(settings))
+        for (const control of controls)
+          if (!control.param)
+            p.fxSettings[id][control.key] = num(
+              settings[control.key],
+              control.min,
+              control.max,
+              control.default,
+            );
+    }
+  if (
+    typeof value.sampleId === "string" &&
+    /^sample-(?:[0-9]|1[0-5])-[0-3]$/.test(value.sampleId)
+  )
+    p.sampleId = value.sampleId;
+  if (
+    typeof value.grainSampleId === "string" &&
+    /^grain-[0-7]-[0-3]$/.test(value.grainSampleId)
+  )
+    p.grainSampleId = value.grainSampleId;
+  if (["serial", "parallel"].includes(String(value.fmAlgorithm)))
+    p.fmAlgorithm = value.fmAlgorithm as Patch["fmAlgorithm"];
+  if (["noise", "pick", "bow"].includes(String(value.excitation)))
+    p.excitation = value.excitation as Patch["excitation"];
   for (const slot of Object.keys(FX_OPTIONS) as FxSlot[]) {
     const option = FX_OPTIONS[slot].find((item) => item.id === value[slot]);
     if (option) Object.assign(p, { [slot]: option.id });
@@ -695,7 +890,12 @@ export function sanitizePatch(value: unknown): Patch {
       const v = x[i];
       if (!isRecord(v)) return l;
       return {
-        shape: waves.includes(v.shape as Wave) ? (v.shape as Wave) : l.shape,
+        shape: [...waves, "exp", "ramp", "random"].includes(String(v.shape))
+          ? (v.shape as LfoShape)
+          : l.shape,
+        mode: ["free", "hold", "one", "half"].includes(String(v.mode))
+          ? (v.mode as LfoMode)
+          : "free",
         rate: num(v.rate, 0.02, 30, l.rate),
         sync: v.sync === true,
         division: num(v.division, 0.25, 16, 4),
@@ -744,6 +944,55 @@ export function sanitizeProject(value: unknown): Project {
   p.tempo = num(value.tempo, 40, 240, 118);
   p.swing = num(value.swing, 0, 0.6, 0);
   p.master = num(value.master, 0, 1, 0.7);
+  if (isRecord(value.masterFx)) {
+    const m = value.masterFx;
+    for (const key of [
+      "enabled",
+      "driveEnabled",
+      "eqEnabled",
+      "compressorEnabled",
+      "delayEnabled",
+      "reverbEnabled",
+    ] as const)
+      if (typeof m[key] === "boolean") p.masterFx[key] = m[key];
+    const ranges = {
+      driveMode: [0, 7],
+      drive: [0, 1],
+      bias: [-0.5, 0.5],
+      tone: [500, 20000],
+      lowCut: [20, 1000],
+      mix: [0, 1],
+      output: [-18, 6],
+      threshold: [-60, 0],
+      ratio: [1, 12],
+      attack: [0.001, 0.1],
+      release: [0.02, 1],
+      makeup: [-6, 12],
+      width: [0, 2],
+      delay: [0, 1],
+      delayTime: [0.04, 1.5],
+      feedback: [0, 0.85],
+      reverb: [0, 1],
+      reverbSize: [0.2, 5],
+    };
+    for (const [key, range] of Object.entries(ranges))
+      Object.assign(p.masterFx, {
+        [key]: num(
+          m[key],
+          range[0],
+          range[1],
+          p.masterFx[key as keyof MasterFx] as number,
+        ),
+      });
+    p.masterFx.driveMode = Math.round(p.masterFx.driveMode);
+    if ([2, 3, 8].includes(Number(m.eqBands)))
+      p.masterFx.eqBands = m.eqBands as 2 | 3 | 8;
+    for (const key of ["eq2", "eq3", "eq8"] as const)
+      if (Array.isArray(m[key]))
+        p.masterFx[key] = p.masterFx[key].map((v, i) =>
+          num((m[key] as unknown[])[i], -18, 18, v),
+        );
+  }
   p.activePattern = Math.round(num(value.activePattern, 0, 7, 0));
   p.tracks = p.tracks.map((base, i) => {
     const v = (value.tracks as unknown[])[i];
@@ -776,6 +1025,7 @@ export function sanitizeProject(value: unknown): Project {
             s.note = Math.round(num(q.note, 24, 96, 48));
             s.velocity = num(q.velocity, 0.01, 1, 0.8);
             s.gate = num(q.gate, 0.05, 4, 0.65);
+            s.span = STEP_SPANS.includes(Number(q.span)) ? Number(q.span) : 1;
             s.probability = num(q.probability, 0, 1, 1);
             s.micro = num(q.micro, -0.45, 0.45, 0);
             s.retrig = Math.round(num(q.retrig, 1, 8, 1));

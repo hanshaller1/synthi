@@ -2,7 +2,7 @@
 
 Eine Synthesizer-Webapplikation mit echter Klangerzeugung im Browser, acht Instrument-Tracks und einem Elektron-inspirierten Parameter-Lock-Sequencer. React, TypeScript, Vite und die native Web Audio API. Kein Backend und kein Konto erforderlich.
 
-Geplante Änderungen stehen im [Backlog](BACKLOG.md). Ihre Umsetzung beginnt erst nach ausdrücklicher Aufforderung des Nutzers.
+Der freigegebene [Backlog](BACKLOG.md) ist umgesetzt. Neue, dort künftig offene Punkte werden erst nach ausdrücklicher Aufforderung umgesetzt.
 
 ## Starten
 
@@ -64,18 +64,22 @@ Browser können lokalen HTML-Dateien Speicher- oder MIDI-Berechtigungen verweige
 
 Jeder der acht Tracks besitzt eine eigene Engine, einen Resonanzfilter, zwei ADSR-Hüllkurven, drei LFOs, eine Modulationsmatrix und eine Effektkette.
 
-| Engine      | Klangparameter                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------ |
-| Subtractive | Zwei Oszillatoren mit Sinus, Dreieck, Sägezahn oder Rechteck; Detune, Mix, Sub-Oszillator, Noise |
-| Wavetable   | Spektrales Morphing zwischen Sinus, Dreieck, Sägezahn und Rechteck; zwei verstimmte Oszillatoren |
-| FM          | Zwei Operatoren, frei einstellbares Frequenzverhältnis und Modulationsindex                      |
-| Additive    | 1–32 harmonische Teiltöne, spektrale Helligkeit und Gewichtung gerader/ungerader Harmonischer    |
-| Ring / AM   | Amplituden-/Ringmodulation mit einstellbarem Verhältnis und stufenlosem Modulationstyp           |
-| Granular    | Überlappende, gefensterte Sample-Grains; Größe, Dichte, Position und Streuung                    |
-| Sampler     | Chromatische Wiedergabe, Root Note, Start-/Endpunkt und Loop                                     |
-| Physical    | Karplus-Strong-Saitenmodell mit Dämpfung und Anregung                                            |
+| Engine      | Klanggestaltung                                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Subtractive | Zwei einzeln visualisierte Oszillatoren, Osc-2-Transpose, Pulsbreite, analoger Drift, Detune, Mix, Sub und Noise                           |
+| Wavetable   | 32 Tabellen aus acht Familien; Morph-Position, spektrale Helligkeit, Phase-Warp, Formanten und Detune                                      |
+| FM          | Bis zu drei Operatoren, serieller/paralleler Algorithmus, zwei Modulationsverhältnisse und Indizes, Feedback sowie Index-Decay und Endwert |
+| Additive    | 1–32 Teiltöne, gerade/ungerade Harmonische, Helligkeit, Tilt, Partial-Peak mit Boost und Inharmonizität                                    |
+| Ring / AM   | Eigene Oszillatoranzeigen, AM/Ring-Übergang, Tiefe, Dry-Carrier, Bias und Modulator-Frequenzoffset                                         |
+| Granular    | 32 Texturen, Grain-Größe und Dichte, Position/Jitter, Scan, Pitch-Streuung, Reverse-Wahrscheinlichkeit, Pan-Streuung und Fenster-Attack    |
+| Sampler     | 64 Sounds, chromatische Wiedergabe mit Root Note und Fine Tune, Trim, Loop-Start/-Ende, Reverse und Edge-Fade                              |
+| Physical    | Karplus-Strong-Saitenmodell mit Noise/Pick/Bow-Anregung, Pick-Position, Dämpfung, Decay, Dispersion und Körperresonanz                     |
 
-Sampler und Granular enthalten eine interne Textur und akzeptieren eigene Audiodateien (maximal 15 MB und 60 Sekunden). Unterstützte Formate hängen vom Audio-Decoder des Browsers ab. Samples werden in Projekt- und Preset-Dateien eingebettet.
+Im Klangquellen-Modul trennen **Source**, **Character** und **Unison** die Parameter. Unison ist je Track mit **1–8 Stimmen**, eigener Verstimmung und Stereo-Breite einstellbar und funktioniert mit allen acht Engines. Der Sub-Oszillator bleibt zentriert.
+
+Die Bibliotheken werden deterministisch im Browser als PCM erzeugt und sind vollständig offline verfügbar. Es handelt sich um synthetische Samples, keine externen Aufnahmen. Granular bietet acht Gruppen mit jeweils vier Texturen: Nature, Vocal, Tonal, Metal, Digital, Rhythmic, Bass und Atmosphere. Der Sampler enthält je vier Varianten in Kick, Hat, Percussion, Tom, Ride, Shaker, Rimshot, Snare, FX, Chord, Lead, Bass, Acid, Piano, Stab und Pad. Die Wavetable-Familien heißen Analog, Digital, Formant, Harmonic, Metal, Organ, Chiptune und Texture; jede umfasst vier morphbare Tabellen.
+
+Sampler und Granular akzeptieren außerdem eigene Audiodateien (maximal 15 MB und 60 Sekunden). Unterstützte Formate hängen vom Browser-Decoder ab. Eigene Samples werden in Projekt- und Preset-Dateien eingebettet; bei eingebauten Sounds genügt die gespeicherte Bibliotheks-ID. Aufwendige Klangquellen-Einstellungen gelten ab dem nächsten Anschlag; Filter und laufende LFOs lassen sich während gehaltener Noten ändern.
 
 ### Mono, para und poly
 
@@ -85,19 +89,22 @@ Der **VOICE**-Schalter gilt pro Track:
 - **Paraphonic:** mehrere Tonhöhen durch einen gemeinsamen Filter und eine gemeinsame Filter-/Amp-Artikulation.
 - **Polyphonic:** getrennte Filter und Hüllkurven pro Stimme.
 
-Die Engine begrenzt gleichzeitig gehaltene Stimmen auf 32 und gibt bei Überlastung die älteste Stimme frei. Granular-Noten benötigen je nach Dichte zusätzliche Buffer-Source-Knoten.
+Die Engine begrenzt gleichzeitig gehaltene Noten auf 32 (jeweils zuzüglich der gewählten Unison-Layer) und gibt bei Überlastung die älteste Stimme frei. Granular-Noten benötigen je nach Dichte zusätzliche Buffer-Source-Knoten.
 
 ### Filter, Modulation und Effekte
 
 - Resonanter 12-dB-Lowpass, Highpass, Bandpass oder Notch; Drive vor dem Filter.
 - Separate ADSR-Hüllkurven für Filter und Lautstärke; bipolare Filter-Envelope-Tiefe.
-- Drei LFOs mit Sinus, Dreieck, Rechteck und Sägezahn; freie Rate oder Tempo-Synchronisation, Retrigger und Tiefe.
+- Drei LFOs mit Sinus, Dreieck, Rechteck, Sägezahn, **Exp**, **Ramp** und **Random**; freie Rate oder Tempo-Synchronisation, Retrigger und Tiefe.
+- **Free:** wiederholter Verlauf; **Hold:** Wert beim Anschlag abtasten und halten; **One:** ein voller Zyklus; **Half:** ein halber Zyklus. One/Half enden danach auf null. Random liefert im Free-Modus stufenweise Zufallswerte, im Hold-Modus einen Zufallswert je Anschlag.
 - Bis zu acht Modulationsrouten: LFO 1/2/3, Velocity, Keytracking, Modwheel oder Filter-Envelope auf Cutoff, Pitch, Amplitude, Pan oder FM-Index.
 - Vier FX-Slots pro Track mit jeweils fünf Varianten:
   - **Saturation:** Soft clip, Hard clip, Wavefolder, Bit crush, Diode.
   - **Modulation:** Chorus, Flanger, Vibrato, Phaser, Tremolo.
   - **Delay:** Digital, Tape, Ping-pong, Multi-tap, Dub.
   - **Reverb:** Room, Hall, Plate, Spring, Gated.
+- Jeder Effekt hat passende eigene Parameter und eine eigene, parameterabhängige Visualisierung: unter anderem Bit-Tiefe, Folds, Bias, Modulationsrate/-tiefe, Flanger-Feedback, Tape-Age/Wow, Tap-Spacing, Reflections, Spring-Tension und Gate-Länge.
+- Die Slots liegen **seriell** im Signalweg. Mit den Pfeilen die Reihenfolge ändern; **ON/BYPASS** schaltet jeden Slot einzeln um. Parameter bleiben beim Bypass erhalten.
 - Die Varianten schalten echte Signalwege, Kennlinien und Impulsantworten um. Spring ist eine synthetische Federhall-Näherung; Bit crush quantisiert die Amplitude.
 - Master-Limiter, Oszilloskop und Pegelanzeige.
 
@@ -105,9 +112,9 @@ Regler ziehen; **Shift** für Feineinstellung. Mit den Pfeiltasten lassen sich f
 
 ## Arbeitsbereiche
 
-**Synthesizer** und **Sequencer** sind getrennte Hauptregister; nur der ausgewählte Editor ist sichtbar. Die Wiedergabe läuft beim Umschalten weiter. Das Layout nutzt die Browserhöhe ohne Seiten-Scrollleiste. Auf schmalen Displays haben Klangquelle, Filter und Amp sowie die drei LFOs eigene Unterregister; die Modulationsmatrix zeigt vier Routen pro Seite. Das Keyboard zeigt vier Oktaven mit 49 Tasten einschließlich des abschließenden C. Über −/+ oder Z/X lässt sich der angezeigte Bereich verschieben.
+**Synthesizer**, **Sequencer** und **Master FX** sind getrennte Hauptregister; nur der ausgewählte Editor ist sichtbar. Die Wiedergabe läuft beim Umschalten weiter. Das Layout nutzt die Browserhöhe ohne Seiten-Scrollleiste. Texte und Bedienelemente sind bei normalem Browserzoom größer ausgelegt. Hilfe, Einstellungen und Speicherstatus stehen in der Topbar; eine zusätzliche Workspace-Bar entfällt. Auf schmalen Displays haben Klangquelle, Filter, Amp, LFOs/Matrix und FX-Slots eigene Unterregister; die Modulationsmatrix zeigt dort vier Routen pro Seite. Das Keyboard zeigt vier Oktaven mit 49 Tasten einschließlich des abschließenden C. Über −/+ oder Z/X lässt sich der angezeigte Bereich verschieben.
 
-Bestehende Projekte mit vier Tracks werden beim Laden um vier leere Tracks erweitert. Bestehende Presets erhalten einen dritten LFO und die Standard-FX-Varianten.
+Bestehende Projekte mit vier Tracks werden beim Laden um vier leere Tracks erweitert. Bestehende Presets erhalten fehlende LFO-Modi, Klangparameter und FX-Einstellungen. Ältere Steps erhalten die bisherige Standardlänge; ältere Projekte starten mit neutralen Master-FX. Die nun serielle Track-FX-Kette kann den Klang bestehender Patches gegenüber der früheren parallelen Anordnung verändern.
 
 ## Sequencer
 
@@ -115,19 +122,32 @@ Acht Pattern-Speicher **A01–A08**, jeder mit acht Tracks. Pro Track unabhängi
 
 - 1–64 Steps; vier Seiten mit jeweils 16 Steps.
 - Auflösung 1/8, 1/16 oder 1/32; Forward, Reverse, Ping-pong oder Random.
-- Tonhöhe, Single/Major/Minor/Fifth/Seventh-Akkord, Velocity und Gate.
+- Notenname je Step über eine Auswahl, Single/Major/Minor/Fifth/Seventh-Akkord, Velocity und Gate.
+- Individuelle Step-Länge: ½, 1, 1½, 2, 3, 4, 6 oder 8 Rastereinheiten. Angezeigt werden musikalische Werte wie 1/32, 1/16, 1/8 und punktierte Längen; bei 1/32-Raster ist auch 1/64 möglich. Die Länge bestimmt den Abstand zum nächsten Step, Gate die Notendauer innerhalb dieses Abstands.
+- Step-Breiten sind pro Track proportional zur Länge. Zeilen mit unterschiedlichen Gesamtlängen laufen unabhängig; Spalten verschiedener Tracks bedeuten deshalb keine gemeinsame absolute Zeitposition.
 - Wahrscheinlichkeit, Microtiming und 1–8-fache Ratchets.
 - Always, 1:2, 2:2, 1:4, Fill und Not-Fill-Bedingungen.
 - Parameter-Locks für Klangerzeugung, Filter, Envelopes sowie planbare Effektparameter.
 - Globales Tempo, Tap Tempo, Swing, Mute/Solo, Kopieren/Einfügen, Duplizieren und musikalische Pattern-Generierung.
 
-**Step klicken:** Trig ein-/ausschalten. **Shift + Klick** oder **Rechtsklick:** auswählen, ohne den Trig zu verändern. Der Trig-Editor bearbeitet den ausgewählten Step.
+**Step klicken:** Trig ein-/ausschalten. **Shift + Klick** oder **Rechtsklick:** den Step-Dialog öffnen, ohne den Trig zu verändern. Dort Notenname, Länge und sämtliche Trig-Eigenschaften einstellen; die Pfeile wechseln zum benachbarten Step. Ein kompakter Editor steht außerdem direkt unter dem Raster.
 
-**P-LOCK im Sequencer aktivieren**, ins Hauptregister **Synthesizer** wechseln und einen Instrument-Regler bewegen: Der Wert wird nur für den ausgewählten Step gespeichert. Locks können auch direkt im Lock-Editor ergänzt, editiert und entfernt werden. Saturation und Hallraum-Größe verändern Knoten-/Buffer-Konfigurationen und sind daher keine Step-Lock-Ziele. Die globalen Pattern- und FX-Regler bleiben separat verfügbar.
+**P-LOCK im Sequencer aktivieren**, ins Hauptregister **Synthesizer** wechseln und einen Instrument-Regler bewegen: Der Wert wird nur für den ausgewählten Step gespeichert. Locks können auch direkt im Lock-Editor ergänzt, editiert und entfernt werden. Drive-Kennlinie, Hallraum-Größe, Unison-Anzahl, Wavetable-Auswahl, Sampler-Reverse/-Fade sowie additive Topologieparameter sind keine Step-Lock-Ziele. Effekt-spezifische Zusatzparameter werden im Patch gespeichert. Die globalen Pattern- und FX-Regler bleiben separat verfügbar.
 
 **Live Rec:** Keyboard-/MIDI-Noten werden am aktuellen Step aufgenommen. Im Stillstand werden Noten schrittweise eingetragen. Ein Step speichert eine Root Note und den gewählten Akkordtyp; Live Rec ist keine zeitlich freie Mehrspuraufnahme.
 
 Die Wiedergabe verwendet einen Lookahead-Scheduler auf der AudioContext-Zeitachse. Sehr stark gedrosselte Hintergrund-Tabs können browserbedingt dennoch Aussetzer verursachen.
+
+## Master FX
+
+Das dritte Hauptregister bearbeitet den gesamten Stereo-Bus. **MASTER FX ON / BYPASS ALL** schaltet die Master-Verarbeitung um. Der Ausgangslimiter bleibt aktiv.
+
+- **Heat / Drive:** acht eigene Kennlinien – Clean Boost, Saturation, Enhancement, Mid Drive, Rough Crunch, Classic Distortion, Round Fuzz und High Gain – mit Drive, Bias, Tone, Low Cut, Dry/Wet und Output. Die Sektion ist vom Bedienkonzept des Analog Heat MK II inspiriert, keine Emulation der Hardware.
+- **Equalizer:** umschaltbar zwischen 2-Band (Low-/High-Shelf), 3-Band (Low-Shelf, Mitten-Bell, High-Shelf) und 8-Band (63 Hz bis 8 kHz). Jeder Modus behält seine eigenen Gain-Werte; Doppelklick auf einen Fader setzt ihn auf 0 dB.
+- **Dynamics / Stereo:** Glue-Kompressor mit Threshold, Ratio, Attack, Release und Makeup. Stereo-Breite von Mono (0 %) über unverändertes Stereo (100 %) bis erweiterte Seitenanteile (200 %).
+- **Space:** separat schaltbares Ping-pong-Delay und Stereo-Hall.
+
+Signalweg: Track-Summe → Drive → EQ → Kompressor → Stereo-Breite → Delay → Hall → Master-Pegel → Limiter. Master-Einstellungen werden mit dem Projekt gespeichert und beim WAV-Export berücksichtigt.
 
 ## MIDI und Keyboard
 
@@ -160,7 +180,7 @@ Wahrscheinlichkeiten und zufallsbasierte Klangerzeugung werden bei jedem WAV-Exp
 
 ## Hinweise zur Implementierung
 
-Die acht Engines sind native Web-Audio-Implementierungen. Wavetable bietet vier integrierte Spektralanker; FM verwendet zwei Operatoren; Physical ist ein Saitenmodell. Es werden keine VSTs oder proprietären Hardware-Engines emuliert. Granular hält Live-Noten über einen nachgefüllten Grain-Scheduler und gibt beendete Grains laufend frei. Effekte pro Track sind gemeinsam für alle Stimmen des Tracks.
+Die acht Engines sind native Web-Audio-Implementierungen. Wavetables werden aus 32 definierten spektralen Rezepten erzeugt; FM verwendet bis zu drei Operatoren; Physical ist ein Saitenmodell. Es werden keine VSTs oder proprietären Hardware-Engines emuliert. Granular hält Live-Noten über einen nachgefüllten Grain-Scheduler und gibt beendete Grains laufend frei. Effekte pro Track sind gemeinsam für alle Stimmen des Tracks.
 
 Die Anwendung wurde als Produktions-Bundle kompiliert; es wurden keine Tests ausgeführt. Hardware-MIDI erfordert die lokale Verbindung eines tatsächlichen Geräts.
 
@@ -170,6 +190,11 @@ Die Anwendung wurde als Produktions-Bundle kompiliert; es wurden keine Tests aus
 - `src/audio.ts`: Stimmen, Synthese, Filter/Envelopes/FX, Transport und Offline-Rendering.
 - `src/midi.ts`: Web-MIDI-Verbindungen, Nachrichten und Ausgabe.
 - `src/storage.ts`: IndexedDB sowie Dateiimport/-export.
-- `src/Instrument.tsx`, `src/Sequencer.tsx`, `src/components.tsx`: Instrumentenoberfläche.
+- `src/Instrument.tsx`, `src/SourceEditor.tsx`, `src/Sequencer.tsx`, `src/components.tsx`: Instrumentenoberfläche.
+- `src/catalog.ts`: 32 Wavetables und 96 synthetische Samples mit lokalen Erzeugungsrezepten.
+- `src/lfo.ts`: LFO-Verläufe und Modi.
+- `src/effects.ts`, `src/fx-spec.ts`, `src/FxRack.tsx`: serieller Effekt-Rack, Parameter und Visualisierungen.
+- `src/master-audio.ts`, `src/MasterFX.tsx`: Master-Signalweg und Bedienoberfläche.
+- `src/studio.css`: größere Bedienelemente und Layout der erweiterten Bereiche.
 - `src/App.tsx`: Session-Verwaltung, Routing und Dialoge.
 - `src/styles.css`: Responsives Studio-Design und barrierearme Fokuszustände.

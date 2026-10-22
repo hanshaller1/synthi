@@ -1,3 +1,4 @@
+import MasterFX from "./MasterFX";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
@@ -26,6 +27,7 @@ import {
   Save,
   Search,
   Settings2,
+  SlidersHorizontal,
   Square,
   Undo2,
   Upload,
@@ -101,7 +103,9 @@ export default function App() {
   const [project, setProject] = useState<Project>(makeProject),
     [track, setTrack] = useState(0),
     [tab, setTab] = useState("synth"),
-    [view, setView] = useState<"synthesizer" | "sequencer">("synthesizer"),
+    [view, setView] = useState<"synthesizer" | "sequencer" | "master">(
+      "synthesizer",
+    ),
     [selectedStep, setSelectedStep] = useState(0),
     [page, setPage] = useState(0),
     [modal, setModal] = useState<ModalName>(null);
@@ -572,6 +576,7 @@ export default function App() {
           'input,select,textarea,[role="slider"],[contenteditable="true"]',
         ) ||
         modalRef.current ||
+        document.querySelector('[role="dialog"]') ||
         e.ctrlKey ||
         e.metaKey ||
         e.altKey
@@ -633,6 +638,7 @@ export default function App() {
     () => () => {
       transportRef.current?.stop();
       const ctx = engineRef.current?.context;
+      engineRef.current?.dispose();
       if (ctx instanceof AudioContext) void ctx.close();
       midiRef.current.dispose();
     },
@@ -947,17 +953,12 @@ export default function App() {
             </IconButton>
           </div>
           <div className="position-display">
-            <span>
-              {String(Math.floor(Math.max(0, playheads[0]) / 16) + 1).padStart(
-                2,
-                "0",
-              )}
-            </span>
+            <span>{String(track + 1).padStart(2, "0")}</span>
             <b>:</b>
             <span>
-              {String(Math.max(0, playheads[0]) + 1).padStart(2, "0")}
+              {String(Math.max(0, playheads[track]) + 1).padStart(2, "0")}
             </span>
-            <small>BAR / STEP</small>
+            <small>TRACK / TRIG</small>
           </div>
         </div>
         <div className="topbar-actions">
@@ -1002,19 +1003,19 @@ export default function App() {
             <i />
           </button>
         </div>
-      </header>
-      <div className="workspace-bar">
-        <div>
-          <span className="workspace-label">
-            <AudioLines size={12} /> STUDIO
-          </span>
-          <span className="workspace-separator">/</span>
-          <span className="workspace-subtitle">
-            An idea. A little voltage. A whole new sound.
-          </span>
-        </div>
-        <div>
-          <span className="local-status">
+        <div className="topbar-utilities">
+          {" "}
+          <span
+            className={`local-status save-${saveState}`}
+            title={
+              saveState === "saved"
+                ? "Lokal gespeichert"
+                : saveState === "error"
+                  ? "Speichern fehlgeschlagen – Projekt exportieren"
+                  : "Wird gespeichert"
+            }
+            aria-live="polite"
+          >
             {saveState === "saved" ? (
               <Check size={11} />
             ) : saveState === "error" ? (
@@ -1041,7 +1042,7 @@ export default function App() {
             <Settings2 size={14} />
           </IconButton>
         </div>
-      </div>
+      </header>
       <div className="studio-body">
         <aside className="rack-sidebar">
           <div className="rack-heading">
@@ -1154,6 +1155,14 @@ export default function App() {
               >
                 <Layers3 size={15} /> Sequencer <span>8 TRACKS</span>
               </button>
+              <button
+                role="tab"
+                aria-selected={view === "master"}
+                className={view === "master" ? "active" : ""}
+                onClick={() => setView("master")}
+              >
+                <SlidersHorizontal size={15} /> Master FX
+              </button>
             </nav>
             <div className="main-heading-actions">
               <IconButton
@@ -1198,6 +1207,14 @@ export default function App() {
               onRandom={randomizePatch}
               onPreset={cyclePreset}
               onSample={(file) => void uploadSample(file)}
+            />
+          )}
+          {view === "master" && (
+            <MasterFX
+              value={project.masterFx}
+              onChange={(masterFx) =>
+                updateProject((p) => ({ ...p, masterFx }))
+              }
             />
           )}
           <div className="between-panels">
@@ -1951,13 +1968,16 @@ export default function App() {
                 Granular, Sampler und Physical.
               </p>
               <p>
-                Granular und Sampler enthalten eine interne Textur. Eigene
-                Samples über <b>Load sample</b> laden (max. 15 MB / 60 s).
+                Granular und Sampler enthalten eine interne Textur. Eigene 32
+                Wavetables, 32 Granular-Texturen und 64 Sampler-Sounds sind
+                integriert. Eigene Samples über <b>Import sample</b> laden (max.
+                15 MB / 60 s).
               </p>
               <p>
-                Modulation: Drei LFOs und bis zu acht Routen. Effekte: vier
-                Slots für Saturation, Modulation, Delay und Reverb mit jeweils
-                fünf Varianten.
+                Modulation: Drei LFOs mit Exp, Ramp, Random und
+                Free/Hold/One/Half; bis zu acht Routen. Effekte: vier Slots für
+                Saturation, Modulation, Delay und Reverb mit jeweils fünf
+                Varianten, eigenem Bypass und veränderbarer Reihenfolge.
               </p>
               <p>
                 Sounds über die Library speichern, Projekte inklusive Samples

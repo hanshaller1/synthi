@@ -11,8 +11,15 @@ import {
   UnlockKeyhole,
   X,
 } from "lucide-react";
-import { IconButton, Select } from "./components";
-import { CHORDS, LOCK_PARAMS, PARAMS, noteName } from "./model";
+import { IconButton, Select, Modal } from "./components";
+import {
+  CHORDS,
+  LOCK_PARAMS,
+  PARAMS,
+  STEP_SPANS,
+  stepLengthLabel,
+  noteName,
+} from "./model";
 import type { Condition, Param, Pattern, Project, Step } from "./model";
 import { useState } from "react";
 
@@ -46,7 +53,159 @@ export default function Sequencer(p: Props) {
     pattern = project.tracks[track].patterns[project.activePattern],
     step = pattern.steps[selectedStep];
   const [addLock, setAddLock] = useState<Param>("cutoff");
+  const [editorOpen, setEditorOpen] = useState(false);
   const change = (patch: Partial<Step>) => p.onStep(track, selectedStep, patch);
+  const stepEditor = (
+    <div className="step-editor">
+      <div className="step-editor-label">
+        <span className="eyebrow">TRIG EDITOR</span>
+        <strong>Step {String(selectedStep + 1).padStart(2, "0")}</strong>
+      </div>
+      <label>
+        NOTE
+        <Select
+          label="Step note"
+          value={step.note}
+          onChange={(v) => change({ note: +v })}
+        >
+          {Array.from({ length: 73 }, (_, i) => i + 24).map((note) => (
+            <option key={note} value={note}>
+              {noteName(note)}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <label>
+        LENGTH
+        <Select
+          label="Step length"
+          value={step.span}
+          onChange={(v) => change({ span: +v })}
+        >
+          {STEP_SPANS.map((span) => (
+            <option key={span} value={span}>
+              {stepLengthLabel(span, pattern.division)}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <label>
+        VELOCITY
+        <input
+          aria-label="Step velocity"
+          type="range"
+          min=".01"
+          max="1"
+          step=".01"
+          value={step.velocity}
+          onChange={(e) => change({ velocity: +e.target.value })}
+        />
+        <output>{Math.round(step.velocity * 100)}%</output>
+      </label>
+      <label>
+        GATE
+        <input
+          aria-label="Step gate"
+          type="range"
+          min=".05"
+          max="4"
+          step=".05"
+          value={step.gate}
+          onChange={(e) => change({ gate: +e.target.value })}
+        />
+        <output>{Math.round(step.gate * 100)}%</output>
+      </label>
+      <label>
+        CHANCE
+        <input
+          aria-label="Step probability"
+          type="range"
+          min="0"
+          max="1"
+          step=".01"
+          value={step.probability}
+          onChange={(e) => change({ probability: +e.target.value })}
+        />
+        <output>{Math.round(step.probability * 100)}%</output>
+      </label>
+      <label>
+        MICRO
+        <input
+          aria-label="Step microtiming"
+          type="range"
+          min="-.45"
+          max=".45"
+          step=".01"
+          value={step.micro}
+          onChange={(e) => change({ micro: +e.target.value })}
+        />
+        <output>
+          {step.micro > 0 ? "+" : ""}
+          {Math.round(step.micro * 100)}%
+        </output>
+      </label>
+      <label>
+        RETRIG
+        <Select
+          label="Step retrig"
+          value={step.retrig}
+          onChange={(v) => change({ retrig: +v })}
+        >
+          {[1, 2, 3, 4, 6, 8].map((n) => (
+            <option key={n} value={n}>
+              {n}×
+            </option>
+          ))}
+        </Select>
+      </label>
+      <label>
+        CONDITION
+        <Select
+          label="Step condition"
+          value={step.condition}
+          onChange={(v) => change({ condition: v as Condition })}
+        >
+          {[
+            ["always", "Always"],
+            ["1:2", "1 : 2"],
+            ["2:2", "2 : 2"],
+            ["1:4", "1 : 4"],
+            ["fill", "Fill"],
+            ["!fill", "Not fill"],
+          ].map(([value, label]) => (
+            <option value={value} key={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <label>
+        CHORD
+        <Select
+          label="Step chord"
+          value={step.chord}
+          onChange={(v) => change({ chord: v as Step["chord"] })}
+        >
+          {Object.keys(CHORDS).map((chord) => (
+            <option key={chord} value={chord}>
+              {chord === "single"
+                ? "Single"
+                : chord[0].toUpperCase() + chord.slice(1)}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <button
+        className={`lock-mode ${p.lockMode ? "active" : ""}`}
+        onClick={() => p.setLockMode(!p.lockMode)}
+        title="Aktiv: Instrument-Regler schreiben Parameter-Locks auf den ausgewählten Step"
+      >
+        {p.lockMode ? <LockKeyhole size={14} /> : <UnlockKeyhole size={14} />}
+        <span>P-LOCK</span>
+        <i />
+      </button>
+    </div>
+  );
   return (
     <section className="sequencer">
       <header className="sequencer-header">
@@ -159,12 +318,8 @@ export default function Sequencer(p: Props) {
       <div className="sequence-grid">
         <div className="step-numbers">
           <span>TRACK / TRIG</span>
-          <div>
-            {Array.from({ length: 16 }, (_, i) => (
-              <span className={i % 4 === 0 ? "beat" : ""} key={i}>
-                {String(page * 16 + i + 1).padStart(2, "0")}
-              </span>
-            ))}
+          <div className="timeline-heading">
+            VARIABLE STEP LENGTH · Shift + Klick / Rechtsklick: Step öffnen
           </div>
           <span />
         </div>
@@ -184,7 +339,15 @@ export default function Sequencer(p: Props) {
                 <span>0{ti + 1}</span>
                 <b>{t.name}</b>
               </button>
-              <div className="steps">
+              <div
+                className="steps"
+                style={{
+                  gridTemplateColumns: pat.steps
+                    .slice(page * 16, page * 16 + 16)
+                    .map((step) => `minmax(0, ${step.span}fr)`)
+                    .join(" "),
+                }}
+              >
                 {Array.from({ length: 16 }, (_, i) => {
                   const index = page * 16 + i,
                     s = pat.steps[index],
@@ -195,20 +358,26 @@ export default function Sequencer(p: Props) {
                       className={`step ${s.on ? "enabled" : ""} ${index === selectedStep && ti === track ? "inspected" : ""} ${p.playing && p.playheads[ti] === index ? "playhead" : ""} ${index >= pat.length ? "outside" : ""} ${i % 4 === 0 ? "beat-start" : ""}`}
                       aria-label={`Track ${ti + 1} Step ${index + 1} ${s.on ? "on" : "off"}`}
                       aria-pressed={s.on}
-                      title={`${noteName(s.note)} · ${Math.round(s.velocity * 100)}%${hasLock ? " · Parameter locks" : ""}\nKlick: Trig · Shift/Rechtsklick: bearbeiten`}
+                      title={`${noteName(s.note)} · ${stepLengthLabel(s.span, pat.division)} · ${Math.round(s.velocity * 100)}%${hasLock ? " · Parameter locks" : ""}\nKlick: Trig · Shift/Rechtsklick: bearbeiten`}
                       onClick={(e) => {
                         p.selectTrack(ti);
                         p.setStep(index);
-                        if (!e.shiftKey && index < pat.length)
+                        if (e.shiftKey) setEditorOpen(true);
+                        else if (index < pat.length)
                           p.onStep(ti, index, { on: !s.on });
                       }}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         p.selectTrack(ti);
                         p.setStep(index);
+                        setEditorOpen(true);
                       }}
                     >
+                      <span className="step-number">{index + 1}</span>
                       <span>{s.on ? noteName(s.note) : "·"}</span>
+                      <span className="step-duration">
+                        {stepLengthLabel(s.span, pat.division)}
+                      </span>
                       {hasLock && <i className="step-lock" />}
                       {s.probability < 1 && s.on && (
                         <small>{Math.round(s.probability * 100)}</small>
@@ -241,145 +410,38 @@ export default function Sequencer(p: Props) {
           );
         })}
       </div>
-      <div className="step-editor">
-        <div className="step-editor-label">
-          <span className="eyebrow">TRIG EDITOR</span>
-          <strong>Step {String(selectedStep + 1).padStart(2, "0")}</strong>
-        </div>
-        <label>
-          NOTE
-          <input
-            aria-label="Step note"
-            type="number"
-            min="24"
-            max="96"
-            value={step.note}
-            onChange={(e) =>
-              change({
-                note: Math.round(
-                  Math.min(96, Math.max(24, +e.target.value || 24)),
-                ),
-              })
-            }
-          />
-          <output>{noteName(step.note)}</output>
-        </label>
-        <label>
-          VELOCITY
-          <input
-            aria-label="Step velocity"
-            type="range"
-            min=".01"
-            max="1"
-            step=".01"
-            value={step.velocity}
-            onChange={(e) => change({ velocity: +e.target.value })}
-          />
-          <output>{Math.round(step.velocity * 100)}%</output>
-        </label>
-        <label>
-          GATE
-          <input
-            aria-label="Step gate"
-            type="range"
-            min=".05"
-            max="4"
-            step=".05"
-            value={step.gate}
-            onChange={(e) => change({ gate: +e.target.value })}
-          />
-          <output>{Math.round(step.gate * 100)}%</output>
-        </label>
-        <label>
-          CHANCE
-          <input
-            aria-label="Step probability"
-            type="range"
-            min="0"
-            max="1"
-            step=".01"
-            value={step.probability}
-            onChange={(e) => change({ probability: +e.target.value })}
-          />
-          <output>{Math.round(step.probability * 100)}%</output>
-        </label>
-        <label>
-          MICRO
-          <input
-            aria-label="Step microtiming"
-            type="range"
-            min="-.45"
-            max=".45"
-            step=".01"
-            value={step.micro}
-            onChange={(e) => change({ micro: +e.target.value })}
-          />
-          <output>
-            {step.micro > 0 ? "+" : ""}
-            {Math.round(step.micro * 100)}%
-          </output>
-        </label>
-        <label>
-          RETRIG
-          <Select
-            label="Step retrig"
-            value={step.retrig}
-            onChange={(v) => change({ retrig: +v })}
-          >
-            {[1, 2, 3, 4, 6, 8].map((n) => (
-              <option key={n} value={n}>
-                {n}×
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label>
-          CONDITION
-          <Select
-            label="Step condition"
-            value={step.condition}
-            onChange={(v) => change({ condition: v as Condition })}
-          >
-            {[
-              ["always", "Always"],
-              ["1:2", "1 : 2"],
-              ["2:2", "2 : 2"],
-              ["1:4", "1 : 4"],
-              ["fill", "Fill"],
-              ["!fill", "Not fill"],
-            ].map(([value, label]) => (
-              <option value={value} key={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label>
-          CHORD
-          <Select
-            label="Step chord"
-            value={step.chord}
-            onChange={(v) => change({ chord: v as Step["chord"] })}
-          >
-            {Object.keys(CHORDS).map((chord) => (
-              <option key={chord} value={chord}>
-                {chord === "single"
-                  ? "Single"
-                  : chord[0].toUpperCase() + chord.slice(1)}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <button
-          className={`lock-mode ${p.lockMode ? "active" : ""}`}
-          onClick={() => p.setLockMode(!p.lockMode)}
-          title="Aktiv: Instrument-Regler schreiben Parameter-Locks auf den ausgewählten Step"
+      {editorOpen ? (
+        <Modal
+          title={`Track ${track + 1} · Step ${String(selectedStep + 1).padStart(2, "0")}`}
+          subtitle="Note, Schrittlänge und Trig-Eigenschaften bearbeiten"
+          wide
+          onClose={() => setEditorOpen(false)}
         >
-          {p.lockMode ? <LockKeyhole size={14} /> : <UnlockKeyhole size={14} />}
-          <span>P-LOCK</span>
-          <i />
-        </button>
-      </div>
+          <div className="step-dialog-switch">
+            <button
+              className={`small-button ${step.on ? "on" : ""}`}
+              onClick={() => change({ on: !step.on })}
+            >
+              {step.on ? "TRIG ON" : "TRIG OFF"}
+            </button>
+            <button
+              className="small-button"
+              onClick={() => p.setStep(Math.max(0, selectedStep - 1))}
+            >
+              ← Step
+            </button>
+            <button
+              className="small-button"
+              onClick={() => p.setStep(Math.min(63, selectedStep + 1))}
+            >
+              Step →
+            </button>
+          </div>
+          {stepEditor}
+        </Modal>
+      ) : (
+        stepEditor
+      )}
       {(p.lockMode || Object.keys(step.locks).length > 0) && (
         <div className="lock-editor">
           <span>

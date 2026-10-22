@@ -1,3 +1,7 @@
+import { SAMPLE_LIBRARY, sampleData, wavetableSpectrum } from "./catalog";
+import { makeLfoSource } from "./lfo";
+import type { Lfo } from "./model";
+import { MasterProcessor } from "./master-audio";
 import {
   TRACK_COUNT,
   CHORDS,
@@ -32,11 +36,12 @@ type Voice = {
   modwheelParams: AudioParam[];
   lfoControls: {
     index: number;
-    oscillator: OscillatorNode;
+    source: AudioBufferSourceNode | ConstantSourceNode;
     gain: GainNode;
     scale: number;
-    shape: OscillatorType;
+    config: Lfo;
   }[];
+  cleanupTimer?: number;
   release: (time: number) => void;
 };
 type Bus = EffectRack & {
@@ -100,8 +105,13 @@ export class SynthEngine {
   readonly context: Context;
   readonly analyser: AnalyserNode;
   readonly master: GainNode;
+  private mixInput: GainNode;
+  private masterProcessor: MasterProcessor;
+  private builtins = new Map<string, AudioBuffer>();
+  private reversed = new WeakMap<AudioBuffer, AudioBuffer>();
   readonly buses: Bus[] = [];
   private voices: Voice[] = [];
+  private cleanupTimers = new Set<number>();
   private sampleCache = new Map<string, AudioBuffer>();
   private sampleLoads = new Map<string, Promise<AudioBuffer>>();
   private trackPatches: (Patch | undefined)[] = [];
@@ -127,6 +137,12 @@ export class SynthEngine {
     this.context = context;
     this.master = context.createGain();
     this.master.gain.value = 0.7;
+    this.mixInput = context.createGain();
+    this.masterProcessor = new MasterProcessor(
+      context,
+      this.mixInput,
+      this.master,
+    );
     const limiter = context.createDynamicsCompressor();
     limiter.threshold.value = -8;
     limiter.knee.value = 6;
@@ -158,7 +174,7 @@ export class SynthEngine {
       paraAmp = c.createGain();
     paraFilter.connect(paraAmp).connect(input);
     paraAmp.gain.value = 0;
-    level.connect(pan).connect(this.master);
+    level.connect(pan).connect(this.mixInput);
     return Object.assign(new EffectRack(c, input, level), {
       input,
       paraFilter,
@@ -171,6 +187,7 @@ export class SynthEngine {
   }
   update(project: Project) {
     this.tempo = project.tempo;
+    this.masterProcessor.update(project.masterFx);
     this.master.gain.setTargetAtTime(
       project.master,
       this.context.currentTime,
@@ -225,15 +242,34 @@ export class SynthEngine {
     ))
       for (const control of voice.lfoControls) {
         const l = p.lfos[control.index];
-        if (control.shape !== l.shape) {
-          control.oscillator.type = l.shape;
-          control.shape = l.shape;
+        if (
+          control.config.shape !== l.shape ||
+          control.config.mode !== l.mode ||
+          control.config.retrigger !== l.retrigger
+        ) {
+          try {
+            control.source.stop(t);
+          } catch {
+            /* Already finished one-shot. */
+          }
+          control.source.disconnect();
+          control.source = makeLfoSource(
+            this.context,
+            l,
+            this.tempo,
+            t,
+            control.index,
+          );
+          control.source.connect(control.gain);
+          voice.sources.push(control.source);
+        } else if (control.source instanceof AudioBufferSourceNode) {
+          control.source.playbackRate.setTargetAtTime(
+            l.sync ? this.tempo / 60 / l.division : l.rate,
+            t,
+            0.02,
+          );
         }
-        control.oscillator.frequency.setTargetAtTime(
-          l.sync ? this.tempo / 60 / l.division : l.rate,
-          t,
-          0.02,
-        );
+        control.config = { ...l };
         control.gain.gain.setTargetAtTime(control.scale * l.depth, t, 0.02);
       }
     this.trackPatches[track.id] = p;
@@ -246,6 +282,39 @@ export class SynthEngine {
     ];
     for (const [param, value] of values) param.setValueAtTime(value, when);
     b.scheduleEffects(patch, when);
+  }
+  private builtin(id: string) {
+    const cached = this.builtins.get(id);
+    if (cached) return cached;
+    const descriptor = SAMPLE_LIBRARY.find((s) => s.id === id);
+    if (!descriptor) return this.defaultSample;
+    const data = sampleData(descriptor, this.context.sampleRate);
+    const buffer = this.context.createBuffer(
+      1,
+      data.length,
+      this.context.sampleRate,
+    );
+    buffer.copyToChannel(data, 0);
+    this.builtins.set(id, buffer);
+    if (this.builtins.size > 12)
+      this.builtins.delete(this.builtins.keys().next().value!);
+    return buffer;
+  }
+  private reverse(buffer: AudioBuffer) {
+    const cached = this.reversed.get(buffer);
+    if (cached) return cached;
+    const result = this.context.createBuffer(
+      buffer.numberOfChannels,
+      buffer.length,
+      buffer.sampleRate,
+    );
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++)
+      result.copyToChannel(
+        buffer.getChannelData(channel).slice().reverse(),
+        channel,
+      );
+    this.reversed.set(buffer, result);
+    return result;
   }
   async loadSample(data: string): Promise<AudioBuffer> {
     const cached = this.sampleCache.get(data);
@@ -269,6 +338,14 @@ export class SynthEngine {
     return load;
   }
   async prepare(project: Project) {
+    for (const { patch } of project.tracks)
+      if (
+        !patch.sample &&
+        (patch.engine === "sampler" || patch.engine === "granular")
+      )
+        this.builtin(
+          patch.engine === "granular" ? patch.grainSampleId : patch.sampleId,
+        );
     await Promise.all(
       project.tracks
         .filter((t) => t.patch.sample)
@@ -445,8 +522,10 @@ export class SynthEngine {
       modwheelParams: AudioParam[] = [],
       lfoControls: Voice["lfoControls"] = [],
       pitchModNodes: GainNode[] = [];
-    let grainTimer: number | undefined;
-    let scheduleGrains: ((until: number) => void) | undefined;
+    const fixedEnds = new Map<Source, number>();
+    let physicalBuffer: AudioBuffer | undefined;
+    const grainTimers: number[] = [];
+    const grainSchedulers: ((until: number) => void)[] = [];
     const previousNote = this.lastNotes[track];
     const applyPitch = (param: AudioParam, offset = 0) => {
       pitch.push(param);
@@ -460,6 +539,7 @@ export class SynthEngine {
       }
     };
     let ringGain: GainNode | undefined, fmGain: GainNode | undefined;
+    const fmGains: AudioParam[] = [];
     const addOsc = (
       wave: OscillatorType,
       freq: number,
@@ -479,191 +559,359 @@ export class SynthEngine {
       osc.start(start);
       return osc;
     };
-    if (p.engine === "subtractive") {
-      addOsc(p.wave, frequency, 1 - p.mix * 0.5, -p.detune / 2);
-      addOsc(p.wave2, frequency, p.mix * 0.7, p.detune / 2);
-    }
-    if (p.engine === "wavetable") {
-      const osc = addOsc("sine", frequency, 0.7, -p.detune / 2),
-        real = new Float32Array(65),
-        imag = new Float32Array(65);
-      // Four spectral anchors: sine → triangle → saw → square.
-      const x = p.shape * 3,
-        a = Math.floor(x),
-        m = x - a;
-      const coefficient = (type: number, n: number) =>
-        type === 0
-          ? n === 1
-            ? 1
-            : 0
-          : type === 1
-            ? n % 2
-              ? Math.sin((n * Math.PI) / 2) / (n * n)
-              : 0
-            : type === 2
-              ? (n % 2 ? 1 : -1) / n
-              : n % 2
-                ? 1 / n
-                : 0;
-      for (let n = 1; n < 65; n++)
-        imag[n] =
-          (1 - m) * coefficient(a, n) + m * coefficient(Math.min(3, a + 1), n);
-      const wave = c.createPeriodicWave(real, imag);
-      osc.setPeriodicWave(wave);
-      if (p.detune > 0.05)
-        addOsc("sine", frequency, 0.5, p.detune / 2).setPeriodicWave(wave);
-    }
-    if (p.engine === "fm") {
-      const carrier = addOsc(p.wave, frequency, 0.85),
-        mod = c.createOscillator();
-      fmGain = c.createGain();
-      mod.type = p.wave2;
-      mod.frequency.value = frequency * p.fmRatio;
-      applyPitch(mod.detune);
-      fmGain.gain.value = frequency * p.fmIndex;
-      mod.connect(fmGain);
-      fmGain.connect(carrier.frequency);
-      sources.push(mod);
-      nodes.push(fmGain);
-      mod.start(start);
-    }
-    if (p.engine === "additive") {
-      const osc = addOsc("sine", frequency, 0.85),
-        real = new Float32Array(65),
-        imag = new Float32Array(65);
-      for (let n = 1; n <= Math.round(p.harmonics); n++)
-        imag[n] =
-          Math.pow(n, -(2.5 - p.brightness * 2)) *
-          (1 - p.shape * 0.8 + (n % 2 ? p.shape * 0.8 : 0));
-      osc.setPeriodicWave(c.createPeriodicWave(real, imag));
-    }
-    if (p.engine === "ring") {
-      const carrier = c.createOscillator(),
-        mod = c.createOscillator();
-      ringGain = c.createGain();
-      const depth = c.createGain();
-      carrier.type = p.wave;
-      carrier.frequency.value = frequency;
-      applyPitch(carrier.detune);
-      mod.type = p.wave2;
-      mod.frequency.value = frequency * p.fmRatio;
-      applyPitch(mod.detune);
-      ringGain.gain.value = (1 - p.shape) * 0.5;
-      depth.gain.value = 0.5 + p.shape * 0.5;
-      mod.connect(depth);
-      depth.connect(ringGain.gain);
-      carrier.connect(ringGain);
-      ringGain.connect(drive);
-      sources.push(carrier, mod);
-      nodes.push(ringGain, depth);
-      carrier.start(start);
-      mod.start(start);
-    }
-    if (p.engine === "physical") {
-      const count = Math.ceil(c.sampleRate * 6),
-        buffer = c.createBuffer(1, count, c.sampleRate),
-        d = buffer.getChannelData(0),
-        period = Math.max(2, Math.floor(c.sampleRate / frequency)),
-        line = new Float32Array(period);
-      for (let i = 0; i < period; i++)
-        line[i] = (Math.random() * 2 - 1) * (0.3 + p.brightness * 0.7);
-      for (let i = 0; i < count; i++) {
-        const index = i % period,
-          next = (index + 1) % period;
-        const val = (line[index] + line[next]) * 0.5 * p.damping;
-        d[i] = line[index];
-        line[index] = val;
-      }
-      const source = c.createBufferSource();
-      source.buffer = buffer;
-      applyPitch(source.detune);
-      source.connect(drive);
-      sources.push(source);
-      source.start(start);
-    }
-    if (p.engine === "sampler" || p.engine === "granular") {
-      const sample =
-          (p.sample && this.sampleCache.get(p.sample)) || this.defaultSample,
-        rate = 2 ** ((note + p.tune - p.sampleRoot) / 12);
-      const sampleStart =
-          Math.min(p.sampleStart, p.sampleEnd - 0.01) * sample.duration,
-        sampleEnd =
-          Math.max(p.sampleEnd, p.sampleStart + 0.01) * sample.duration;
-      if (p.engine === "sampler") {
-        const source = c.createBufferSource();
-        source.buffer = sample;
-        source.playbackRate.value = rate;
-        applyPitch(source.detune);
-        source.loop = p.sampleLoop;
-        source.loopStart = sampleStart;
-        source.loopEnd = sampleEnd;
-        source.connect(drive);
-        sources.push(source);
-        source.start(
-          start,
-          sampleStart,
-          p.sampleLoop ? undefined : sampleEnd - sampleStart,
-        );
-      } else {
-        // Live clouds are replenished with a short lookahead, without accumulating ended grains.
-        let cursor = start;
-        scheduleGrains = (until: number) => {
-          if (c instanceof AudioContext && cursor < c.currentTime - 0.1)
-            cursor = c.currentTime;
-          while (cursor < until) {
-            const at = cursor,
-              source = c.createBufferSource(),
-              window = c.createGain();
-            cursor += 1 / p.grainDensity;
-            source.buffer = sample;
-            source.playbackRate.value =
-              rate * (1 + (Math.random() - 0.5) * p.spread * 0.08);
-            applyPitch(source.detune);
-            const length = Math.min(p.grainSize, sample.duration / rate),
-              offset = clamp(
-                p.position * sample.duration +
-                  (Math.random() - 0.5) * p.spread * sample.duration,
-                0,
-                Math.max(0, sample.duration - length * rate),
-              );
-            window.gain.setValueAtTime(0, at);
-            window.gain.linearRampToValueAtTime(
-              0.75 / Math.sqrt(Math.max(1, p.grainDensity * length)),
-              at + length * 0.4,
-            );
-            window.gain.linearRampToValueAtTime(0, at + length);
-            source.connect(window);
-            window.connect(drive);
-            sources.push(source);
-            nodes.push(window);
-            source.start(at, offset);
-            source.stop(at + length);
-            source.onended = () => {
-              source.disconnect();
-              window.disconnect();
-              const si = sources.indexOf(source);
-              if (si >= 0) sources.splice(si, 1);
-              const ni = nodes.indexOf(window);
-              if (ni >= 0) nodes.splice(ni, 1);
-              const pi = pitch.indexOf(source.detune);
-              if (pi >= 0) pitch.splice(pi, 1);
-              pitchOffsets.delete(source.detune);
-              for (const mod of pitchModNodes)
-                try {
-                  mod.disconnect(source.detune);
-                } catch {
-                  /* The voice may already have been disconnected. */
-                }
-            };
+    const layers = Math.round(p.unison);
+    for (let layer = 0; layer < layers; layer++) {
+      const position = layers === 1 ? 0 : (layer / (layers - 1)) * 2 - 1;
+      const layerDetune =
+        position * p.unisonDetune + (Math.random() - 0.5) * p.drift;
+      const layerSink = c.createGain(),
+        layerPan = c.createStereoPanner();
+      layerSink.gain.value = 1 / layers;
+      layerPan.pan.value = position * p.unisonWidth;
+      layerSink.connect(layerPan).connect(drive);
+      nodes.push(layerSink, layerPan);
+      const applyLayerPitch = (param: AudioParam, offset = 0) =>
+        applyPitch(param, offset + layerDetune);
+      const addLayerOsc = (
+        wave: OscillatorType,
+        freq: number,
+        gain: number,
+        detune = 0,
+      ) => {
+        const osc = c.createOscillator(),
+          level = c.createGain();
+        osc.type = wave;
+        osc.frequency.value = freq;
+        applyLayerPitch(osc.detune, detune);
+        level.gain.value = gain;
+        if (wave === "square" && Math.abs(p.pulseWidth - 0.5) > 0.001) {
+          const real = new Float32Array(65),
+            imag = new Float32Array(65);
+          for (let n = 1; n < 65; n++) {
+            real[n] = Math.sin(n * 2 * Math.PI * p.pulseWidth) / (n * Math.PI);
+            imag[n] =
+              (1 - Math.cos(n * 2 * Math.PI * p.pulseWidth)) / (n * Math.PI);
           }
-        };
-        if (duration === undefined && c instanceof AudioContext) {
-          scheduleGrains(start + 0.15);
-          grainTimer = window.setInterval(
-            () => scheduleGrains?.(c.currentTime + 0.15),
-            25,
+          osc.setPeriodicWave(c.createPeriodicWave(real, imag));
+        }
+        osc.connect(level).connect(layerSink);
+        nodes.push(level);
+        sources.push(osc);
+        osc.start(start);
+        return osc;
+      };
+      if (p.engine === "subtractive") {
+        addLayerOsc(p.wave, frequency, 1 - p.mix * 0.5, -p.detune / 2);
+        addLayerOsc(
+          p.wave2,
+          frequency * 2 ** (p.osc2Tune / 12),
+          p.mix * 0.7,
+          p.detune / 2,
+        );
+      }
+      if (p.engine === "wavetable") {
+        const { real, imag } = wavetableSpectrum(
+          p.wavetable,
+          p.shape,
+          p.wtWarp,
+          p.wtFormant,
+          p.brightness,
+        );
+        const wave = c.createPeriodicWave(real, imag);
+        addLayerOsc("sine", frequency, 0.8, -p.detune / 2).setPeriodicWave(
+          wave,
+        );
+        if (p.detune > 0.05)
+          addLayerOsc("sine", frequency, 0.5, p.detune / 2).setPeriodicWave(
+            wave,
           );
-        } else scheduleGrains(start + (duration ?? 8) + p.release);
+      }
+      if (p.engine === "fm") {
+        const carrier = addLayerOsc(p.wave, frequency, 0.85),
+          mod = c.createOscillator();
+        fmGain = c.createGain();
+        mod.type = p.wave2;
+        mod.frequency.value = frequency * p.fmRatio;
+        applyLayerPitch(mod.detune);
+        fmGain.gain.value = frequency * p.fmIndex;
+        fmGains.push(fmGain.gain);
+        mod.connect(fmGain);
+        fmGain.connect(carrier.frequency);
+        sources.push(mod);
+        nodes.push(fmGain);
+        mod.start(start);
+        fmGain.gain.setValueAtTime(Math.max(EPS, frequency * p.fmIndex), start);
+        fmGain.gain.exponentialRampToValueAtTime(
+          Math.max(EPS, frequency * p.fmIndex * p.fmEnd),
+          start + p.fmDecay,
+        );
+        if (p.fmFeedback > 0.001) {
+          const delay = c.createDelay(0.01),
+            feedback = c.createGain();
+          delay.delayTime.value = 1 / c.sampleRate;
+          feedback.gain.value = frequency * p.fmFeedback * 0.7;
+          mod.connect(delay).connect(feedback).connect(mod.frequency);
+          nodes.push(delay, feedback);
+        }
+        if (p.fmIndex2 > 0.001) {
+          const third = c.createOscillator(),
+            index = c.createGain();
+          third.type = "sine";
+          third.frequency.value = frequency * p.fmRatio2;
+          applyLayerPitch(third.detune);
+          index.gain.value = frequency * p.fmIndex2;
+          third
+            .connect(index)
+            .connect(
+              p.fmAlgorithm === "serial" ? mod.frequency : carrier.frequency,
+            );
+          sources.push(third);
+          nodes.push(index);
+          third.start(start);
+        }
+      }
+      if (p.engine === "additive") {
+        const real = new Float32Array(65),
+          imag = new Float32Array(65);
+        for (let n = 1; n <= Math.round(p.harmonics); n++) {
+          const peak = Math.exp(-(((n - p.spectralPeak) / 2) ** 2));
+          imag[n] =
+            Math.pow(n, -(2.5 - p.brightness * 2 - p.spectralTilt)) *
+            (1 - p.shape * 0.8 + (n % 2 ? p.shape * 0.8 : 0)) *
+            (1 + peak * p.spectralResonance * 5);
+        }
+        if (p.inharmonicity < 0.0001)
+          addLayerOsc("sine", frequency, 0.85).setPeriodicWave(
+            c.createPeriodicWave(real, imag),
+          );
+        else {
+          let energy = 0;
+          for (const amplitude of imag) energy += Math.abs(amplitude);
+          const count = Math.min(
+            Math.round(p.harmonics),
+            Math.max(8, Math.floor(96 / layers)),
+          );
+          for (let n = 1; n <= count; n++)
+            addLayerOsc(
+              "sine",
+              frequency * n * Math.sqrt(1 + p.inharmonicity * n * n),
+              imag[n] / Math.max(1, energy),
+            );
+        }
+      }
+      if (p.engine === "ring") {
+        const carrier = c.createOscillator(),
+          mod = c.createOscillator();
+        ringGain = c.createGain();
+        const depth = c.createGain();
+        carrier.type = p.wave;
+        carrier.frequency.value = frequency;
+        applyLayerPitch(carrier.detune);
+        mod.type = p.wave2;
+        mod.frequency.value = Math.max(
+          0.01,
+          frequency * p.fmRatio + (p.engine === "ring" ? p.ringOffset : 0),
+        );
+        applyLayerPitch(mod.detune);
+        ringGain.gain.value =
+          1 - p.ringDepth + p.ringDepth * (1 - p.shape) * 0.5 + p.ringBias;
+        depth.gain.value = (0.5 + p.shape * 0.5) * p.ringDepth;
+        if (p.ringDry > 0.001) {
+          const dry = c.createGain();
+          dry.gain.value = p.ringDry;
+          carrier.connect(dry).connect(layerSink);
+          nodes.push(dry);
+        }
+        mod.connect(depth);
+        depth.connect(ringGain.gain);
+        carrier.connect(ringGain);
+        ringGain.connect(layerSink);
+        sources.push(carrier, mod);
+        nodes.push(ringGain, depth);
+        carrier.start(start);
+        mod.start(start);
+      }
+      if (p.engine === "physical") {
+        if (!physicalBuffer) {
+          const count = Math.ceil(
+              c.sampleRate * Math.min(12, p.stringDecay * 1.5),
+            ),
+            buffer = c.createBuffer(1, count, c.sampleRate),
+            d = buffer.getChannelData(0),
+            period = Math.max(2, Math.floor(c.sampleRate / frequency)),
+            line = new Float32Array(period);
+          for (let i = 0; i < period; i++)
+            line[i] =
+              (p.excitation === "bow"
+                ? Math.sin((i / period) * Math.PI * 2) * 0.6 +
+                  (Math.random() * 2 - 1) * 0.4
+                : Math.random() * 2 - 1) *
+              (0.3 + p.brightness * 0.7);
+          {
+            const original = line.slice(),
+              offset = Math.max(1, Math.floor(period * p.pluckPosition));
+            for (let i = 0; i < period; i++)
+              line[i] -=
+                original[(i + offset) % period] *
+                (p.excitation === "pick" ? 0.9 : 0.4);
+          }
+          for (let i = 0; i < count; i++) {
+            const index = i % period,
+              next = (index + 1) % period;
+            const val =
+              (line[index] * (0.5 + p.dispersion * 0.2) +
+                line[next] * (0.5 - p.dispersion * 0.2)) *
+              p.damping *
+              Math.exp(-4 / (frequency * p.stringDecay));
+            d[i] = line[index];
+            line[index] = val;
+          }
+          physicalBuffer = buffer;
+        }
+        const source = c.createBufferSource();
+        source.buffer = physicalBuffer;
+        applyLayerPitch(source.detune);
+        const body = c.createBiquadFilter();
+        body.type = "peaking";
+        body.frequency.value = 180 + p.bodySize * 650;
+        body.Q.value = 0.7 + p.bodySize * 3;
+        body.gain.value = p.bodySize * 12;
+        source.connect(body).connect(layerSink);
+        nodes.push(body);
+        sources.push(source);
+        source.start(start);
+      }
+      if (p.engine === "sampler" || p.engine === "granular") {
+        const sample =
+            (p.sample && this.sampleCache.get(p.sample)) ||
+            this.builtin(
+              p.engine === "granular" ? p.grainSampleId : p.sampleId,
+            ),
+          rate = 2 ** ((note + p.tune - p.sampleRoot) / 12);
+        const sampleStart =
+            Math.min(p.sampleStart, p.sampleEnd - 0.01) * sample.duration,
+          sampleEnd =
+            Math.max(p.sampleEnd, p.sampleStart + 0.01) * sample.duration;
+        if (p.engine === "sampler") {
+          const source = c.createBufferSource();
+          source.buffer =
+            p.sampleReverse >= 0.5 ? this.reverse(sample) : sample;
+          source.playbackRate.value = rate * 2 ** (p.sampleFine / 1200);
+          applyLayerPitch(source.detune);
+          source.loop = p.sampleLoop;
+          source.loopStart =
+            sampleStart +
+            Math.min(p.sampleLoopStart, p.sampleLoopEnd - 0.01) *
+              (sampleEnd - sampleStart);
+          source.loopEnd =
+            sampleStart +
+            Math.max(p.sampleLoopEnd, p.sampleLoopStart + 0.01) *
+              (sampleEnd - sampleStart);
+          const fade = c.createGain();
+          const clipDuration =
+            (sampleEnd - sampleStart) /
+            (source.playbackRate.value *
+              2 ** ((layerDetune + this.bends[track]) / 1200));
+          const edge = p.sampleLoop
+            ? p.sampleFade
+            : Math.min(p.sampleFade, clipDuration * 0.45);
+          fade.gain.setValueAtTime(edge > 0 ? 0 : 1, start);
+          if (edge > 0) fade.gain.linearRampToValueAtTime(1, start + edge);
+          if (!p.sampleLoop && edge > 0) {
+            const end = start + clipDuration;
+            fade.gain.setValueAtTime(1, end - edge);
+            fade.gain.linearRampToValueAtTime(0, end);
+          }
+          source.connect(fade).connect(layerSink);
+          nodes.push(fade);
+          sources.push(source);
+          source.start(
+            start,
+            sampleStart,
+            p.sampleLoop ? undefined : sampleEnd - sampleStart,
+          );
+        } else {
+          // Live clouds are replenished with a short lookahead, without accumulating ended grains.
+          let cursor = start;
+          const scheduleGrains = (until: number) => {
+            if (c instanceof AudioContext && cursor < c.currentTime - 0.1)
+              cursor = c.currentTime;
+            while (cursor < until) {
+              const at = cursor,
+                source = c.createBufferSource(),
+                window = c.createGain();
+              cursor += 1 / p.grainDensity;
+              source.buffer =
+                Math.random() < p.grainReverse ? this.reverse(sample) : sample;
+              source.playbackRate.value =
+                rate * 2 ** (((Math.random() - 0.5) * p.grainPitch) / 12);
+              applyLayerPitch(source.detune);
+              const actualRate =
+                source.playbackRate.value *
+                2 ** ((layerDetune + this.bends[track]) / 1200);
+              const length = Math.min(
+                  p.grainSize,
+                  sample.duration / actualRate,
+                ),
+                offset = clamp(
+                  ((((p.position + (at - start) * p.grainScan * 0.15) % 1) +
+                    1) %
+                    1) *
+                    sample.duration +
+                    (Math.random() - 0.5) * p.spread * sample.duration,
+                  0,
+                  Math.max(0, sample.duration - length * actualRate),
+                );
+              window.gain.setValueAtTime(0, at);
+              window.gain.linearRampToValueAtTime(
+                0.75 / Math.sqrt(Math.max(1, p.grainDensity * length)),
+                at + length * p.grainWindow,
+              );
+              window.gain.linearRampToValueAtTime(0, at + length);
+              source.connect(window);
+              const grainPan = c.createStereoPanner();
+              grainPan.pan.value = (Math.random() * 2 - 1) * p.grainPan;
+              window.connect(grainPan).connect(layerSink);
+              nodes.push(grainPan);
+              sources.push(source);
+              nodes.push(window);
+              source.start(at, offset);
+              source.stop(at + length);
+              fixedEnds.set(source, at + length);
+              source.onended = () => {
+                source.disconnect();
+                fixedEnds.delete(source);
+                window.disconnect();
+                grainPan.disconnect();
+                const gi = nodes.indexOf(grainPan);
+                if (gi >= 0) nodes.splice(gi, 1);
+                const si = sources.indexOf(source);
+                if (si >= 0) sources.splice(si, 1);
+                const ni = nodes.indexOf(window);
+                if (ni >= 0) nodes.splice(ni, 1);
+                const pi = pitch.indexOf(source.detune);
+                if (pi >= 0) pitch.splice(pi, 1);
+                pitchOffsets.delete(source.detune);
+                for (const mod of pitchModNodes)
+                  try {
+                    mod.disconnect(source.detune);
+                  } catch {
+                    /* The voice may already have been disconnected. */
+                  }
+              };
+            }
+          };
+          grainSchedulers.push(scheduleGrains);
+          if (duration === undefined && c instanceof AudioContext) {
+            scheduleGrains(start + 0.15);
+            grainTimers.push(
+              window.setInterval(
+                () => scheduleGrains?.(c.currentTime + 0.15),
+                25,
+              ),
+            );
+          } else scheduleGrains(start + (duration ?? 8) + p.release);
+        }
       }
     }
     if (
@@ -695,7 +943,7 @@ export class SynthEngine {
       pitch: { params: pitch, scale: 1200 },
       amplitude: { params: [amp.gain], scale: 0.16 * velocity },
       pan: { params: [panner.pan], scale: 1 },
-      fmIndex: { params: fmGain ? [fmGain.gain] : [], scale: frequency * 10 },
+      fmIndex: { params: fmGains, scale: frequency * 10 },
     };
     for (const mod of p.mods) {
       const target = targets[mod.target];
@@ -710,33 +958,17 @@ export class SynthEngine {
       ) {
         const index = Number(mod.source.slice(-1)) - 1;
         const l = p.lfos[index],
-          osc = c.createOscillator();
-        osc.type = l.shape;
-        osc.frequency.value = l.sync ? this.tempo / 60 / l.division : l.rate;
+          source = makeLfoSource(c, l, this.tempo, start, index);
         gain.gain.value *= l.depth;
-        // A continuously phased LFO uses context time; retriggered LFOs start at phase zero.
-        if (!l.retrigger) {
-          const real = new Float32Array([
-              0,
-              Math.sin(start * osc.frequency.value * 2 * Math.PI),
-            ]),
-            imag = new Float32Array([
-              0,
-              Math.cos(start * osc.frequency.value * 2 * Math.PI),
-            ]);
-          if (l.shape === "sine")
-            osc.setPeriodicWave(c.createPeriodicWave(real, imag));
-        }
-        osc.connect(gain);
+        source.connect(gain);
         lfoControls.push({
           index,
-          oscillator: osc,
+          source,
           gain,
           scale: mod.amount * target.scale,
-          shape: l.shape,
+          config: { ...l },
         });
-        sources.push(osc);
-        osc.start(start);
+        sources.push(source);
       } else {
         const source = c.createConstantSource();
         source.offset.value =
@@ -799,11 +1031,9 @@ export class SynthEngine {
           velocity *
           0.24;
       voice.releaseAt = releaseAt;
-      if (grainTimer !== undefined) {
-        window.clearInterval(grainTimer);
-        grainTimer = undefined;
-        scheduleGrains?.(releaseAt + p.release);
-      }
+      for (const timer of grainTimers) window.clearInterval(timer);
+      grainTimers.length = 0;
+      for (const schedule of grainSchedulers) schedule(releaseAt + p.release);
       const others = this.voices.filter(
         (v) =>
           v !== voice &&
@@ -875,7 +1105,7 @@ export class SynthEngine {
       voice.end = end;
       for (const source of sources) {
         try {
-          source.stop(end);
+          source.stop(Math.min(end, fixedEnds.get(source) ?? end));
         } catch {
           /* A short grain may already have ended. */
         }
@@ -891,14 +1121,22 @@ export class SynthEngine {
           },
           { once: true },
         );
-      if (c instanceof AudioContext)
-        window.setTimeout(
+      if (c instanceof AudioContext) {
+        if (voice.cleanupTimer !== undefined) {
+          window.clearTimeout(voice.cleanupTimer);
+          this.cleanupTimers.delete(voice.cleanupTimer);
+        }
+        const timer = window.setTimeout(
           () => {
+            this.cleanupTimers.delete(timer);
             for (const n of [...sources, ...nodes]) n.disconnect();
             this.voices = this.voices.filter((v) => v !== voice);
           },
           Math.max(0, (end - c.currentTime) * 1000) + 100,
         );
+        voice.cleanupTimer = timer;
+        this.cleanupTimers.add(timer);
+      }
     };
     this.voices.push(voice);
     if (duration !== undefined) voice.release(start + Math.max(0.01, duration));
@@ -952,6 +1190,11 @@ export class SynthEngine {
   }
   dispose() {
     this.panic();
+    for (const timer of this.cleanupTimers) window.clearTimeout(timer);
+    this.cleanupTimers.clear();
+    for (const voice of this.voices)
+      for (const node of [...voice.sources, ...voice.nodes]) node.disconnect();
+    this.voices = [];
     for (const b of this.buses) {
       b.disposeEffects();
       b.paraFilter.disconnect();
@@ -960,6 +1203,8 @@ export class SynthEngine {
       b.level.disconnect();
       b.pan.disconnect();
     }
+    this.masterProcessor.dispose();
+    this.mixInput.disconnect();
     this.master.disconnect();
   }
 }
@@ -979,6 +1224,11 @@ export class Transport {
   fill = false;
   external = false;
   private clockPulses = 0;
+  private cursors = Array.from({ length: TRACK_COUNT }, () => ({
+    next: 0,
+    position: 0,
+  }));
+  private patternIndex = -1;
   onStep: (event: StepEvent) => void = () => {};
   onClock: (status: number, time: number) => void = () => {};
   onNote: (
@@ -1001,6 +1251,11 @@ export class Transport {
   start(external = false) {
     if (this.running) return;
     this.tick = 0;
+    this.cursors = Array.from({ length: TRACK_COUNT }, () => ({
+      next: 0,
+      position: 0,
+    }));
+    this.patternIndex = -1;
     this.epoch = this.engine.context.currentTime + 0.07;
     this.next = this.epoch;
     this.external = external;
@@ -1034,56 +1289,71 @@ export class Transport {
   private scheduleTick(tick: number, time: number) {
     const project = this.getProject(),
       quantum = 60 / project.tempo / 8;
+    if (this.patternIndex !== project.activePattern) {
+      this.patternIndex = project.activePattern;
+      this.cursors = Array.from({ length: TRACK_COUNT }, () => ({
+        next: tick,
+        position: 0,
+      }));
+    }
     project.tracks.forEach((track) => {
       const pattern = track.patterns[project.activePattern],
-        ratio = 32 / pattern.division;
-      if (tick % ratio !== 0) return;
-      const position = tick / ratio,
-        index = stepIndex(position, pattern.length, pattern.direction),
-        cycle = Math.floor(
+        cursor = this.cursors[track.id];
+      while (cursor.next < tick + 1 - 0.00001) {
+        const position = cursor.position++,
+          index = stepIndex(position, pattern.length, pattern.direction);
+        const cycle = Math.floor(
           position /
             (pattern.direction === "pingpong"
               ? Math.max(1, pattern.length * 2 - 2)
               : pattern.length),
         );
-      const step = pattern.steps[index],
-        duration = quantum * ratio,
-        swing = position % 2 ? project.swing * duration : 0;
-      const at = Math.max(
-        this.engine.context.currentTime,
-        time + swing + step.micro * duration,
-      );
-      const id = window.setTimeout(
-        () => {
-          this.uiTimers.delete(id);
-          this.onStep({ track: track.id, step: index, cycle, time: at });
-        },
-        Math.max(0, (at - this.engine.context.currentTime) * 1000),
-      );
-      this.uiTimers.add(id);
-      const audible =
-        !track.mute && (!project.tracks.some((t) => t.solo) || track.solo);
-      if (audible && shouldTrigger(step, cycle, this.fill)) {
-        const patch = lockedPatch(track.patch, step.locks);
-        this.engine.scheduleTrack(track.id, patch, at);
-        for (let r = 0; r < step.retrig; r++)
-          for (const offset of CHORDS[step.chord]) {
-            const note = clamp(step.note + offset, 0, 127),
-              time = at + (r * duration) / step.retrig,
-              gate = (duration * step.gate) / step.retrig;
-            this.engine.noteOn(
-              track.id,
-              note,
-              step.velocity,
-              patch,
-              time,
-              gate,
-            );
-            this.onNote(track.id, note, step.velocity, time, gate);
-          }
+        const step = pattern.steps[index],
+          ticks = (32 / pattern.division) * step.span,
+          duration = quantum * ticks;
+        const at = Math.max(
+          this.engine.context.currentTime,
+          time +
+            (cursor.next - tick) * quantum +
+            (position % 2
+              ? project.swing * Math.min(duration, quantum * 2)
+              : 0) +
+            step.micro * duration,
+        );
+        cursor.next += ticks;
+        const id = window.setTimeout(
+          () => {
+            this.uiTimers.delete(id);
+            this.onStep({ track: track.id, step: index, cycle, time: at });
+          },
+          Math.max(0, (at - this.engine.context.currentTime) * 1000),
+        );
+        this.uiTimers.add(id);
+        const audible =
+          !track.mute && (!project.tracks.some((t) => t.solo) || track.solo);
+        if (audible && shouldTrigger(step, cycle, this.fill)) {
+          const patch = lockedPatch(track.patch, step.locks);
+          this.engine.scheduleTrack(track.id, patch, at);
+          for (let r = 0; r < step.retrig; r++)
+            for (const offset of CHORDS[step.chord]) {
+              const note = clamp(step.note + offset, 0, 127),
+                when = at + (r * duration) / step.retrig,
+                gate = (duration * step.gate) / step.retrig;
+              this.engine.noteOn(
+                track.id,
+                note,
+                step.velocity,
+                patch,
+                when,
+                gate,
+              );
+              this.onNote(track.id, note, step.velocity, when, gate);
+            }
+        }
       }
     });
   }
+
   stop() {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
@@ -1122,30 +1392,32 @@ export async function renderProject(
   engine.update(project);
   await engine.prepare(project);
   const ticks = bars * 32;
-  for (let tick = 0; tick < ticks; tick++)
-    for (const track of project.tracks) {
-      if (track.mute || (project.tracks.some((t) => t.solo) && !track.solo))
-        continue;
-      const pat = track.patterns[project.activePattern],
-        ratio = 32 / pat.division;
-      if (tick % ratio) continue;
-      const pos = tick / ratio,
-        index = stepIndex(pos, pat.length, pat.direction),
-        cycle = Math.floor(
-          pos /
-            (pat.direction === "pingpong"
-              ? Math.max(1, pat.length * 2 - 2)
-              : pat.length),
-        ),
-        s = pat.steps[index],
-        duration = (quarter * 4) / pat.division;
-      if (!shouldTrigger(s, cycle, fill)) continue;
+  for (const track of project.tracks) {
+    if (track.mute || (project.tracks.some((t) => t.solo) && !track.solo))
+      continue;
+    const pat = track.patterns[project.activePattern];
+    let tick = 0,
+      position = 0;
+    while (tick < ticks) {
+      const pos = position++,
+        index = stepIndex(pos, pat.length, pat.direction);
+      const cycle = Math.floor(
+        pos /
+          (pat.direction === "pingpong"
+            ? Math.max(1, pat.length * 2 - 2)
+            : pat.length),
+      );
+      const s = pat.steps[index],
+        spanTicks = (32 / pat.division) * s.span,
+        duration = (quarter / 8) * spanTicks;
       const at = Math.max(
         0,
         (tick * quarter) / 8 +
-          (pos % 2 ? project.swing * duration : 0) +
+          (pos % 2 ? project.swing * Math.min(duration, quarter / 4) : 0) +
           s.micro * duration,
       );
+      tick += spanTicks;
+      if (!shouldTrigger(s, cycle, fill)) continue;
       const patch = lockedPatch(track.patch, s.locks);
       engine.scheduleTrack(track.id, patch, at);
       for (let r = 0; r < s.retrig; r++)
@@ -1159,5 +1431,6 @@ export async function renderProject(
             (duration * s.gate) / s.retrig,
           );
     }
+  }
   return ctx.startRendering();
 }
