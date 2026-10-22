@@ -12,6 +12,7 @@ import {
   stepIndex,
 } from "./model";
 import { EffectRack } from "./effects";
+import { fxValues } from "./fx-spec";
 import { VoiceFilter } from "./filters";
 import { prepareFilterWorklet } from "./filter-worklet";
 import { PARAMS } from "./model";
@@ -62,6 +63,38 @@ function envelopeAt(e: Envelope, elapsed: number) {
   if (elapsed < e.attack + e.decay)
     return 1 + ((e.sustain - 1) * (elapsed - e.attack)) / e.decay;
   return Math.max(EPS, e.sustain);
+}
+function filterEnvelopeAt(p: Patch, elapsed: number) {
+  const peak = clamp(p.cutoff * 2 ** p.filterAmount, 20, 20000),
+    sustain = clamp(
+      p.cutoff * 2 ** (p.filterAmount * p.filterSustain),
+      20,
+      20000,
+    );
+  if (elapsed < p.filterAttack)
+    return (
+      p.cutoff * (peak / p.cutoff) ** (Math.max(0, elapsed) / p.filterAttack)
+    );
+  if (elapsed < p.filterAttack + p.filterDecay)
+    return peak * (sustain / peak) ** ((elapsed - p.filterAttack) / p.filterDecay);
+  return sustain;
+}
+// Removing a future ramp endpoint also removes the ramp before that endpoint.
+// Hold it first so releasing during attack/decay does not rewrite the attack.
+function holdParameter(
+  param: AudioParam,
+  time: number,
+  fallback: number,
+  exponential = false,
+) {
+  if (typeof param.cancelAndHoldAtTime === "function")
+    param.cancelAndHoldAtTime(time);
+  else {
+    param.cancelScheduledValues(time);
+    if (exponential)
+      param.exponentialRampToValueAtTime(Math.max(EPS, fallback), time);
+    else param.linearRampToValueAtTime(fallback, time);
+  }
 }
 function scheduleEnvelope(
   param: AudioParam,
@@ -118,6 +151,7 @@ export class SynthEngine {
   private sampleLoads = new Map<string, Promise<AudioBuffer>>();
   private trackPatches: (Patch | undefined)[] = [];
   private filtersReady = false;
+  combAvailable = false;
   private disposed = false;
   private audible = Array(TRACK_COUNT).fill(true) as boolean[];
   private defaultSample: AudioBuffer;
@@ -266,6 +300,8 @@ export class SynthEngine {
             /* Already finished one-shot. */
           }
           control.source.disconnect();
+          const oldIndex = voice.sources.indexOf(control.source);
+          if (oldIndex >= 0) voice.sources.splice(oldIndex, 1);
           control.source = makeLfoSource(
             this.context,
             l,
@@ -275,6 +311,7 @@ export class SynthEngine {
           );
           control.source.connect(control.gain);
           voice.sources.push(control.source);
+          if (Number.isFinite(voice.end)) control.source.stop(voice.end);
         } else if (control.source instanceof AudioBufferSourceNode) {
           control.source.playbackRate.setTargetAtTime(
             l.sync ? this.tempo / 60 / l.division : l.rate,
@@ -351,8 +388,23 @@ export class SynthEngine {
     return load;
   }
   async prepare(project: Project) {
-    await prepareFilterWorklet(this.context);
+    let workletError: unknown;
+    try {
+      await prepareFilterWorklet(this.context);
+      this.combAvailable = Boolean(this.context.audioWorklet);
+    } catch (error) {
+      this.combAvailable = false;
+      workletError = error;
+    }
     if (this.disposed) return;
+    if (
+      !this.combAvailable &&
+      project.tracks.some((t) => t.patch.filterType === "comb")
+    )
+      throw new Error(
+        "Der Combfilter konnte nicht geladen werden. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden oder einen anderen Filter wählen.",
+        { cause: workletError },
+      );
     if (!this.filtersReady) {
       this.filtersReady = true;
       this.update(project);
@@ -371,6 +423,40 @@ export class SynthEngine {
         .map((t) => this.loadSample(t.patch.sample!)),
     );
   }
+  private cleanupVoice(voice: Voice) {
+    if (voice.cleanupTimer !== undefined) {
+      window.clearTimeout(voice.cleanupTimer);
+      this.cleanupTimers.delete(voice.cleanupTimer);
+      voice.cleanupTimer = undefined;
+    }
+    voice.filter.dispose();
+    for (const source of voice.sources) {
+      try {
+        source.stop();
+      } catch {
+        /* Already ended. */
+      }
+      source.disconnect();
+    }
+    for (const node of voice.nodes) node.disconnect();
+    this.voices = this.voices.filter((v) => v !== voice);
+  }
+  private queueCleanup(voice: Voice) {
+    if (!(this.context instanceof AudioContext) || this.disposed) return;
+    if (voice.cleanupTimer !== undefined) {
+      window.clearTimeout(voice.cleanupTimer);
+      this.cleanupTimers.delete(voice.cleanupTimer);
+    }
+    const timer = window.setTimeout(() => {
+      this.cleanupTimers.delete(timer);
+      voice.cleanupTimer = undefined;
+      // Wall time can advance while the audio context is suspended.
+      if (this.context.currentTime < voice.end) this.queueCleanup(voice);
+      else this.cleanupVoice(voice);
+    }, Math.max(25, (voice.end - this.context.currentTime) * 1000 + 25));
+    voice.cleanupTimer = timer;
+    this.cleanupTimers.add(timer);
+  }
   noteOn(
     track: number,
     note: number,
@@ -387,17 +473,9 @@ export class SynthEngine {
       amp = c.createGain(),
       panner = c.createStereoPanner(),
       drive = c.createWaveShaper();
-    this.voices = this.voices.filter((v) => {
-      if (v.end > c.currentTime) return true;
-      // Background tabs may delay cleanup timers beyond the next note.
-      v.filter.dispose();
-      for (const node of [...v.sources, ...v.nodes]) node.disconnect();
-      if (v.cleanupTimer !== undefined) {
-        window.clearTimeout(v.cleanupTimer);
-        this.cleanupTimers.delete(v.cleanupTimer);
-      }
-      return false;
-    });
+    // Background tabs may delay cleanup timers beyond the next note.
+    for (const voice of [...this.voices])
+      if (voice.end <= c.currentTime) this.cleanupVoice(voice);
     const alive = this.voices.filter(
       (v) => v.time <= start && v.releaseAt > start,
     );
@@ -420,9 +498,10 @@ export class SynthEngine {
           } catch {
             /* already stopped */
           }
-        old.end = start + 0.04;
+        old.end = start + 0.035;
         old.releaseAt = start;
         old.released = true;
+        this.queueCleanup(old);
       }
     if (alive.length >= 32) {
       const oldest = alive.find((v) => !v.released) || alive[0];
@@ -494,8 +573,7 @@ export class SynthEngine {
           sustain: shared.sustain,
           release: shared.release,
         };
-        bus.paraAmp.gain.cancelScheduledValues(start);
-        bus.paraAmp.gain.setValueAtTime(envelopeAt(sharedEnv, elapsed), start);
+        holdParameter(bus.paraAmp.gain, start, envelopeAt(sharedEnv, elapsed));
         if (start < origin + shared.attack)
           bus.paraAmp.gain.linearRampToValueAtTime(1, origin + shared.attack);
         if (start < origin + shared.attack + shared.decay)
@@ -513,17 +591,12 @@ export class SynthEngine {
             20,
             20000,
           );
-        const freq =
-          elapsed < shared.filterAttack
-            ? shared.cutoff *
-              (sharedPeak / shared.cutoff) ** (elapsed / shared.filterAttack)
-            : elapsed < shared.filterAttack + shared.filterDecay
-              ? sharedPeak *
-                (sharedSustain / sharedPeak) **
-                  ((elapsed - shared.filterAttack) / shared.filterDecay)
-              : sharedSustain;
-        bus.paraFilter.frequency.cancelScheduledValues(start);
-        bus.paraFilter.frequency.setValueAtTime(freq, start);
+        holdParameter(
+          bus.paraFilter.frequency,
+          start,
+          filterEnvelopeAt(shared, elapsed),
+          true,
+        );
         if (start < origin + shared.filterAttack)
           bus.paraFilter.frequency.exponentialRampToValueAtTime(
             sharedPeak,
@@ -548,6 +621,7 @@ export class SynthEngine {
       pitch: AudioParam[] = [];
     const pitchOffsets = new Map<AudioParam, number>(),
       modwheelParams: AudioParam[] = [],
+      filterEnvParams: AudioParam[] = [],
       lfoControls: Voice["lfoControls"] = [],
       pitchModNodes: GainNode[] = [];
     const fixedEnds = new Map<Source, number>();
@@ -1008,7 +1082,8 @@ export class SynthEngine {
                 ? this.modwheel
                 : 0;
         if (mod.source === "modwheel") modwheelParams.push(source.offset);
-        if (mod.source === "filterEnv")
+        if (mod.source === "filterEnv") {
+          filterEnvParams.push(source.offset);
           scheduleEnvelope(
             source.offset,
             {
@@ -1019,6 +1094,7 @@ export class SynthEngine {
             },
             start,
           );
+        }
         source.connect(gain);
         sources.push(source);
         source.start(start);
@@ -1070,8 +1146,7 @@ export class SynthEngine {
           v.releaseAt > releaseAt,
       );
       const releaseLength = isPara && others.length ? 0.025 : p.release;
-      amp.gain.cancelScheduledValues(releaseAt);
-      amp.gain.setValueAtTime(Math.max(EPS, value), releaseAt);
+      holdParameter(amp.gain, releaseAt, Math.max(EPS, value));
       amp.gain.exponentialRampToValueAtTime(EPS, releaseAt + releaseLength);
       if (isPara) {
         const latest = Math.max(releaseAt, ...others.map((v) => v.releaseAt));
@@ -1096,8 +1171,9 @@ export class SynthEngine {
         }
         if (Number.isFinite(latest)) {
           const shared = bus.paraPatch ?? p;
-          bus.paraAmp.gain.cancelScheduledValues(latest);
-          bus.paraAmp.gain.setValueAtTime(
+          holdParameter(
+            bus.paraAmp.gain,
+            latest,
             Math.max(
               EPS,
               envelopeAt(
@@ -1110,11 +1186,16 @@ export class SynthEngine {
                 latest - bus.paraStart,
               ),
             ),
-            latest,
           );
           bus.paraAmp.gain.exponentialRampToValueAtTime(
             EPS,
             latest + shared.release,
+          );
+          holdParameter(
+            bus.paraFilter.frequency,
+            latest,
+            filterEnvelopeAt(shared, latest - bus.paraStart),
+            true,
           );
           bus.paraFilter.frequency.setTargetAtTime(
             shared.cutoff,
@@ -1123,12 +1204,31 @@ export class SynthEngine {
           );
         }
       }
-      filter.frequency.cancelScheduledValues(releaseAt);
+      holdParameter(
+        filter.frequency,
+        releaseAt,
+        filterEnvelopeAt(p, releaseAt - start),
+        true,
+      );
       filter.frequency.setTargetAtTime(
         p.cutoff,
         releaseAt,
         Math.max(0.005, p.filterRelease / 4),
       );
+      const filterEnv: Envelope = {
+        attack: p.filterAttack,
+        decay: p.filterDecay,
+        sustain: p.filterSustain,
+        release: p.filterRelease,
+      };
+      for (const param of filterEnvParams) {
+        holdParameter(
+          param,
+          releaseAt,
+          envelopeAt(filterEnv, releaseAt - start),
+        );
+        param.linearRampToValueAtTime(0, releaseAt + p.filterRelease);
+      }
       const end = releaseAt + releaseLength + 0.05;
       voice.end = end;
       for (const source of sources) {
@@ -1144,30 +1244,11 @@ export class SynthEngine {
           "ended",
           () => {
             // The first granular source is shorter than the entire voice; disconnect only at voice end.
-            if (c.currentTime + 0.1 >= end) {
-              filter.dispose();
-              for (const n of [...sources, ...nodes]) n.disconnect();
-            }
+            if (c.currentTime >= voice.end) this.cleanupVoice(voice);
           },
           { once: true },
         );
-      if (c instanceof AudioContext) {
-        if (voice.cleanupTimer !== undefined) {
-          window.clearTimeout(voice.cleanupTimer);
-          this.cleanupTimers.delete(voice.cleanupTimer);
-        }
-        const timer = window.setTimeout(
-          () => {
-            this.cleanupTimers.delete(timer);
-            filter.dispose();
-            for (const n of [...sources, ...nodes]) n.disconnect();
-            this.voices = this.voices.filter((v) => v !== voice);
-          },
-          Math.max(0, (end - c.currentTime) * 1000) + 100,
-        );
-        voice.cleanupTimer = timer;
-        this.cleanupTimers.add(timer);
-      }
+      this.queueCleanup(voice);
     };
     this.voices.push(voice);
     if (duration !== undefined) voice.release(start + Math.max(0.01, duration));
@@ -1206,7 +1287,7 @@ export class SynthEngine {
     this.monoHeld = this.monoHeld.map((notes, i) =>
       track === undefined || i === track ? [] : notes,
     );
-    for (const v of this.voices)
+    for (const v of [...this.voices])
       if (track === undefined || v.track === track) {
         v.release(now);
         v.amp.gain.cancelScheduledValues(now);
@@ -1217,7 +1298,15 @@ export class SynthEngine {
           } catch {
             /* Already stopped. */
           }
+        v.end = now + 0.025;
+        this.queueCleanup(v);
       }
+    this.buses.forEach((bus, index) => {
+      if (track !== undefined && index !== track) return;
+      bus.paraAmp.gain.cancelScheduledValues(now);
+      bus.paraAmp.gain.setTargetAtTime(0, now, 0.005);
+      bus.paraFilter.reset();
+    });
   }
   dispose() {
     if (this.disposed) return;
@@ -1225,10 +1314,7 @@ export class SynthEngine {
     this.panic();
     for (const timer of this.cleanupTimers) window.clearTimeout(timer);
     this.cleanupTimers.clear();
-    for (const voice of this.voices) {
-      voice.filter.dispose();
-      for (const node of [...voice.sources, ...voice.nodes]) node.disconnect();
-    }
+    for (const voice of [...this.voices]) this.cleanupVoice(voice);
     this.voices = [];
     for (const b of this.buses) {
       b.disposeEffects();
@@ -1407,6 +1493,22 @@ export function lockedPatch(patch: Patch, locks: Partial<Numbers>): Patch {
       p[key] = clamp(locks[key]!, PARAMS[key][0], PARAMS[key][1]);
   return p;
 }
+function delayTail(time: number, feedback: number) {
+  // Include repeats until their amplitude falls below -60 dB.
+  const repeats =
+    feedback > 0 ? Math.ceil(Math.log(0.001) / Math.log(feedback)) : 1;
+  return time * Math.max(1, repeats);
+}
+function effectTail(patch: Patch) {
+  let tail = 0;
+  if (patch.fxEnabled.delayMode && patch.delay > 0)
+    tail += delayTail(patch.delayTime, patch.feedback);
+  if (patch.fxEnabled.reverbMode && patch.reverb > 0) {
+    const values = fxValues(patch, patch.reverbMode);
+    tail += values.decay + (values.predelay ?? 0);
+  }
+  return tail;
+}
 export async function renderProject(
   project: Project,
   bars = 4,
@@ -1414,19 +1516,17 @@ export async function renderProject(
 ): Promise<AudioBuffer> {
   const quarter = 60 / project.tempo,
     seconds = bars * 4 * quarter,
-    tail = Math.max(
-      5,
-      ...project.tracks.map((t) => t.patch.release + t.patch.reverbSize),
-    ),
-    ctx = new OfflineAudioContext(
-      2,
-      Math.ceil((seconds + tail) * 44100),
-      44100,
-    ),
-    engine = new SynthEngine(ctx);
-  engine.update(project);
-  await engine.prepare(project);
-  const ticks = bars * 32;
+    ticks = bars * 32;
+  const events: {
+    track: number;
+    notes: number[];
+    velocity: number;
+    patch: Patch;
+    at: number;
+    gate: number;
+    configure: boolean;
+  }[] = [];
+  let end = seconds;
   for (const track of project.tracks) {
     if (track.mute || (project.tracks.some((t) => t.solo) && !track.solo))
       continue;
@@ -1454,20 +1554,53 @@ export async function renderProject(
       tick += spanTicks;
       if (!shouldTrigger(s, cycle, fill)) continue;
       const patch = lockedPatch(track.patch, s.locks);
-      engine.scheduleTrack(track.id, patch, at);
-      for (let r = 0; r < s.retrig; r++)
-        for (const offset of CHORDS[s.chord])
-          engine.noteOn(
-            track.id,
-            clamp(s.note + offset, 0, 127),
-            s.velocity,
-            patch,
-            at + (r * duration) / s.retrig,
-            (duration * s.gate) / s.retrig,
-          );
+      for (let r = 0; r < s.retrig; r++) {
+        const when = at + (r * duration) / s.retrig,
+          gate = (duration * s.gate) / s.retrig;
+        events.push({
+          track: track.id,
+          notes: CHORDS[s.chord].map((offset) => clamp(s.note + offset, 0, 127)),
+          velocity: s.velocity,
+          patch,
+          at: when,
+          gate,
+          configure: r === 0,
+        });
+        end = Math.max(
+          end,
+          when + Math.max(0.01, gate) + patch.release + effectTail(patch),
+        );
+      }
     }
   }
+  const master = project.masterFx;
+  if (master.enabled) {
+    if (master.delayEnabled && master.delay > 0)
+      end += delayTail(master.delayTime, master.feedback);
+    if (master.reverbEnabled && master.reverb > 0)
+      end += master.reverbSize + 0.02;
+  }
+  const ctx = new OfflineAudioContext(2, Math.ceil((end + 0.1) * 44100), 44100),
+    engine = new SynthEngine(ctx);
   try {
+    engine.update(project);
+    await engine.prepare(project);
+    // Voice limits and shared paraphonic articulation depend on note order.
+    // A full track or a long ratchet must not be scheduled ahead of earlier notes.
+    events.sort((a, b) => a.at - b.at);
+    for (const event of events) {
+      if (event.configure)
+        engine.scheduleTrack(event.track, event.patch, event.at);
+      for (const note of event.notes)
+        engine.noteOn(
+          event.track,
+          note,
+          event.velocity,
+          event.patch,
+          event.at,
+          event.gate,
+        );
+    }
     return await ctx.startRendering();
   } finally {
     engine.dispose();

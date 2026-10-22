@@ -45,6 +45,7 @@ type Props = {
   color: string;
   track: number;
   tempo: number;
+  sampleRate: number;
   tab: string;
   setTab: (tab: string) => void;
   onPatch: (patch: Partial<Patch>) => void;
@@ -402,7 +403,11 @@ export default function Instrument(props: Props) {
                   </Select>
                 )}
               </div>
-              <FilterResponse patch={p} locks={props.locks} />
+              <FilterResponse
+                patch={p}
+                locks={props.locks}
+                sampleRate={props.sampleRate}
+              />
               <div className="knob-row filter-knobs">
                 {knob(
                   "cutoff",
@@ -444,7 +449,7 @@ export default function Instrument(props: Props) {
                     onChange={(e) => onParam("filterAmount", +e.target.value)}
                   />
                   <output>
-                    {p.filterAmount > 0 ? "+" : ""}
+                    {(props.locks.filterAmount ?? p.filterAmount) > 0 ? "+" : ""}
                     {(props.locks.filterAmount ?? p.filterAmount).toFixed(1)}
                   </output>
                 </label>
@@ -452,10 +457,10 @@ export default function Instrument(props: Props) {
               <EnvelopeGraph
                 kind="filter"
                 env={{
-                  attack: p.filterAttack,
-                  decay: p.filterDecay,
-                  sustain: p.filterSustain,
-                  release: p.filterRelease,
+                  attack: props.locks.filterAttack ?? p.filterAttack,
+                  decay: props.locks.filterDecay ?? p.filterDecay,
+                  sustain: props.locks.filterSustain ?? p.filterSustain,
+                  release: props.locks.filterRelease ?? p.filterRelease,
                 }}
               />
               {adsr(true)}
@@ -474,10 +479,10 @@ export default function Instrument(props: Props) {
               <EnvelopeGraph
                 kind="amp"
                 env={{
-                  attack: p.attack,
-                  decay: p.decay,
-                  sustain: p.sustain,
-                  release: p.release,
+                  attack: props.locks.attack ?? p.attack,
+                  decay: props.locks.decay ?? p.decay,
+                  sustain: props.locks.sustain ?? p.sustain,
+                  release: props.locks.release ?? p.release,
                 }}
               />
               {adsr(false)}

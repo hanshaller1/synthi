@@ -1014,7 +1014,7 @@ export function sanitizeProject(value: unknown): Project {
       });
     p.masterFx.driveMode = Math.round(p.masterFx.driveMode);
     if ([2, 3, 8].includes(Number(m.eqBands)))
-      p.masterFx.eqBands = m.eqBands as 2 | 3 | 8;
+      p.masterFx.eqBands = Number(m.eqBands) as 2 | 3 | 8;
     for (const key of ["eq2", "eq3", "eq8"] as const)
       if (Array.isArray(m[key]))
         p.masterFx[key] = p.masterFx[key].map((v, i) =>
@@ -1050,7 +1050,7 @@ export function sanitizeProject(value: unknown): Project {
             const q = (item.steps as unknown[])[k];
             if (!isRecord(q)) return s;
             s.on = q.on === true;
-            s.note = Math.round(num(q.note, 24, 96, 48));
+            s.note = Math.round(num(q.note, 0, 127, 48));
             s.velocity = num(q.velocity, 0.01, 1, 0.8);
             s.gate = num(q.gate, 0.05, 4, 0.65);
             s.span = STEP_SPANS.includes(Number(q.span)) ? Number(q.span) : 1;

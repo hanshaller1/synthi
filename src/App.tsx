@@ -144,6 +144,7 @@ export default function App() {
   const [presetName, setPresetName] = useState("");
   const pendingNotes = useRef(new Map<string, symbol>());
   const playRequest = useRef(0);
+  const audioInit = useRef<Promise<SynthEngine> | null>(null);
   const clockTimes = useRef<number[]>([]);
   const engineRef = useRef<SynthEngine | null>(null),
     transportRef = useRef<Transport | null>(null),
@@ -276,17 +277,18 @@ export default function App() {
     pendingNotes.current.clear();
     sustainRef.current.clear();
   }, []);
-  const ensureAudio = useCallback(async () => {
-    if (!engineRef.current || engineRef.current.context.state === "closed") {
+  const ensureAudio = useCallback(() => {
+    if (audioInit.current) return audioInit.current;
+    if (!engineRef.current || engineRef.current.context.state !== "running")
       setAudioBusy(true);
-      try {
+    const initialize = async () => {
+      if (!engineRef.current || engineRef.current.context.state === "closed") {
         const context = new AudioContext({ latencyHint: "interactive" }),
           engine = new SynthEngine(context),
           transport = new Transport(engine, () => projectRef.current);
         engineRef.current = engine;
         transportRef.current = transport;
         engine.update(projectRef.current);
-        await engine.prepare(projectRef.current);
         transport.onStep = (e) => {
           setPlayheads((prev) =>
             prev.map((x, i) => (i === e.track ? e.step : x)),
@@ -315,25 +317,36 @@ export default function App() {
           sampleRate: context.sampleRate,
           latency: context.baseLatency,
         });
-      } catch (error) {
+        // Resume within the user gesture, and share worklet/sample preparation
+        // with simultaneous notes instead of exposing a half-ready engine.
+        await Promise.all([context.resume(), engine.prepare(projectRef.current)]);
+        engine.update(projectRef.current);
+      }
+      const engine = engineRef.current!;
+      if (
+        engine.context instanceof AudioContext &&
+        engine.context.state !== "running"
+      )
+        await engine.context.resume();
+      setAudioReady(true);
+      return engine;
+    };
+    const pending = initialize()
+      .catch((error: unknown) => {
         const context = engineRef.current?.context;
+        engineRef.current?.dispose();
         if (context instanceof AudioContext) void context.close();
         engineRef.current = null;
         transportRef.current = null;
         notify(`Audio: ${errorMessage(error)}`);
         throw error;
-      } finally {
+      })
+      .finally(() => {
+        audioInit.current = null;
         setAudioBusy(false);
-      }
-    }
-    const engine = engineRef.current!;
-    if (
-      engine.context instanceof AudioContext &&
-      engine.context.state !== "running"
-    )
-      await engine.context.resume();
-    setAudioReady(true);
-    return engine;
+      });
+    audioInit.current = pending;
+    return pending;
   }, [notify]);
   const play = useCallback(async () => {
     const request = ++playRequest.current;
@@ -579,7 +592,7 @@ export default function App() {
       const el = e.target as HTMLElement;
       if (
         el.closest(
-          'input,select,textarea,[role="slider"],[contenteditable="true"]',
+          'input,select,textarea,[role="slider"],[role="dialog"],[contenteditable="true"]',
         ) ||
         modalRef.current ||
         document.querySelector('[role="dialog"]') ||
@@ -660,6 +673,16 @@ export default function App() {
     setLockMode(false);
   };
   const loadPreset = (preset: Patch) => {
+    if (
+      preset.filterType === "comb" &&
+      engineRef.current &&
+      !engineRef.current.combAvailable
+    ) {
+      notify(
+        "Comb ist in diesem Audiokontext nicht verfügbar. Bitte AudioWorklet über HTTPS oder localhost verwenden.",
+      );
+      return;
+    }
     checkpoint();
     engineRef.current?.panic(track);
     changeTrack(track, { patch: clone(preset), name: preset.name });
@@ -1192,9 +1215,20 @@ export default function App() {
               color={current.color}
               track={track}
               tempo={project.tempo}
+              sampleRate={audioInfo.sampleRate || 48000}
               tab={tab}
               setTab={setTab}
               onPatch={(partial) => {
+                if (
+                  partial.filterType === "comb" &&
+                  engineRef.current &&
+                  !engineRef.current.combAvailable
+                ) {
+                  notify(
+                    "Comb ist in diesem Audiokontext nicht verfügbar. Bitte AudioWorklet über HTTPS oder localhost verwenden.",
+                  );
+                  return;
+                }
                 if (partial.voiceMode || partial.engine)
                   engineRef.current?.panic(track);
                 changePatch(partial);

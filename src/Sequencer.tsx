@@ -21,7 +21,7 @@ import {
   noteName,
 } from "./model";
 import type { Condition, Param, Pattern, Project, Step } from "./model";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 type Props = {
   project: Project;
@@ -54,6 +54,7 @@ export default function Sequencer(p: Props) {
     step = pattern.steps[selectedStep];
   const [addLock, setAddLock] = useState<Param>("cutoff");
   const [editorOpen, setEditorOpen] = useState(false);
+  const closeEditor = useCallback(() => setEditorOpen(false), []);
   const change = (patch: Partial<Step>) => p.onStep(track, selectedStep, patch);
   const stepEditor = (
     <div className="step-editor">
@@ -68,7 +69,7 @@ export default function Sequencer(p: Props) {
           value={step.note}
           onChange={(v) => change({ note: +v })}
         >
-          {Array.from({ length: 73 }, (_, i) => i + 24).map((note) => (
+          {Array.from({ length: 128 }, (_, note) => note).map((note) => (
             <option key={note} value={note}>
               {noteName(note)}
             </option>
@@ -268,7 +269,9 @@ export default function Sequencer(p: Props) {
               value={pattern.length}
               onChange={(e) =>
                 p.onPattern(track, {
-                  length: Math.min(64, Math.max(1, +e.target.value || 1)),
+                  length: Math.round(
+                    Math.min(64, Math.max(1, +e.target.value || 1)),
+                  ),
                 })
               }
             />
@@ -415,7 +418,7 @@ export default function Sequencer(p: Props) {
           title={`Track ${track + 1} · Step ${String(selectedStep + 1).padStart(2, "0")}`}
           subtitle="Note, Schrittlänge und Trig-Eigenschaften bearbeiten"
           wide
-          onClose={() => setEditorOpen(false)}
+          onClose={closeEditor}
         >
           <div className="step-dialog-switch">
             <button

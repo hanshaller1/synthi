@@ -25,6 +25,11 @@ class PhaseCombFilter extends AudioWorkletProcessor {
     this.position = 0;
     this.active = true;
     this.port.onmessage = ({ data }) => {
+      if (data === 'reset') {
+        for (const ring of this.rings) ring.fill(0);
+        this.low.fill(0);
+        this.position = 0;
+      }
       if (data === 'dispose') {
         this.active = false;
         this.port.close();

@@ -218,6 +218,9 @@ export class VoiceFilter {
   connect(destination: AudioNode) {
     return this.output.connect(destination);
   }
+  reset() {
+    for (const branch of this.branches) branch.worklet?.port.postMessage("reset");
+  }
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -250,7 +253,11 @@ const divide = (a: Complex, b: Complex): Complex => {
 export function filterMagnitude(p: Patch, hz: number, sampleRate = 48000) {
   const w = (2 * Math.PI * hz) / sampleRate,
     z: Complex = [Math.cos(w), -Math.sin(w)];
-  const cutoff = clamp(p.cutoff, 20, sampleRate * 0.45);
+  const cutoff = clamp(
+    p.cutoff,
+    20,
+    sampleRate * (p.filterType === "comb" ? 0.45 : 0.5),
+  );
   if (p.filterType === "comb") {
     const delay = sampleRate / cutoff,
       whole = Math.floor(delay),
@@ -283,7 +290,7 @@ export function filterMagnitude(p: Patch, hz: number, sampleRate = 48000) {
     w0 = (2 * Math.PI * cutoff) / sampleRate;
   const cosine = Math.cos(w0),
     sine = Math.sin(w0),
-    q = Math.max(0.0001, p.resonance / mode.stages);
+    q = 0.0001 + p.resonance / mode.stages;
   const alpha =
     sine /
     (2 *

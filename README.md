@@ -125,7 +125,7 @@ Acht Pattern-Speicher **A01–A08**, jeder mit acht Tracks. Pro Track unabhängi
 
 - 1–64 Steps; vier Seiten mit jeweils 16 Steps.
 - Auflösung 1/8, 1/16 oder 1/32; Forward, Reverse, Ping-pong oder Random.
-- Notenname je Step über eine Auswahl, Single/Major/Minor/Fifth/Seventh-Akkord, Velocity und Gate.
+- Notenname je Step über eine Auswahl im vollständigen MIDI-Bereich (0–127), Single/Major/Minor/Fifth/Seventh-Akkord, Velocity und Gate. Auch sehr tiefe oder hohe Live-Rec-Noten bleiben beim Speichern und Import erhalten.
 - Individuelle Step-Länge: ½, 1, 1½, 2, 3, 4, 6 oder 8 Rastereinheiten. Angezeigt werden musikalische Werte wie 1/32, 1/16, 1/8 und punktierte Längen; bei 1/32-Raster ist auch 1/64 möglich. Die Länge bestimmt den Abstand zum nächsten Step, Gate die Notendauer innerhalb dieses Abstands.
 - Step-Breiten sind pro Track proportional zur Länge. Zeilen mit unterschiedlichen Gesamtlängen laufen unabhängig; Spalten verschiedener Tracks bedeuten deshalb keine gemeinsame absolute Zeitposition.
 - Wahrscheinlichkeit, Microtiming und 1–8-fache Ratchets.
@@ -176,7 +176,7 @@ Web MIDI in **Chrome oder Edge** über **HTTPS oder localhost** verwenden. In de
 - **Sound Library:** Factory-Presets und eigene gespeicherte Sounds; Suche und Engine-Filter.
 - **Projekt-JSON:** alle Tracks, acht Patterns, Patches und eingebettete Samples.
 - **Preset-JSON:** einzelner Patch inklusive Sample; über den Projekt-Import wieder laden.
-- **WAV:** Offline-Rendering des aktuellen Patterns über 1/2/4/8/16 Takte, Stereo, 44,1 kHz / 16 Bit, mit Effekt-Ausklang.
+- **WAV:** Offline-Rendering des aktuellen Patterns über 1/2/4/8/16 Takte, Stereo, 44,1 kHz / 16 Bit. Lange Gates, Release-Locks sowie der Ausklang von Track- und Master-Delay/-Hall bestimmen die zusätzliche Exportdauer; Delay-Wiederholungen werden bis unter −60 dB berücksichtigt.
 - Größere Bearbeitungsaktionen wie Laden, Generieren, Leeren und Duplizieren lassen sich mit **Undo** rückgängig machen.
 
 Wahrscheinlichkeiten und zufallsbasierte Klangerzeugung werden bei jedem WAV-Export neu berechnet. Lokales Autosave ersetzt keine Datei-Sicherung: Browserdaten löschen, privater Modus oder Speicherlimits können lokale Sessions entfernen.

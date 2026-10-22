@@ -6,19 +6,22 @@ import type { Param, Patch } from "./model";
 export default function FilterResponse({
   patch,
   locks,
+  sampleRate = 48000,
 }: {
   patch: Patch;
   locks: Partial<Record<Param, number>>;
+  sampleRate?: number;
 }) {
   const gradient = useId();
   const path = useMemo(() => {
     const p = { ...patch, ...locks };
     return Array.from({ length: 801 }, (_, i) => {
       const hz = 20 * 1000 ** (i / 800);
-      const db = 20 * Math.log10(Math.max(0.00001, filterMagnitude(p, hz)));
+      const db =
+        20 * Math.log10(Math.max(0.00001, filterMagnitude(p, hz, sampleRate)));
       return `${i ? "L" : "M"}${((i / 800) * 250).toFixed(2)},${(clamp((24 - db) / 72, 0, 1) * 60).toFixed(2)}`;
     }).join(" ");
-  }, [patch, locks]);
+  }, [patch, locks, sampleRate]);
   const mode =
     patch.filterType === "comb"
       ? `COMB ${patch.combPolarity === "negative" ? "−" : "+"}`
