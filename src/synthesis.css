@@ -1,9 +1,9 @@
-/* Each former column keeps two thirds of its width; Character uses the freed third. */
+/* The four synthesis sections share the available width equally. */
 .studio-viewport .synth-grid {
   --source-display-height: 94px;
   --source-selector-height: 30px;
   --source-gap: 8px;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 2fr) minmax(0, 2fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
