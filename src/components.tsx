@@ -251,35 +251,37 @@ export function EnvelopeGraph({
             opacity=".1"
           />
         ))}
-        <path
-          d={`M18,70 L${a},20 L${d},${y} L${r},${y} L253,70 Z`}
-          fill={`url(#env-${kind})`}
-        />
-        <path
-          d={`M18,70 L${a},20 L${d},${y} L${r},${y} L253,70`}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-        />
-        {[
-          [a, 20],
-          [d, y],
-          [r, y],
-        ].map(([x, y], i) => (
-          <circle key={i} cx={x} cy={y} r="2.5" fill="currentColor" />
-        ))}
-        <text x="18" y="85">
-          A
-        </text>
-        <text x="87" y="85">
-          D
-        </text>
-        <text x="163" y="85">
-          S
-        </text>
-        <text x="245" y="85">
-          R
-        </text>
+        <g transform={kind === "filter" ? "translate(13.6 0) scale(0.9 1)" : undefined}>
+          <path
+            d={`M18,70 L${a},20 L${d},${y} L${r},${y} L253,70 Z`}
+            fill={`url(#env-${kind})`}
+          />
+          <path
+            d={`M18,70 L${a},20 L${d},${y} L${r},${y} L253,70`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+          {[
+            [a, 20],
+            [d, y],
+            [r, y],
+          ].map(([x, y], i) => (
+            <circle key={i} cx={x} cy={y} r="2.5" fill="currentColor" />
+          ))}
+          <text x="18" y="85">
+            A
+          </text>
+          <text x="87" y="85">
+            D
+          </text>
+          <text x="163" y="85">
+            S
+          </text>
+          <text x="245" y="85">
+            R
+          </text>
+        </g>
       </svg>
     </div>
   );

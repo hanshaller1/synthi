@@ -21,6 +21,8 @@ Basis ist `main` auf `e5e8175`, einschließlich Backlog-Umsetzung und der neuen 
 
 ## Verifikation und Grenzen
 
+Die spätere Damping-Nachprüfung ergab keinen DSP-Fehler: Im Comb sind Tiefpass-Koeffizient und Rückkopplungsfrequenzgang konsistent zwischen Worklet und Anzeige. Die Tiefpass-Grenze wird an die Samplerate angepasst; der Rückkopplungsbetrag bleibt unter eins. Der gemeinsame Steuerpfad überträgt manuelle Änderungen, Locks und Modulation. Im Physical-Modell bildet die nichtnegative, auf eins summierte Nachbarglättung zusammen mit `damping < 1` und dem zusätzlichen Decay-Faktor einen verlustbehafteten Saitenumlauf. `damping` ist hier ein Rückhaltefaktor, keine Verlustprozentzahl; die im Voraus erzeugte Saite übernimmt Änderungen ab dem nächsten Anschlag. Diese Bediensemantik ist jetzt in der README erklärt.
+
 `npm run build:pages` kompiliert TypeScript, baut das Produktions-Bundle und erzeugt `index.html`, `docs/index.html` und `release/PHASE.html` neu. `git diff --check` prüft die Änderungen auf Whitespace-Fehler.
 
 Es wurden keine Tests angelegt oder ausgeführt. Klang, Gerätekompatibilität, Hardware-MIDI und das sichtbare Layout wurden nicht praktisch geprüft; ein erfolgreicher Build belegt diese Eigenschaften nicht.

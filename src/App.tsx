@@ -59,6 +59,7 @@ import {
   makePattern,
   makeProject,
   makeStep,
+  stepAtPosition,
   sanitizePatch,
   sanitizeProject,
 } from "./model";
@@ -105,9 +106,12 @@ export default function App() {
     [view, setView] = useState<"synthesizer" | "sequencer" | "master">(
       "synthesizer",
     ),
-    [selectedStep, setSelectedStep] = useState(0),
+    [selectedPosition, setSelectedStep] = useState(0),
     [page, setPage] = useState(0),
     [modal, setModal] = useState<ModalName>(null);
+  const selectedStep = stepAtPosition(
+    project.tracks[track].patterns[project.activePattern], selectedPosition,
+  ).index;
   const [playing, setPlaying] = useState(false),
     [audioReady, setAudioReady] = useState(false),
     [audioBusy, setAudioBusy] = useState(false),
@@ -386,11 +390,12 @@ export default function App() {
         if (sendMidi)
           midi.send([0x90 + which, note, Math.round(velocity * 127)]);
         if (recordRef.current) {
-          const head = headsRef.current[which],
-            index = head < 0 ? selectedStep : head;
-          changeStep(which, index, { on: true, note, velocity });
+          const pat = t.patterns[p.activePattern],
+            head = headsRef.current[which],
+            entry = stepAtPosition(pat, (head < 0 ? selectedStep : head) % pat.length);
+          changeStep(which, entry.index, { on: true, note, velocity });
           if (head < 0)
-            setSelectedStep((index + 1) % t.patterns[p.activePattern].length);
+            setSelectedStep((entry.index + entry.slots) % pat.length);
         }
       } catch (error) {
         notify(`Audio: ${errorMessage(error)}`);

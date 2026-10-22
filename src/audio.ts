@@ -9,7 +9,7 @@ import {
   clamp,
   midiHz,
   shouldTrigger,
-  stepIndex,
+  playbackStep,
 } from "./model";
 import { EffectRack } from "./effects";
 import { fxValues } from "./fx-spec";
@@ -62,6 +62,7 @@ type Bus = EffectRack & {
   paraPatch: Patch | null;
 };
 const EPS = 0.00001;
+const NOISE_GAIN = 0.1;
 
 function envelopeAt(e: Envelope, elapsed: number) {
   if (elapsed < e.attack) return Math.max(EPS, elapsed / e.attack);
@@ -1162,8 +1163,8 @@ export class SynthEngine {
         gain = c.createGain();
       source.buffer = this.noise;
       source.loop = true;
-      gain.gain.value = p.noise;
-      bind("noise", gain.gain);
+      gain.gain.value = p.noise * NOISE_GAIN;
+      bind("noise", gain.gain, NOISE_GAIN);
       source.connect(gain);
       gain.connect(drive);
       sources.push(source);
@@ -1632,27 +1633,24 @@ export class Transport {
       const pattern = track.patterns[project.activePattern],
         cursor = this.cursors[track.id];
       while (cursor.next < tick + 1 - 0.00001) {
-        const position = cursor.position++,
-          index = stepIndex(position, pattern.length, pattern.direction);
-        const cycle = Math.floor(
-          position /
-            (pattern.direction === "pingpong"
-              ? Math.max(1, pattern.length * 2 - 2)
-              : pattern.length),
-        );
+        const position = cursor.position;
+        const { index, span, advance, cycle, trigger } = playbackStep(pattern, position);
         const step = pattern.steps[index],
-          ticks = (32 / pattern.division) * step.span,
-          duration = quantum * ticks;
+          ticks = 32 / pattern.division,
+          duration = quantum * ticks * span;
+        const stepTime = cursor.next;
+        cursor.position += advance;
+        cursor.next += ticks * advance;
+        if (!trigger) continue;
         const at = Math.max(
           this.engine.context.currentTime,
           time +
-            (cursor.next - tick) * quantum +
+            (stepTime - tick) * quantum +
             (position % 2
               ? project.swing * Math.min(duration, quantum * 2)
               : 0) +
             step.micro * duration,
         );
-        cursor.next += ticks;
         const id = window.setTimeout(
           () => {
             this.uiTimers.delete(id);
@@ -1745,24 +1743,21 @@ export async function renderProject(
     let tick = 0,
       position = 0;
     while (tick < ticks) {
-      const pos = position++,
-        index = stepIndex(pos, pat.length, pat.direction);
-      const cycle = Math.floor(
-        pos /
-          (pat.direction === "pingpong"
-            ? Math.max(1, pat.length * 2 - 2)
-            : pat.length),
-      );
+      const pos = position;
+      const { index, span, advance, cycle, trigger } = playbackStep(pat, pos);
       const s = pat.steps[index],
-        spanTicks = (32 / pat.division) * s.span,
-        duration = (quarter / 8) * spanTicks;
+        stepTicks = 32 / pat.division,
+        duration = (quarter / 8) * stepTicks * span;
+      const stepTick = tick;
+      position += advance;
+      tick += stepTicks * advance;
+      if (!trigger) continue;
       const at = Math.max(
         0,
-        (tick * quarter) / 8 +
+        (stepTick * quarter) / 8 +
           (pos % 2 ? project.swing * Math.min(duration, quarter / 4) : 0) +
           s.micro * duration,
       );
-      tick += spanTicks;
       if (!shouldTrigger(s, cycle, fill)) continue;
       const patch = lockedPatch(track.patch, s.locks);
       for (let r = 0; r < s.retrig; r++) {

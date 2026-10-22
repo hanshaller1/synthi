@@ -17,6 +17,7 @@ import {
   LOCK_PARAMS,
   PARAMS,
   STEP_SPANS,
+  patternTimeline,
   stepLengthLabel,
   noteName,
 } from "./model";
@@ -58,17 +59,14 @@ export default function Sequencer(p: Props) {
   // One shared 1/64-note scale; never normalize each track independently.
   const timelines = project.tracks.map((t) => {
     const pat = t.patterns[project.activePattern];
-    let position = 0;
-    return pat.steps.map((s) => {
-      const start = position, units = s.span * 64 / pat.division;
-      position += units;
-      return { start, units };
-    });
+    return patternTimeline(pat, true);
   });
   const first = page * 16, last = first + 15;
-  const startUnit = Math.min(...timelines.map((row) => row[first].start));
-  const endUnit = Math.max(...timelines.map((row) => row[last].start + row[last].units));
+  const startUnit = Math.min(...project.tracks.map((t) => first * 64 / t.patterns[project.activePattern].division));
+  const endUnit = Math.max(...project.tracks.map((t) => (last + 1) * 64 / t.patterns[project.activePattern].division));
   const timelineStyle = { gridTemplateColumns: `repeat(${endUnit - startUnit}, minmax(0, 1fr))` };
+  const editableSteps = timelines[track];
+  const selection = editableSteps.findIndex((s) => s.index === selectedStep);
   const change = (patch: Partial<Step>) => p.onStep(track, selectedStep, patch);
   const stepEditor = (
     <div className="step-editor">
@@ -364,45 +362,50 @@ export default function Sequencer(p: Props) {
                 className="steps"
                 style={timelineStyle}
               >
-                {Array.from({ length: 16 }, (_, i) => {
-                  const index = page * 16 + i,
-                    s = pat.steps[index],
-                    hasLock = Object.keys(s.locks).length > 0;
-                  return (
-                    <button
-                      key={index}
-                      style={{ gridColumn: `${timelines[ti][index].start - startUnit + 1} / span ${timelines[ti][index].units}` }}
-                      className={`step ${s.on ? "enabled" : ""} ${index === selectedStep && ti === track ? "inspected" : ""} ${p.playing && p.playheads[ti] === index ? "playhead" : ""} ${index >= pat.length ? "outside" : ""} ${i % 4 === 0 ? "beat-start" : ""}`}
-                      aria-label={`Track ${ti + 1} Step ${index + 1} ${s.on ? "on" : "off"}`}
-                      aria-pressed={s.on}
-                      title={`${noteName(s.note)} · ${stepLengthLabel(s.span, pat.division)} · ${Math.round(s.velocity * 100)}%${hasLock ? " · Parameter locks" : ""}\nKlick: Trig · Shift/Rechtsklick: bearbeiten`}
-                      onClick={(e) => {
-                        p.selectTrack(ti);
-                        p.setStep(index);
-                        if (e.shiftKey) setEditorOpen(true);
-                        else if (index < pat.length)
-                          p.onStep(ti, index, { on: !s.on });
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        p.selectTrack(ti);
-                        p.setStep(index);
-                        setEditorOpen(true);
-                      }}
-                    >
-                      <span className="step-number">{index + 1}</span>
-                      <span>{s.on ? noteName(s.note) : "·"}</span>
-                      <span className="step-duration">
-                        {stepLengthLabel(s.span, pat.division)}
-                      </span>
-                      {hasLock && <i className="step-lock" />}
-                      {s.probability < 1 && s.on && (
-                        <small>{Math.round(s.probability * 100)}</small>
-                      )}
-                      {s.retrig > 1 && s.on && <em>{"ı".repeat(s.retrig)}</em>}
-                      <b style={{ height: `${s.velocity * 100}%` }} />
-                    </button>
-                  );
+                {timelines[ti]
+                  .filter((entry) => entry.index <= last && entry.index + entry.span > first)
+                  .map((entry) => {
+                    const { index, span, slots } = entry,
+                      start = Math.max(index, first) * 64 / pat.division,
+                      end = Math.min(index + span, last + 1) * 64 / pat.division,
+                      continuation = index < first,
+                      s = pat.steps[index],
+                      hasLock = Object.keys(s.locks).length > 0;
+                    return (
+                      <button
+                        key={index}
+                        style={{ gridColumn: `${start - startUnit + 1} / span ${end - start}` }}
+                        className={`step ${s.on ? "enabled" : ""} ${index === selectedStep && ti === track ? "inspected" : ""} ${p.playing && p.playheads[ti] === index ? "playhead" : ""} ${index >= pat.length ? "outside" : ""} ${index % 4 === 0 ? "beat-start" : ""}`}
+                        aria-label={`Track ${ti + 1} Step ${index + 1} ${s.on ? "on" : "off"}${slots > 1 ? ` · Positionen ${index + 1}–${index + slots}` : ""}${continuation ? " · Fortsetzung" : ""}`}
+                        aria-pressed={s.on}
+                        title={`${noteName(s.note)} · ${stepLengthLabel(span, pat.division)} · ${Math.round(s.velocity * 100)}%${hasLock ? " · Parameter locks" : ""}${span < s.span ? " · am Pattern-Ende gekürzt" : ""}\nKlick: Trig · Shift/Rechtsklick: bearbeiten`}
+                        onClick={(e) => {
+                          p.selectTrack(ti);
+                          p.setStep(index);
+                          if (e.shiftKey) setEditorOpen(true);
+                          else if (index < pat.length)
+                            p.onStep(ti, index, { on: !s.on });
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          p.selectTrack(ti);
+                          p.setStep(index);
+                          setEditorOpen(true);
+                        }}
+                      >
+                        <span className="step-number">{continuation ? "↤ " : ""}{index + 1}</span>
+                        <span>{s.on ? noteName(s.note) : "·"}</span>
+                        <span className="step-duration">
+                          {stepLengthLabel(span, pat.division)}
+                        </span>
+                        {hasLock && <i className="step-lock" />}
+                        {s.probability < 1 && s.on && (
+                          <small>{Math.round(s.probability * 100)}</small>
+                        )}
+                        {s.retrig > 1 && s.on && <em>{"ı".repeat(s.retrig)}</em>}
+                        <b style={{ height: `${s.velocity * 100}%` }} />
+                      </button>
+                    );
                 })}
               </div>
               <div className="track-switches">
@@ -443,13 +446,13 @@ export default function Sequencer(p: Props) {
             </button>
             <button
               className="small-button"
-              onClick={() => p.setStep(Math.max(0, selectedStep - 1))}
+              onClick={() => p.setStep(editableSteps[Math.max(0, selection - 1)].index)}
             >
               ← Step
             </button>
             <button
               className="small-button"
-              onClick={() => p.setStep(Math.min(63, selectedStep + 1))}
+              onClick={() => p.setStep(editableSteps[Math.min(editableSteps.length - 1, selection + 1)].index)}
             >
               Step →
             </button>

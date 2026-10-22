@@ -478,6 +478,56 @@ export function stepLengthLabel(span: number, division: number) {
   if (Number.isInteger(Math.log2(base * 1.5))) return `1/${base * 1.5}·`;
   return `${span}×`;
 }
+export type PatternStep = { index: number; span: number; slots: number };
+/** Lengths occupy fixed grid positions. Covered steps stay stored but do not trigger. */
+export function patternTimeline(pattern: Pattern, includeOutside = false): PatternStep[] {
+  const end = includeOutside ? pattern.steps.length : pattern.length;
+  const result: PatternStep[] = [];
+  for (let index = 0; index < end;) {
+    const boundary = index < pattern.length ? Math.min(end, pattern.length) : end;
+    const span = Math.min(pattern.steps[index].span, boundary - index);
+    const slots = Math.min(Math.max(1, Math.ceil(span)), boundary - index);
+    result.push({ index, span, slots });
+    index += slots;
+  }
+  return result;
+}
+export function stepAtPosition(pattern: Pattern, position: number): PatternStep {
+  const timeline = patternTimeline(pattern, true);
+  return timeline.find((s) => position >= s.index && position < s.index + s.slots) ?? timeline[0];
+}
+/** Shared clock-grid traversal for realtime audio, MIDI and offline rendering. */
+export function playbackStep(pattern: Pattern, position: number, random = Math.random) {
+  const timeline = patternTimeline(pattern);
+  const cycleLength = pattern.direction === "pingpong"
+    ? Math.max(1, pattern.length * 2 - 2)
+    : pattern.length;
+  const phase = position % cycleLength;
+  const cycle = Math.floor(position / cycleLength);
+  if (pattern.direction === "random") {
+    const entry = timeline[Math.floor(random() * timeline.length)];
+    return {
+      index: entry.index,
+      span: Math.min(entry.span, cycleLength - phase),
+      advance: Math.min(entry.slots, cycleLength - phase),
+      cycle,
+      trigger: true,
+    };
+  }
+  const owner = (slot: number) => timeline.find((s) => slot >= s.index && slot < s.index + s.slots)!;
+  const entry = owner(stepIndex(position, pattern.length, pattern.direction));
+  const previous = position > 0
+    ? owner(stepIndex(position - 1, pattern.length, pattern.direction))
+    : undefined;
+  return {
+    index: entry.index,
+    span: entry.span,
+    advance: 1,
+    cycle,
+    trigger: previous?.index !== entry.index ||
+      (phase === 0 && (pattern.direction !== "pingpong" || timeline.length === 1)),
+  };
+}
 export type Project = {
   version: 1;
   name: string;
