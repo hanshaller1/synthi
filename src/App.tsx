@@ -521,7 +521,13 @@ export default function App() {
       }
       if (cc === 1 && engineRef.current) engineRef.current.modwheel = value;
       if (cc === 74) changePatch({ cutoff: 30 * Math.pow(600, value) });
-      if (cc === 71) changePatch({ resonance: value * 20 });
+      if (cc === 71)
+        changePatch(
+          projectRef.current.tracks[trackRef.current].patch.filterType ===
+            "comb"
+            ? { combFeedback: value * 0.98 }
+            : { resonance: value * 20 },
+        );
       if (cc === 7) changePatch({ level: value });
       if (cc === 123 || cc === 120) {
         engineRef.current?.panic();

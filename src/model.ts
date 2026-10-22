@@ -13,6 +13,23 @@ export type Engine =
   | "sampler"
   | "physical";
 export type Wave = "sawtooth" | "square" | "triangle" | "sine";
+export type FilterType =
+  | "lowpass"
+  | "highpass"
+  | "bandpass"
+  | "notch"
+  | "multimode"
+  | "comb";
+export const MULTIMODE_FILTERS = [
+  { id: "lp2", label: "LP 12 dB" },
+  { id: "lp4", label: "LP 24 dB" },
+  { id: "hp2", label: "HP 12 dB" },
+  { id: "hp4", label: "HP 24 dB" },
+  { id: "bp", label: "Bandpass" },
+  { id: "notch", label: "Notch / Bandstop" },
+  { id: "peak", label: "Peak" },
+] as const;
+export type MultimodeFilter = (typeof MULTIMODE_FILTERS)[number]["id"];
 export type Envelope = {
   attack: number;
   decay: number;
@@ -102,6 +119,9 @@ export const PARAMS = {
   sampleEnd: [0.05, 1, 1],
   cutoff: [30, 18000, 2400],
   resonance: [0, 20, 2.2],
+  combFeedback: [0, 0.98, 0.65],
+  combDamping: [100, 18000, 8000],
+  combMix: [0, 1, 0.75],
   filterAmount: [-6, 6, 2.6],
   drive: [0, 1, 0.12],
   attack: [0.002, 4, 0.008],
@@ -240,7 +260,9 @@ export type Patch = Numbers &
     engine: Engine;
     wave: Wave;
     wave2: Wave;
-    filterType: BiquadFilterType;
+    filterType: FilterType;
+    multimodeType: MultimodeFilter;
+    combPolarity: "positive" | "negative";
     voiceMode: "mono" | "para" | "poly";
     legato: boolean;
     lfos: [Lfo, Lfo, Lfo];
@@ -490,6 +512,8 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     wave: "sawtooth",
     wave2: "triangle",
     filterType: "lowpass",
+    multimodeType: "lp4",
+    combPolarity: "positive",
     voiceMode: "poly",
     legato: true,
     fxOrder: ["saturationMode", "modulationMode", "delayMode", "reverbMode"],
@@ -868,11 +892,15 @@ export function sanitizePatch(value: unknown): Patch {
   for (const key of ["wave", "wave2"] as const)
     if (waves.includes(value[key] as Wave)) p[key] = value[key] as Wave;
   if (
-    ["lowpass", "highpass", "bandpass", "notch"].includes(
+    ["lowpass", "highpass", "bandpass", "notch", "multimode", "comb"].includes(
       String(value.filterType),
     )
   )
-    p.filterType = value.filterType as BiquadFilterType;
+    p.filterType = value.filterType as FilterType;
+  if (MULTIMODE_FILTERS.some((mode) => mode.id === value.multimodeType))
+    p.multimodeType = value.multimodeType as MultimodeFilter;
+  if (["positive", "negative"].includes(String(value.combPolarity)))
+    p.combPolarity = value.combPolarity as Patch["combPolarity"];
   p.sample =
     typeof value.sample === "string" &&
     value.sample.startsWith("data:audio/") &&

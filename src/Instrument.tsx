@@ -1,5 +1,6 @@
 import SourceEditor from "./SourceEditor";
 import FxRack from "./FxRack";
+import FilterResponse from "./FilterResponse";
 import { lfoValue } from "./lfo";
 import { useState } from "react";
 import {
@@ -26,7 +27,7 @@ import {
   formatTime,
   percent,
 } from "./components";
-import { ENGINES, PARAMS } from "./model";
+import { ENGINES, MULTIMODE_FILTERS, PARAMS } from "./model";
 import type {
   Lfo,
   LfoShape,
@@ -35,6 +36,8 @@ import type {
   ModTarget,
   Param,
   Patch,
+  FilterType,
+  MultimodeFilter,
 } from "./model";
 
 type Props = {
@@ -337,7 +340,10 @@ export default function Instrument(props: Props) {
               onSample={props.onSample}
               knob={knob}
             />
-            <section className="module filter-module">
+            <section
+              className="module filter-module"
+              data-filter={p.filterType}
+            >
               <div className="module-title">
                 <h3>
                   <SlidersHorizontal size={14} /> Filter
@@ -345,93 +351,83 @@ export default function Instrument(props: Props) {
                 <Select
                   label="Filter-Typ"
                   value={p.filterType}
-                  onChange={(v) =>
-                    onPatch({ filterType: v as BiquadFilterType })
-                  }
+                  onChange={(v) => onPatch({ filterType: v as FilterType })}
                 >
                   <option value="lowpass">LP 12 dB</option>
                   <option value="highpass">HP 12 dB</option>
                   <option value="bandpass">Bandpass</option>
                   <option value="notch">Notch</option>
+                  <option value="multimode">Multimode</option>
+                  <option
+                    value="comb"
+                    disabled={typeof AudioWorkletNode === "undefined"}
+                  >
+                    Comb
+                  </option>
                 </Select>
               </div>
-              <div className="filter-response">
-                <span className="display-meta">FREQUENCY RESPONSE</span>
-                <svg
-                  viewBox="0 0 250 60"
-                  preserveAspectRatio="none"
-                  aria-hidden="true"
-                >
-                  <defs>
-                    <linearGradient
-                      id="filter-area"
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop
-                        offset="0"
-                        stopColor="currentColor"
-                        stopOpacity=".18"
-                      />
-                      <stop
-                        offset="1"
-                        stopColor="currentColor"
-                        stopOpacity="0"
-                      />
-                    </linearGradient>
-                  </defs>
-                  {[25, 75, 125, 175, 225].map((x) => (
-                    <line
-                      key={x}
-                      x1={x}
-                      x2={x}
-                      y1="0"
-                      y2="60"
-                      stroke="currentColor"
-                      opacity=".08"
-                    />
-                  ))}
-                  {(() => {
-                    const x =
-                        35 +
-                        (Math.log((props.locks.cutoff ?? p.cutoff) / 30) /
-                          Math.log(600)) *
-                          165,
-                      q = p.resonance;
-                    const d =
-                      p.filterType === "highpass"
-                        ? `M0 56 C${x - 35} 56 ${x - 15} 56 ${x} ${22 - q} S${x + 15} 22 250 22`
-                        : p.filterType === "bandpass"
-                          ? `M0 56 C${x - 30} 56 ${x - 20} ${30 - q} ${x} ${25 - q} S${x + 25} 56 250 56`
-                          : p.filterType === "notch"
-                            ? `M0 22 L${x - 25} 22 Q${x} 105 ${x + 25} 22 L250 22`
-                            : `M0 22 L${x - 15} 22 Q${x} ${15 - q} ${x + 8} ${30 - q} C${x + 20} 50 ${x + 40} 56 250 56`;
-                    return (
-                      <>
-                        <path
-                          d={`${d} L250 60 L0 60 Z`}
-                          fill="url(#filter-area)"
-                        />
-                        <path
-                          d={d}
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.7"
-                        />
-                      </>
-                    );
-                  })()}
-                </svg>
-                <div className="display-meta">
-                  <span>20 Hz</span>
-                  <span>20 kHz</span>
-                </div>
+              <div className="filter-model-options">
+                <span>
+                  {p.filterType === "comb"
+                    ? "FEEDBACK POLARITY"
+                    : p.filterType === "multimode"
+                      ? "MULTIMODE TYPE"
+                      : "CLASSIC · RESONANT"}
+                </span>
+                {p.filterType === "multimode" && (
+                  <Select
+                    label="Multimode-Charakteristik"
+                    value={p.multimodeType}
+                    onChange={(v) =>
+                      onPatch({ multimodeType: v as MultimodeFilter })
+                    }
+                  >
+                    {MULTIMODE_FILTERS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+                {p.filterType === "comb" && (
+                  <Select
+                    label="Comb-Polarität"
+                    value={p.combPolarity}
+                    onChange={(v) =>
+                      onPatch({ combPolarity: v as Patch["combPolarity"] })
+                    }
+                  >
+                    <option value="positive">Comb + · positive</option>
+                    <option value="negative">Comb − · negative</option>
+                  </Select>
+                )}
               </div>
+              <FilterResponse patch={p} locks={props.locks} />
               <div className="knob-row filter-knobs">
-                {knob("cutoff", "Cutoff", formatHz, true)}
-                {knob("resonance", "Resonance", (v) => `${v.toFixed(1)} Q`)}
+                {knob(
+                  "cutoff",
+                  p.filterType === "comb" ? "Frequency" : "Cutoff",
+                  formatHz,
+                  true,
+                )}
+                {p.filterType === "comb" ? (
+                  <>
+                    {knob("combFeedback", "Feedback")}
+                    {knob("combDamping", "Damping", formatHz, true)}
+                    {knob("combMix", "Dry / Wet")}
+                  </>
+                ) : (
+                  knob(
+                    "resonance",
+                    p.filterType === "multimode" && p.multimodeType === "peak"
+                      ? "Peak gain"
+                      : "Resonance",
+                    (v) =>
+                      p.filterType === "multimode" && p.multimodeType === "peak"
+                        ? `${v.toFixed(1)} dB`
+                        : `${Math.round((v / 20) * 100)}%`,
+                  )
+                )}
                 {knob("drive", "Drive")}
               </div>
               <div className="filter-envelope-title">

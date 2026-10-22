@@ -94,6 +94,9 @@ Die Engine begrenzt gleichzeitig gehaltene Noten auf 32 (jeweils zuzüglich der 
 ### Filter, Modulation und Effekte
 
 - Resonanter 12-dB-Lowpass, Highpass, Bandpass oder Notch; Drive vor dem Filter.
+- Zusätzlich im Filter-Typ-Menü: **Multimode** mit LP 12/24 dB, HP 12/24 dB, Bandpass, Notch/Bandstop und Peak sowie **Comb** mit positiver/negativer Rückkopplung, Frequency, Feedback, Damping und Dry/Wet. Im Peak-Modus regelt „Peak gain“ die Anhebung. Beide Modelle sind vom Digitakt-II-Konzept inspiriert; die DSP-Implementierung ist eigenständig.
+- Die Modelle arbeiten in Mono/Poly pro Stimme und in Para hinter der gemeinsamen Stimmsumme. Filter-Envelope und Cutoff-Modulation steuern beim Comb die Frequenz der Verzögerungsschleife; Feedback, Damping und Dry/Wet sind ebenfalls per Step sperrbar und über MIDI Learn zuweisbar. MIDI-CC 71 steuert beim Comb das Feedback, bei den übrigen Filtern die Resonanz.
+- Der Comb verarbeitet eine fraktionale Verzögerung und eine gedämpfte Rückkopplung in einem lokalen AudioWorklet; damit entsteht keine Mindest-Verzögerung durch eine Web-Audio-Feedbackschleife. Er benötigt einen aktuellen Browser mit AudioWorklet-Unterstützung (GitHub Pages über HTTPS oder lokal über den Entwicklungsserver). Das Worklet ist auch in der einzelnen HTML-Datei enthalten, ohne externe Nachlade-Datei. Die Frequenzanzeige zeigt die Grundstellung ohne laufende Modulation; beim WAV-Export laufen dieselben Filtermodelle.
 - Separate ADSR-Hüllkurven für Filter und Lautstärke; bipolare Filter-Envelope-Tiefe.
 - Drei LFOs mit Sinus, Dreieck, Rechteck, Sägezahn, **Exp**, **Ramp** und **Random**; freie Rate oder Tempo-Synchronisation, Retrigger und Tiefe.
 - **Free:** wiederholter Verlauf; **Hold:** Wert beim Anschlag abtasten und halten; **One:** ein voller Zyklus; **Half:** ein halber Zyklus. One/Half enden danach auf null. Random liefert im Free-Modus stufenweise Zufallswerte, im Hold-Modus einen Zufallswert je Anschlag.

@@ -2167,3 +2167,125 @@
 .studio-viewport .modal .text-input {
   font-size: 13px;
 }
+
+/* Filter models share the available module height, including compact screens. */
+.studio-viewport .filter-module {
+  display: flex;
+  flex-direction: column;
+}
+.studio-viewport .instrument[data-section="filter"] .filter-module {
+  display: flex;
+}
+.studio-viewport .filter-module > * {
+  flex-shrink: 0;
+}
+.studio-viewport .filter-module .module-title {
+  margin-bottom: 5px;
+}
+.studio-viewport .filter-model-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 24px;
+  margin-bottom: 5px;
+}
+.studio-viewport .filter-model-options > span {
+  font: 8px var(--mono);
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.studio-viewport .filter-model-options .select-wrap {
+  min-width: 0;
+  max-width: 63%;
+}
+.studio-viewport .filter-model-options select {
+  font-size: 11px;
+  padding: 3px 23px 3px 7px;
+}
+.studio-viewport .filter-module .filter-response {
+  flex: 1 1 56px;
+  min-height: 40px;
+  max-height: 80px;
+  height: auto;
+}
+.studio-viewport .filter-module > .envelope-graph {
+  flex: 1 1 30px;
+  min-height: 18px;
+  max-height: 48px;
+  height: auto;
+}
+.studio-viewport .filter-module[data-filter="comb"] .filter-knobs .knob {
+  height: clamp(32px, 5.8vh, 46px);
+  width: clamp(32px, 5.8vh, 46px);
+}
+.studio-viewport .filter-module[data-filter="comb"] .filter-knobs .knob-label {
+  font-size: 10px;
+}
+.studio-viewport .filter-module[data-filter="comb"] .filter-knobs output {
+  font-size: 9px;
+}
+@media (max-height: 680px) and (min-width: 851px) {
+  .studio-viewport .filter-model-options {
+    min-height: 21px;
+    margin-bottom: 3px;
+  }
+  .studio-viewport .filter-model-options > span {
+    font-size: 7px;
+  }
+  .studio-viewport .filter-model-options select {
+    padding: 2px 18px 2px 4px;
+    font-size: 10px;
+  }
+  .studio-viewport .filter-module .filter-response {
+    min-height: 30px;
+    max-height: 45px;
+  }
+  .studio-viewport .filter-response .display-meta {
+    font-size: 7px;
+  }
+  .studio-viewport .filter-module[data-filter="comb"] .filter-knobs .knob {
+    height: 34px;
+    width: 34px;
+  }
+  .studio-viewport
+    .filter-module[data-filter="comb"]
+    .filter-knobs
+    .knob-label {
+    font-size: 9px;
+  }
+}
+@media (max-width: 850px) and (max-height: 800px) {
+  .studio-viewport .instrument[data-section="filter"] .filter-module {
+    padding: 7px 10px;
+  }
+  .studio-viewport .filter-model-options {
+    min-height: 21px;
+    margin-bottom: 3px;
+  }
+  .studio-viewport .filter-model-options select {
+    font-size: 10px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  .studio-viewport .filter-module .filter-response {
+    min-height: 32px;
+    max-height: 48px;
+  }
+  .studio-viewport .filter-response .display-meta {
+    font-size: 7px;
+  }
+  .studio-viewport .filter-module[data-filter] .filter-knobs .knob {
+    width: 34px;
+    height: 34px;
+  }
+  .studio-viewport .filter-module .envelope-knobs .knob {
+    width: 32px;
+    height: 32px;
+  }
+  .studio-viewport .filter-module .envelope-knobs .knob-label,
+  .studio-viewport .filter-module .envelope-knobs output {
+    font-size: 9px;
+  }
+}
