@@ -318,6 +318,7 @@ export default function Instrument(props: Props) {
           <nav className="module-switch" aria-label="Synthesizer-Modul">
             {[
               ["oscillator", "Klangquelle"],
+              ["character", "Character / Unison"],
               ["filter", "Filter"],
               ["amp", "Amp / Output"],
             ].map(([id, label]) => (
@@ -467,7 +468,7 @@ export default function Instrument(props: Props) {
                 <h3>
                   <Radio size={14} /> Amplifier
                 </h3>
-                <span className="module-index">03</span>
+                <span className="module-index">04</span>
               </div>
               <div className="amp-envelope-heading">
                 <span>AMPLITUDE ENVELOPE</span>

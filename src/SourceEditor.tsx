@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { ReactNode } from "react";
-import { AudioLines, Upload } from "lucide-react";
+import { AudioLines, SlidersHorizontal, Upload } from "lucide-react";
 import { Select, Waveform, formatTime, percent } from "./components";
 import { ENGINES } from "./model";
 import type { Param, Patch, Wave } from "./model";
@@ -25,6 +25,31 @@ type Props = {
     step?: number,
   ) => ReactNode;
 };
+const ADDITIVE_SPECTRA = [
+  { id: "sine", name: "Pure sine", harmonics: 1, shape: 0, brightness: 0.5, spectralTilt: 0, spectralPeak: 4, spectralResonance: 0, inharmonicity: 0 },
+  { id: "harmonic", name: "Harmonic saw", harmonics: 24, shape: 0, brightness: 0.75, spectralTilt: 0, spectralPeak: 4, spectralResonance: 0, inharmonicity: 0 },
+  { id: "odd", name: "Hollow odd", harmonics: 16, shape: 1, brightness: 0.55, spectralTilt: -0.2, spectralPeak: 4, spectralResonance: 0, inharmonicity: 0 },
+  { id: "bell", name: "Inharmonic bell", harmonics: 12, shape: 0.35, brightness: 0.4, spectralTilt: 0, spectralPeak: 5, spectralResonance: 0.7, inharmonicity: 0.015 },
+] as const;
+const ADDITIVE_KEYS = [
+  "harmonics", "shape", "brightness", "spectralTilt", "spectralPeak", "spectralResonance", "inharmonicity",
+] as const;
+
+function SourceSlot({ label, children, selector }: {
+  label: string;
+  children: ReactNode;
+  selector: ReactNode;
+}) {
+  return (
+    <div className="source-slot">
+      <div className="source-display" role="img" aria-label={label}>
+        <span className="source-caption">{label}</span>
+        {children}
+      </div>
+      {selector}
+    </div>
+  );
+}
 function SamplePreview({ id }: { id: string }) {
   const points = useMemo(() => {
     const descriptor = SAMPLE_LIBRARY.find((s) => s.id === id);
@@ -62,7 +87,6 @@ export default function SourceEditor({
   onSample,
   knob,
 }: Props) {
-  const [page, setPage] = useState("source");
   const cents = (v: number) => `${v.toFixed(1)} ct`,
     semitone = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(0)} st`,
     number = (v: number) => v.toFixed(2);
@@ -215,140 +239,155 @@ export default function SourceEditor({
       </>
     ),
   };
-  return (
-    <section
-      className="module oscillator-module expanded-source"
-      data-engine={p.engine}
+  const additiveSpectrum = ADDITIVE_SPECTRA.find((spectrum) =>
+    ADDITIVE_KEYS.every((key) => Math.abs(p[key] - spectrum[key]) < 0.00001),
+  )?.id ?? "custom";
+  const sampleSelector = (
+    <Select
+      label={p.engine === "granular" ? "Granular-Sample auswählen" : "Sampler-Sample auswählen"}
+      value={p.sample ? "uploaded" : selectedId}
+      onChange={(id) => {
+        const sample = samples.find((s) => s.id === id);
+        if (sample)
+          onPatch({
+            sample: null,
+            [p.engine === "granular" ? "grainSampleId" : "sampleId"]: id,
+            sampleName: sample.name,
+            sampleRoot: sample.root,
+            sampleLoop: sample.granular || sample.category === "Pad",
+          });
+      }}
     >
-      <div className="module-title">
-        <h3>
-          <AudioLines size={14} />
-          {p.engine === "subtractive"
-            ? "Oscillators"
-            : ENGINES.find((e) => e.id === p.engine)?.label}
-        </h3>
-        <span className="module-index">01</span>
-      </div>
-      <nav className="source-tabs" aria-label="Klangquellen-Parameter">
-        <button
-          className={page === "source" ? "active" : ""}
-          onClick={() => setPage("source")}
-        >
-          Source
-        </button>
-        <button
-          className={page === "detail" ? "active" : ""}
-          onClick={() => setPage("detail")}
-        >
-          Character
-        </button>
-        <button
-          className={page === "unison" ? "active" : ""}
-          onClick={() => setPage("unison")}
-        >
-          Unison
-        </button>
-      </nav>
-      {page === "source" ? (
-        <>
-          {dual ? (
-            <div className="oscillator-pair">
-              {(["wave", "wave2"] as const).map((key, i) => (
-                <div className="single-osc" key={key}>
-                  <span>
-                    {p.engine === "fm"
-                      ? i
-                        ? "OP 2 · MODULATOR"
-                        : "OP 1 · CARRIER"
-                      : i
-                        ? "OSCILLATOR 2"
-                        : "OSCILLATOR 1"}
-                  </span>
-                  <Waveform
-                    patch={{ ...p, engine: "subtractive", wave: p[key] }}
-                  />
-                  {wave(key, `Oszillator ${i + 1} Wellenform`)}
+      {p.sample && <option value="uploaded">Imported · {p.sampleName}</option>}
+      {[...new Set(samples.map((s) => s.category))].map((category) => (
+        <optgroup key={category} label={category}>
+          {samples.filter((s) => s.category === category).map((sample) => (
+            <option key={sample.id} value={sample.id}>{sample.name}</option>
+          ))}
+        </optgroup>
+      ))}
+    </Select>
+  );
+  const singleSelector = p.engine === "wavetable" ? (
+    <Select
+      label="Wavetable auswählen"
+      value={p.wavetable}
+      onChange={(value) => onParam("wavetable", +value)}
+    >
+      {WAVETABLE_TYPES.map((type) => (
+        <optgroup label={type} key={type}>
+          {WAVETABLES.filter((table) => table.family === type).map((table) => (
+            <option value={table.id} key={table.id}>{table.name}</option>
+          ))}
+        </optgroup>
+      ))}
+    </Select>
+  ) : isSample ? sampleSelector : p.engine === "physical" ? (
+    <Select
+      label="Saitenanregung"
+      value={p.excitation}
+      onChange={(value) => onPatch({ excitation: value as Patch["excitation"] })}
+    >
+      <option value="noise">Noise · Pluck</option>
+      <option value="pick">Pick · Position comb</option>
+      <option value="bow">Bow · Soft excitation</option>
+    </Select>
+  ) : (
+    <Select
+      label="Additives Spektrum auswählen"
+      value={additiveSpectrum}
+      onChange={(id) => {
+        const spectrum = ADDITIVE_SPECTRA.find((s) => s.id === id);
+        if (spectrum) {
+          const { id: _id, name: _name, ...params } = spectrum;
+          onPatch(params);
+        }
+      }}
+    >
+      <option value="custom" disabled>Custom spectrum</option>
+      {ADDITIVE_SPECTRA.map((spectrum) => (
+        <option key={spectrum.id} value={spectrum.id}>{spectrum.name}</option>
+      ))}
+    </Select>
+  );
+  return (
+    <>
+      <section className="module oscillator-module source-module" data-engine={p.engine}>
+        <div className="module-title">
+          <h3>
+            <AudioLines size={14} />
+            {p.engine === "subtractive" ? "Oscillators" : ENGINES.find((e) => e.id === p.engine)?.label}
+          </h3>
+          <span className="module-index">01</span>
+        </div>
+        <div className={`source-visuals ${dual ? "source-dual" : ""}`}>
+          {dual ? (["wave", "wave2"] as const).map((key, i) => {
+            const label = p.engine === "fm"
+              ? i ? "OP 2 · MODULATOR" : "OP 1 · CARRIER"
+              : p.engine === "ring"
+                ? i ? "MODULATOR" : "CARRIER"
+                : `OSCILLATOR ${i + 1}`;
+            return (
+              <SourceSlot key={key} label={label} selector={wave(key, `${label} Wellenform`)}>
+                <Waveform patch={{ ...p, engine: "subtractive", wave: p[key] }} />
+              </SourceSlot>
+            );
+          }) : (
+            <SourceSlot
+              label={isSample ? "SAMPLE" : p.engine === "physical" ? "EXCITATION" : p.engine === "additive" ? "SPECTRUM" : "WAVETABLE"}
+              selector={singleSelector}
+            >
+              {isSample ? p.sample ? (
+                <div className="imported-sample">
+                  <Upload size={22} />
+                  <span>{p.sampleName}</span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="source-display">
-              {isSample ? (
-                p.sample ? (
-                  <div className="imported-sample">
-                    <Upload size={22} />
-                    <span>{p.sampleName}</span>
-                  </div>
-                ) : (
-                  <SamplePreview id={selectedId} />
-                )
-              ) : (
-                <Waveform patch={p} />
-              )}
-            </div>
+              ) : <SamplePreview id={selectedId} /> : <Waveform patch={p} />}
+            </SourceSlot>
           )}
-          {p.engine === "wavetable" && (
-            <Select
-              label="Wavetable auswählen"
-              value={p.wavetable}
-              onChange={(value) => onParam("wavetable", +value)}
-            >
-              {WAVETABLE_TYPES.map((type) => (
-                <optgroup label={type} key={type}>
-                  {WAVETABLES.filter((table) => table.family === type).map(
-                    (table) => (
-                      <option value={table.id} key={table.id}>
-                        {table.name}
-                      </option>
-                    ),
-                  )}
-                </optgroup>
-              ))}
-            </Select>
+        </div>
+        <div className="knob-row source-basic">{basic[p.engine]}</div>
+        <label className="inline-range source-noise">
+          NOISE
+          <input
+            aria-label="Noise level"
+            type="range"
+            min="0"
+            max="1"
+            step=".01"
+            value={p.noise}
+            onChange={(e) => onParam("noise", +e.target.value)}
+          />
+          <output>{percent(p.noise)}</output>
+        </label>
+      </section>
+      <section className="module character-module" data-engine={p.engine}>
+        <div className="module-title">
+          <h3><SlidersHorizontal size={14} /> Character / Unison</h3>
+          <span className="module-index">02</span>
+        </div>
+        <div className="character-content">
+          {p.engine === "fm" && (
+            <>
+              <Select
+                label="FM-Algorithmus"
+                value={p.fmAlgorithm}
+                onChange={(value) => onPatch({ fmAlgorithm: value as Patch["fmAlgorithm"] })}
+              >
+                <option value="serial">3 → 2 → 1 · Serial</option>
+                <option value="parallel">2 + 3 → 1 · Parallel</option>
+              </Select>
+              <div className="operator-three">
+                <span>OP 3 · SINE</span>
+                <Waveform patch={{ ...p, engine: "subtractive", wave: "sine" }} />
+              </div>
+            </>
           )}
+          <div className="source-detail-controls">{extra[p.engine]}</div>
           {isSample && (
-            <Select
-              label={
-                p.engine === "granular"
-                  ? "Granular-Sample auswählen"
-                  : "Sampler-Sample auswählen"
-              }
-              value={p.sample ? "uploaded" : selectedId}
-              onChange={(id) => {
-                const sample = samples.find((s) => s.id === id);
-                if (sample)
-                  onPatch({
-                    sample: null,
-                    [p.engine === "granular" ? "grainSampleId" : "sampleId"]:
-                      id,
-                    sampleName: sample.name,
-                    sampleRoot: sample.root,
-                    sampleLoop: sample.granular || sample.category === "Pad",
-                  });
-              }}
-            >
-              {p.sample && (
-                <option value="uploaded">Imported · {p.sampleName}</option>
-              )}
-              {[...new Set(samples.map((s) => s.category))].map((category) => (
-                <optgroup key={category} label={category}>
-                  {samples
-                    .filter((s) => s.category === category)
-                    .map((sample) => (
-                      <option key={sample.id} value={sample.id}>
-                        {sample.name}
-                      </option>
-                    ))}
-                </optgroup>
-              ))}
-            </Select>
-          )}
-          <div className="knob-row source-basic">{basic[p.engine]}</div>
-          {isSample ? (
             <div className="source-sample-tools">
               <label className="small-button upload">
-                <Upload size={12} />
-                Import sample
+                <Upload size={12} /> Import sample
                 <input
                   type="file"
                   accept="audio/*"
@@ -364,99 +403,48 @@ export default function SourceEditor({
                   <button
                     className={`small-button ${p.sampleLoop ? "on" : ""}`}
                     onClick={() => onPatch({ sampleLoop: !p.sampleLoop })}
-                  >
-                    LOOP
-                  </button>
+                  >LOOP</button>
                   <button
                     className={`small-button ${p.sampleReverse >= 0.5 ? "on" : ""}`}
-                    onClick={() =>
-                      onParam("sampleReverse", p.sampleReverse >= 0.5 ? 0 : 1)
-                    }
-                  >
-                    REVERSE
-                  </button>
+                    onClick={() => onParam("sampleReverse", p.sampleReverse >= 0.5 ? 0 : 1)}
+                  >REVERSE</button>
                 </>
               )}
             </div>
-          ) : (
-            <label className="inline-range source-noise">
-              NOISE
-              <input
-                aria-label="Noise level"
-                type="range"
-                min="0"
-                max="1"
-                step=".01"
-                value={p.noise}
-                onChange={(e) => onParam("noise", +e.target.value)}
-              />
-              <output>{percent(p.noise)}</output>
-            </label>
           )}
-        </>
-      ) : page === "detail" ? (
-        <>
-          {p.engine === "fm" && (
-            <Select
-              label="FM-Algorithmus"
-              value={p.fmAlgorithm}
-              onChange={(value) =>
-                onPatch({ fmAlgorithm: value as Patch["fmAlgorithm"] })
-              }
-            >
-              <option value="serial">3 → 2 → 1 · Serial</option>
-              <option value="parallel">2 + 3 → 1 · Parallel</option>
-            </Select>
-          )}
-          {p.engine === "physical" && (
-            <Select
-              label="Saitenanregung"
-              value={p.excitation}
-              onChange={(value) =>
-                onPatch({ excitation: value as Patch["excitation"] })
-              }
-            >
-              <option value="noise">Noise · Pluck</option>
-              <option value="pick">Pick · Position comb</option>
-              <option value="bow">Bow · Soft excitation</option>
-            </Select>
-          )}
-          {p.engine === "fm" && (
-            <div className="operator-three">
-              <span>
-                OP 3 · SINE ·{" "}
-                {p.fmAlgorithm === "serial" ? "3 → 2 → 1" : "2 + 3 → 1"}
-              </span>
-              <Waveform patch={{ ...p, engine: "subtractive", wave: "sine" }} />
+        </div>
+        <div className="unison-section">
+          <div className="synthesis-subheading">UNISON</div>
+          <div className="unison-settings">
+            <div className="unison-voices">
+              <Select label="Unison-Stimmen" value={p.unison} onChange={(v) => onParam("unison", +v)}>
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                  <option value={n} key={n}>{n === 1 ? "Off · 1 voice" : `${n} voices`}</option>
+                ))}
+              </Select>
+              <div className="unison-art" aria-hidden="true">
+                {Array.from({ length: Math.round(p.unison) }, (_, i) => (
+                  <i
+                    key={i}
+                    style={{
+                      left: `${50 + (p.unison === 1 ? 0 : (i / (p.unison - 1)) * 2 - 1) * p.unisonWidth * 38}%`,
+                      height: `${22 + Math.cos(i * 2) * 7}px`,
+                    }}
+                  />
+                ))}
+              </div>
             </div>
-          )}
-          <div className="source-detail-controls">{extra[p.engine]}</div>
-        </>
-      ) : (
-        <>
-          <div className="unison-art" aria-hidden="true">
-            {Array.from({ length: Math.round(p.unison) }, (_, i) => (
-              <i
-                key={i}
-                style={{
-                  left: `${50 + (p.unison === 1 ? 0 : (i / (p.unison - 1)) * 2 - 1) * p.unisonWidth * 38}%`,
-                  height: `${42 + Math.cos(i * 2) * 12}px`,
-                }}
-              />
-            ))}
-          </div>
-          <div className="knob-row unison-knobs">
-            {knob("unisonDetune", "Unison detune", cents)}
-            {knob("unisonWidth", "Unison width")}
+            <div className="knob-row unison-knobs">
+              {knob("unisonDetune", "Unison detune", cents)}
+              {knob("unisonWidth", "Unison width")}
+            </div>
           </div>
           {p.voiceMode === "mono" && (
             <div className="mono-controls">
               <button
                 className={`small-button ${p.legato ? "on" : ""}`}
                 onClick={() => onPatch({ legato: !p.legato })}
-              >
-                LEGATO {p.legato ? "ON" : "OFF"}
-              </button>
+              >LEGATO {p.legato ? "ON" : "OFF"}</button>
               <label>
                 GLIDE
                 <input
@@ -472,31 +460,8 @@ export default function SourceEditor({
               </label>
             </div>
           )}
-        </>
-      )}
-      <div className="unison-strip">
-        <span>UNISON</span>
-        <Select
-          label="Unison-Stimmen"
-          value={p.unison}
-          onChange={(v) => onParam("unison", +v)}
-        >
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-            <option value={n} key={n}>
-              {n === 1 ? "Off · 1 voice" : `${n} voices`}
-            </option>
-          ))}
-        </Select>
-        <span>
-          {isSample
-            ? p.engine === "granular"
-              ? "32 TEXTURES"
-              : "64 SAMPLES"
-            : p.engine === "wavetable"
-              ? "32 TABLES"
-              : "PER TRACK"}
-        </span>
-      </div>
-    </section>
+        </div>
+      </section>
+    </>
   );
 }

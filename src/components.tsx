@@ -291,16 +291,26 @@ export function Waveform({
   patch: Patch;
   compact?: boolean;
 }) {
-  const spectrum =
-    patch.engine === "wavetable"
-      ? wavetableSpectrum(
-          patch.wavetable,
-          patch.shape,
-          patch.wtWarp,
-          patch.wtFormant,
-          patch.brightness,
-        )
-      : null;
+  const spectrum = (() => {
+    if (patch.engine === "wavetable")
+      return wavetableSpectrum(
+        patch.wavetable,
+        patch.shape,
+        patch.wtWarp,
+        patch.wtFormant,
+        patch.brightness,
+      );
+    if (patch.engine !== "additive") return null;
+    const real = new Float32Array(33), imag = new Float32Array(33);
+    for (let n = 1; n <= Math.round(patch.harmonics); n++) {
+      const peak = Math.exp(-(((n - patch.spectralPeak) / 2) ** 2));
+      imag[n] =
+        Math.pow(n, -(2.5 - patch.brightness * 2 - patch.spectralTilt)) *
+        (1 - patch.shape * 0.8 + (n % 2 ? patch.shape * 0.8 : 0)) *
+        (1 + peak * patch.spectralResonance * 5);
+    }
+    return { real, imag };
+  })();
   const points = Array.from({ length: 241 }, (_, i) => {
     const t = (i / 240) * 4 * Math.PI;
     let value = 0;
@@ -311,24 +321,25 @@ export function Waveform({
     else if (spectrum) {
       let energy = 0;
       for (let n = 1; n < spectrum.imag.length; n++) {
+        const phase = t * n * (patch.engine === "additive"
+          ? Math.sqrt(1 + patch.inharmonicity * n * n)
+          : 1);
         value +=
-          Math.sin(t * n) * spectrum.imag[n] +
-          Math.cos(t * n) * spectrum.real[n];
+          Math.sin(phase) * spectrum.imag[n] +
+          Math.cos(phase) * spectrum.real[n];
         energy += Math.abs(spectrum.imag[n]) + Math.abs(spectrum.real[n]);
       }
       value /= Math.max(1, energy * 0.5);
-    } else if (patch.engine === "additive")
-      for (let n = 1; n <= Math.round(patch.harmonics); n++)
-        value +=
-          (Math.sin(t * n) / Math.pow(n, 2.5 - patch.brightness * 1.5)) * 0.55;
-    else if (patch.engine === "granular")
+    } else if (patch.engine === "granular")
       value =
         Math.sin(t * 4) * Math.sin(t * 0.5) * 0.8 + Math.sin(t * 17) * 0.15;
-    else if (patch.engine === "physical")
-      value =
-        Math.sin(t * 3) * Math.exp(-i / 150) +
-        Math.sin(t * 11) * Math.exp(-i / 60) * 0.3;
-    else if (patch.engine === "sampler")
+    else if (patch.engine === "physical") {
+      const bow = patch.excitation === "bow";
+      value = (Math.sin(t * 3) +
+        Math.sin(t * 11) * (bow ? 0.12 : patch.brightness * 0.5) *
+        (patch.excitation === "pick" ? Math.sin(patch.pluckPosition * Math.PI * 11) : 1)) *
+        Math.exp(-i / (bow ? 300 : 70 + patch.stringDecay * 20));
+    } else if (patch.engine === "sampler")
       value =
         Math.sin(t * 2 + 0.8 * Math.sin(t * 0.7)) * 0.7 + Math.sin(t * 7) * 0.2;
     else

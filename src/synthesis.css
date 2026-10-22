@@ -1,0 +1,342 @@
+/* Each former column keeps two thirds of its width; Character uses the freed third. */
+.studio-viewport .synth-grid {
+  --source-display-height: 94px;
+  --source-selector-height: 30px;
+  --source-gap: 8px;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 2fr) minmax(0, 2fr);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+}
+.studio-viewport .synth-grid > .module {
+  grid-column: auto;
+  min-height: 0;
+  padding: 12px;
+  border-top: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #555e50 transparent;
+}
+.studio-viewport .synth-grid > .module + .module {
+  border-left: 1px solid #4a4d47 !important;
+}
+.studio-viewport .synth-grid > .amp-module {
+  display: block;
+}
+.studio-viewport .synth-grid > .module > .module-title {
+  height: 32px;
+  min-height: 32px;
+  flex: 0 0 32px;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #4a5146;
+}
+.studio-viewport .synth-grid .knob {
+  margin-top: 0;
+}
+.studio-viewport .synth-grid .knob-label {
+  white-space: normal;
+  text-align: center;
+}
+.studio-viewport .synth-grid > .source-module,
+.studio-viewport .synth-grid > .character-module {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.studio-viewport .synth-grid > .source-module > .module-title,
+.studio-viewport .synth-grid > .character-module > .module-title {
+  margin-bottom: 0;
+}
+.source-visuals {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--source-gap);
+  flex-shrink: 0;
+}
+.source-visuals.source-dual {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.source-slot {
+  display: grid;
+  grid-template-rows: var(--source-display-height) var(--source-selector-height);
+  gap: var(--source-gap);
+  min-width: 0;
+}
+.studio-viewport .synth-grid .source-display {
+  display: grid;
+  grid-template-rows: 10px minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  height: var(--source-display-height);
+  padding: 8px;
+  background: #252a24;
+  border: 1px solid #4a5443;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.source-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 7px/10px var(--mono);
+  letter-spacing: .4px;
+  color: #b6c0ab;
+}
+.studio-viewport .synth-grid .source-display > .waveform,
+.studio-viewport .synth-grid .source-display > .imported-sample {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  color: #c6cdb4;
+}
+.studio-viewport .synth-grid .source-slot > .select-wrap {
+  width: 100%;
+  min-width: 0;
+}
+.studio-viewport .synth-grid .source-slot select {
+  width: 100%;
+  height: var(--source-selector-height);
+  padding: 4px 22px 4px 7px;
+  font: 11px var(--mono);
+  text-overflow: ellipsis;
+}
+.studio-viewport .synth-grid .source-basic {
+  flex: 0 0 94px;
+  width: 100%;
+  margin: 0;
+}
+.studio-viewport .synth-grid .source-noise {
+  display: flex;
+  align-items: center;
+  flex: 0 0 56px;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid #4a5245;
+  border-bottom: 1px solid #4a5245;
+  font-size: 9px;
+}
+.source-noise output {
+  min-width: 28px;
+  text-align: right;
+}
+.character-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.studio-viewport .character-module .source-detail-controls {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0;
+  gap: 12px 6px;
+}
+.studio-viewport .character-module[data-engine="fm"] .source-detail-controls {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.studio-viewport .character-module .source-detail-controls .knob-label {
+  font-size: 11px;
+}
+.studio-viewport .character-module .source-detail-controls .knob,
+.studio-viewport .character-module .unison-knobs .knob {
+  width: 46px;
+  height: 46px;
+}
+.studio-viewport .character-module .operator-three {
+  min-height: 32px;
+  flex-shrink: 0;
+}
+.studio-viewport .character-module .operator-three .waveform {
+  height: 24px;
+  min-width: 0;
+}
+.studio-viewport .character-module .source-sample-tools {
+  flex-wrap: wrap;
+}
+.unison-section {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #4a5245;
+  flex-shrink: 0;
+}
+.synthesis-subheading {
+  color: #a5b298;
+  font: 9px var(--mono);
+  letter-spacing: .7px;
+  margin-bottom: 8px;
+}
+.unison-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 10px;
+  align-items: center;
+}
+.unison-voices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.studio-viewport .unison-voices .select-wrap,
+.studio-viewport .unison-voices select {
+  width: 100%;
+  min-width: 0;
+}
+.studio-viewport .unison-voices select {
+  font-size: 11px;
+  padding: 5px 18px 5px 6px;
+}
+.studio-viewport .character-module .unison-art {
+  height: 42px;
+  overflow: hidden;
+}
+.studio-viewport .character-module .unison-art i {
+  bottom: 6px;
+  width: 2px;
+}
+.studio-viewport .character-module .unison-knobs {
+  padding: 0;
+}
+.studio-viewport .character-module .mono-controls {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.studio-viewport .synth-grid .filter-knobs {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.studio-viewport .synth-grid .filter-knobs > .knob-control {
+  flex: 1 0 28%;
+}
+.studio-viewport .synth-grid .filter-envelope-title {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.studio-viewport .synth-grid .amp-divider {
+  display: block;
+}
+.studio-viewport .synth-grid .amp-module > .output-knobs {
+  display: flex;
+}
+
+@media (max-height: 780px) {
+  .studio-viewport .synth-grid {
+    --source-display-height: 78px;
+    --source-selector-height: 28px;
+  }
+  .studio-viewport .synth-grid .source-basic {
+    flex-basis: 84px;
+  }
+  .studio-viewport .synth-grid .source-noise {
+    flex-basis: 48px;
+  }
+  .studio-viewport .character-module .source-detail-controls {
+    gap: 8px 4px;
+  }
+  .studio-viewport .character-module .source-detail-controls .knob,
+  .studio-viewport .character-module .unison-knobs .knob {
+    width: 40px;
+    height: 40px;
+  }
+}
+@media (max-width: 1150px) and (min-width: 851px) {
+  .studio-viewport .synth-grid > .module {
+    padding: 10px 8px;
+  }
+  .studio-viewport .synth-grid .module-title h3 {
+    font-size: 12px;
+  }
+  .studio-viewport .synth-grid .knob {
+    width: 40px;
+    height: 40px;
+  }
+  .studio-viewport .synth-grid .envelope-knobs .knob {
+    width: 30px;
+    height: 30px;
+  }
+  .studio-viewport .synth-grid .knob-label {
+    font-size: 10px;
+  }
+  .studio-viewport .synth-grid .source-slot select {
+    font-size: 10px;
+    padding-left: 4px;
+  }
+  .studio-viewport .synth-grid .source-display {
+    padding: 6px;
+  }
+  .studio-viewport .synth-grid .filter-model-options {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .studio-viewport .synth-grid .filter-model-options .select-wrap {
+    max-width: none;
+  }
+  .studio-viewport .synth-grid .amp-envelope-heading {
+    font-size: 8px;
+  }
+}
+@media (max-height: 680px) {
+  .studio-viewport .synth-grid {
+    --source-display-height: 60px;
+    --source-selector-height: 26px;
+    --source-gap: 6px;
+  }
+  .studio-viewport .synth-grid > .source-module,
+  .studio-viewport .synth-grid > .character-module,
+  .character-content {
+    gap: 6px;
+  }
+  .studio-viewport .synth-grid .source-basic {
+    flex-basis: 74px;
+  }
+  .studio-viewport .synth-grid .source-noise {
+    flex-basis: 36px;
+  }
+  .studio-viewport .character-module .source-detail-controls .knob,
+  .studio-viewport .character-module .unison-knobs .knob {
+    width: 34px;
+    height: 34px;
+  }
+  .studio-viewport .character-module .source-detail-controls .knob-label,
+  .studio-viewport .character-module .unison-knobs .knob-label {
+    font-size: 10px;
+  }
+  .studio-viewport .synth-grid > .module > .module-title {
+    height: 27px;
+    min-height: 27px;
+    flex-basis: 27px;
+    padding-bottom: 5px;
+  }
+  .unison-section {
+    padding-top: 6px;
+  }
+}
+@media (max-width: 850px) {
+  .studio-viewport .synth-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio-viewport .synth-grid > .module {
+    display: none;
+    border: 0 !important;
+  }
+  .studio-viewport .instrument[data-section="oscillator"] .synth-grid > .source-module,
+  .studio-viewport .instrument[data-section="character"] .synth-grid > .character-module,
+  .studio-viewport .instrument[data-section="filter"] .synth-grid > .filter-module {
+    display: flex;
+  }
+  .studio-viewport .instrument[data-section="amp"] .synth-grid > .amp-module {
+    display: block;
+  }
+  .studio-viewport .module-switch button {
+    min-width: 0;
+  }
+  .studio-viewport .character-module .source-detail-controls,
+  .studio-viewport .character-module .unison-knobs {
+    width: 100%;
+    max-width: 560px;
+    align-self: center;
+  }
+  .studio-viewport .synth-grid .amp-module .signal-flow {
+    display: flex;
+  }
+}

@@ -6,6 +6,7 @@ import "./styles.css";
 import "./viewport.css";
 import "./studio.css";
 import "./panels.css";
+import "./synthesis.css";
 
 class StartupBoundary extends Component<
   { children: ReactNode },
