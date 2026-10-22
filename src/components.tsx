@@ -10,6 +10,25 @@ export const formatTime = (v: number) =>
 export const formatHz = (v: number) =>
   v >= 1000 ? `${(v / 1000).toFixed(2)} kHz` : `${Math.round(v)} Hz`;
 export const percent = (v: number) => `${Math.round(v * 100)}%`;
+export function PanelHeader({
+  icon, title, context, actions,
+}: {
+  icon: ReactNode;
+  title: string;
+  context?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="panel-header">
+      <div className="section-heading">
+        {icon}
+        <h2>{title}</h2>
+        {context}
+      </div>
+      <div className="panel-header-actions">{actions}</div>
+    </header>
+  );
+}
 export function IconButton({
   children,
   label,

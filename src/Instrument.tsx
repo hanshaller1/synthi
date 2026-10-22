@@ -23,11 +23,12 @@ import {
   IconButton,
   Knob,
   Select,
+  PanelHeader,
   formatHz,
   formatTime,
   percent,
 } from "./components";
-import { ENGINES, MULTIMODE_FILTERS, PARAMS } from "./model";
+import { ENGINES, MULTIMODE_FILTERS, MOD_TARGETS, PARAMS } from "./model";
 import type {
   Lfo,
   LfoShape,
@@ -67,13 +68,9 @@ const sourceNames: Record<ModSource, string> = {
   modwheel: "Mod wheel",
   filterEnv: "Filter envelope",
 };
-const targetNames: Record<ModTarget, string> = {
-  cutoff: "Filter cutoff",
-  pitch: "Pitch",
-  amplitude: "Amplitude",
-  pan: "Stereo pan",
-  fmIndex: "FM index",
-};
+const targetNames = Object.fromEntries(
+  Object.entries(MOD_TARGETS).map(([key, item]) => [key, item.label]),
+);
 export default function Instrument(props: Props) {
   const { patch: p, onPatch, onParam, tab, setTab } = props;
   const [section, setSection] = useState("oscillator");
@@ -217,27 +214,26 @@ export default function Instrument(props: Props) {
   };
   return (
     <section
-      className="instrument"
+      className="instrument studio-panel"
       data-section={section}
       data-mod-page={modPage}
       data-lfo={activeLfo}
       data-route-page={p.mods.length <= 4 ? 0 : routePage}
       style={{ "--track-color": props.color } as React.CSSProperties}
     >
-      <div className="instrument-header">
-        <div className="instrument-identity">
-          <div className="track-badge">0{props.track + 1}</div>
-          <div>
-            <div className="eyebrow">
-              SOUND ENGINE <span className="muted">/</span>{" "}
-              {ENGINES.find((e) => e.id === p.engine)?.short}
-            </div>
-            <button className="patch-name" onClick={props.onLibrary}>
+      <PanelHeader
+        icon={<AudioLines size={16} />}
+        title="Synthesizer"
+        context={
+          <>
+            <span className="tag">T{props.track + 1} · {ENGINES.find((e) => e.id === p.engine)?.short}</span>
+            <button className="panel-preset" onClick={props.onLibrary}>
               {p.name}
               <FolderOpen size={14} />
             </button>
-          </div>
-        </div>
+          </>
+        }
+        actions={
         <div className="patch-actions">
           <span className="voice-badge">
             <i />{" "}
@@ -268,7 +264,8 @@ export default function Instrument(props: Props) {
             <Save size={15} />
           </IconButton>
         </div>
-      </div>
+        }
+      />
       <div className="engine-selector" aria-label="Syntheseform">
         {ENGINES.map((e, i) => (
           <button
@@ -637,10 +634,12 @@ export default function Instrument(props: Props) {
                     })
                   }
                 >
-                  {Object.entries(targetNames).map(([key, label]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
+                  {[...new Set(Object.values(MOD_TARGETS).map((item) => item.group))].map((group) => (
+                    <optgroup key={group} label={group}>
+                      {Object.entries(MOD_TARGETS).filter(([, item]) => item.group === group).map(([key, item]) => (
+                        <option key={key} value={key}>{item.label}{item.trigger ? " · Anschlag" : ""}</option>
+                      ))}
+                    </optgroup>
                   ))}
                 </Select>
                 <label className="mod-amount">
@@ -691,7 +690,7 @@ export default function Instrument(props: Props) {
               </button>
             )}
             <div className="module-note">
-              Audio-rate modulation · bipolare Tiefe · bis zu 8 Verbindungen
+              Alle Engines · Filter · Amp · bipolare Tiefe. „Anschlag“: Zeit-, Sample- und Modellparameter werden je Note abgetastet; Granular-Ziele je Grain.
             </div>
           </section>
         </div>

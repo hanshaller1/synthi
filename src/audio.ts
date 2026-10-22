@@ -15,21 +15,26 @@ import { EffectRack } from "./effects";
 import { fxValues } from "./fx-spec";
 import { VoiceFilter } from "./filters";
 import { prepareFilterWorklet } from "./filter-worklet";
+import { SpectralSource, SPECTRAL_KEYS } from "./spectral-worklet";
+import { modulatedNumber, modulationScale, triggerPatch, requiresModulationWorklet } from "./modulation";
 import { PARAMS } from "./model";
-import type { Envelope, Numbers, Param, Patch, Project, Track } from "./model";
+import type { Envelope, ModTarget, Numbers, Param, Patch, Project, Track } from "./model";
 
 type Context = AudioContext | OfflineAudioContext;
-type Source = OscillatorNode | AudioBufferSourceNode | ConstantSourceNode;
+type Source = OscillatorNode | AudioBufferSourceNode | ConstantSourceNode | SpectralSource;
 type Voice = {
   track: number;
   note: number;
   velocity: number;
   time: number;
   amp: GainNode;
+  volume: GainNode;
+  updateLevel: (value: number, time: number) => void;
   filter: VoiceFilter;
   panner: StereoPannerNode;
   sources: Source[];
   nodes: AudioNode[];
+  gates: AudioParam[];
   patch: Patch;
   released: boolean;
   releaseAt: number;
@@ -246,7 +251,7 @@ export class SynthEngine {
     const audible = !track.mute && (!solo || track.solo);
     if (previous?.level !== p.level || this.audible[track.id] !== audible) {
       b.level.gain.cancelScheduledValues(t);
-      b.level.gain.setTargetAtTime(audible ? p.level : 0, t, 0.02);
+      b.level.gain.setTargetAtTime(audible ? 1 : 0, t, 0.02);
     }
     this.audible[track.id] = audible;
     const smooth = (key: Param, param: AudioParam, scale = 1) => {
@@ -286,7 +291,9 @@ export class SynthEngine {
     }
     for (const voice of this.voices.filter(
       (v) => v.track === track.id && v.end > t,
-    ))
+    )) {
+      if (previous?.level !== p.level) voice.updateLevel(p.level, t);
+      voice.patch.lfos = p.lfos;
       for (const control of voice.lfoControls) {
         const l = p.lfos[control.index];
         if (
@@ -322,12 +329,13 @@ export class SynthEngine {
         control.config = { ...l };
         control.gain.gain.setTargetAtTime(control.scale * l.depth, t, 0.02);
       }
+    }
     this.trackPatches[track.id] = p;
   }
   scheduleTrack(track: number, patch: Patch, when: number) {
     const b = this.buses[track];
     const values: [AudioParam, number][] = [
-      [b.level.gain, this.audible[track] ? patch.level : 0],
+      [b.level.gain, this.audible[track] ? 1 : 0],
       [b.pan.pan, patch.pan],
     ];
     for (const [param, value] of values) param.setValueAtTime(value, when);
@@ -405,6 +413,8 @@ export class SynthEngine {
         "Der Combfilter konnte nicht geladen werden. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden oder einen anderen Filter wählen.",
         { cause: workletError },
       );
+    if (!this.combAvailable && project.tracks.some((t) => requiresModulationWorklet(t.patch)))
+      throw new Error("Laufende Spektral- und Drive-Modulation benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if (!this.filtersReady) {
       this.filtersReady = true;
       this.update(project);
@@ -438,7 +448,11 @@ export class SynthEngine {
       }
       source.disconnect();
     }
-    for (const node of voice.nodes) node.disconnect();
+    for (const node of voice.nodes) {
+      if (typeof AudioWorkletNode !== "undefined" && node instanceof AudioWorkletNode)
+        node.port.postMessage("dispose");
+      node.disconnect();
+    }
     this.voices = this.voices.filter((v) => v !== voice);
   }
   private queueCleanup(voice: Voice) {
@@ -467,12 +481,17 @@ export class SynthEngine {
   ): Voice {
     const c = this.context,
       start = Math.max(when, c.currentTime),
-      p = patch,
-      frequency = midiHz(note + p.tune),
-      filter = new VoiceFilter(c, p.voiceMode === "para"),
+      p = triggerPatch(patch, start, note, velocity, this.modwheel, this.tempo, this.combAvailable),
+      frequency = midiHz(note + p.tune);
+    if (!this.combAvailable && requiresModulationWorklet(p))
+      throw new Error("Diese Modulationsziele benötigen AudioWorklet über HTTPS oder localhost.");
+    const filter = new VoiceFilter(c, p.voiceMode === "para"),
       amp = c.createGain(),
+      volume = c.createGain(),
       panner = c.createStereoPanner(),
-      drive = c.createWaveShaper();
+      drive = this.combAvailable && p.mods.some((m) => m.target === "drive" && m.amount !== 0)
+        ? new AudioWorkletNode(c, "phase-voice-drive", { outputChannelCount: [2] })
+        : c.createWaveShaper();
     // Background tabs may delay cleanup timers beyond the next note.
     for (const voice of [...this.voices])
       if (voice.end <= c.currentTime) this.cleanupVoice(voice);
@@ -499,6 +518,10 @@ export class SynthEngine {
             /* already stopped */
           }
         old.end = start + 0.035;
+        for (const gate of old.gates) {
+          gate.cancelScheduledValues(start);
+          gate.setValueAtTime(0, old.end);
+        }
         old.releaseAt = start;
         old.released = true;
         this.queueCleanup(old);
@@ -509,13 +532,19 @@ export class SynthEngine {
     }
     filter.schedule(p, start);
     filter.Q.value = p.resonance;
-    drive.curve = distortionCurve(p.drive * 0.2);
-    drive.oversample = "2x";
+    if (drive instanceof WaveShaperNode) {
+      drive.curve = distortionCurve(p.drive * 0.2);
+      drive.oversample = "2x";
+    } else drive.parameters.forEach((param, key) => {
+      if (key === "amount") param.value = p.drive;
+      else if (key === "active") param.setValueAtTime(1, start);
+    });
     const bus = this.buses[track],
       isPara = p.voiceMode === "para";
     drive.connect(filter.input);
     filter.connect(amp);
-    amp.connect(panner);
+    volume.gain.value = p.level;
+    amp.connect(volume).connect(panner);
     panner.connect(isPara ? bus.paraFilter.input : bus.input);
     const env: Envelope = {
       attack: p.attack,
@@ -616,21 +645,53 @@ export class SynthEngine {
             }
       }
     }
+    const gates: AudioParam[] = [];
+    if (!(drive instanceof WaveShaperNode))
+      drive.parameters.forEach((param, key) => { if (key === "active") gates.push(param); });
     const sources: Source[] = [],
-      nodes: AudioNode[] = [drive, amp, panner],
+      nodes: AudioNode[] = [drive, amp, volume, panner],
       pitch: AudioParam[] = [];
     const pitchOffsets = new Map<AudioParam, number>(),
       modwheelParams: AudioParam[] = [],
-      filterEnvParams: AudioParam[] = [],
+      filterEnvParams: { param: AudioParam; scale: number }[] = [],
       lfoControls: Voice["lfoControls"] = [],
       pitchModNodes: GainNode[] = [];
     const fixedEnds = new Map<Source, number>();
+    let modulationRelease = Infinity;
+    const bindings: Record<string, { param: AudioParam; weight: number }[]> = {};
+    const routeOutputs: Record<string, GainNode[]> = {};
+    const weightedOutputs = new Map<GainNode, Map<number, GainNode>>();
+    const connectBinding = (output: GainNode, param: AudioParam, weight: number) => {
+      if (weight === 1) { output.connect(param); return; }
+      const cache = weightedOutputs.get(output) ?? new Map<number, GainNode>();
+      weightedOutputs.set(output, cache);
+      let scaled = cache.get(weight);
+      if (!scaled) {
+        scaled = c.createGain();
+        scaled.gain.value = weight;
+        output.connect(scaled);
+        cache.set(weight, scaled);
+        nodes.push(scaled);
+      }
+      scaled.connect(param);
+    };
+    const bind = (key: string, param: AudioParam, weight = 1) => {
+      (bindings[key] ??= []).push({ param, weight });
+      for (const output of routeOutputs[key] ?? []) connectBinding(output, param, weight);
+    };
+    const routed = (key: string) => p.mods.some((m) => m.target === key && m.amount !== 0);
+    const numberAt = (key: Param, at: number) => modulatedNumber(
+      p, key, at, start, note, velocity, this.modwheel, this.tempo, modulationRelease,
+    );
+    if (!(drive instanceof WaveShaperNode))
+      drive.parameters.forEach((param, key) => { if (key === "amount") bind("drive", param); });
     let physicalBuffer: AudioBuffer | undefined;
     const grainTimers: number[] = [];
     const grainSchedulers: ((until: number) => void)[] = [];
     const previousNote = this.lastNotes[track];
     const applyPitch = (param: AudioParam, offset = 0) => {
       pitch.push(param);
+      bind("tune", param, 100);
       pitchOffsets.set(param, offset);
       for (const mod of pitchModNodes) mod.connect(param);
       const target = offset + this.bends[track];
@@ -640,13 +701,14 @@ export class SynthEngine {
         param.linearRampToValueAtTime(target, start + p.glide);
       }
     };
-    let ringGain: GainNode | undefined, fmGain: GainNode | undefined;
+    let fmGain: GainNode | undefined;
     const fmGains: AudioParam[] = [];
     const addOsc = (
       wave: OscillatorType,
       freq: number,
       gain: number,
       detune = 0,
+      target?: string,
     ) => {
       const osc = c.createOscillator(),
         level = c.createGain();
@@ -658,6 +720,7 @@ export class SynthEngine {
       level.connect(drive);
       sources.push(osc);
       nodes.push(level);
+      if (target) bind(target, level.gain);
       osc.start(start);
       return osc;
     };
@@ -672,8 +735,27 @@ export class SynthEngine {
       layerPan.pan.value = position * p.unisonWidth;
       layerSink.connect(layerPan).connect(drive);
       nodes.push(layerSink, layerPan);
-      const applyLayerPitch = (param: AudioParam, offset = 0) =>
+      bind("unisonWidth", layerPan.pan, position);
+      const applyLayerPitch = (param: AudioParam, offset = 0) => {
         applyPitch(param, offset + layerDetune);
+        bind("unisonDetune", param, position);
+      };
+      const makeSpectral = (engine: string, freq = frequency, detune = 0) => {
+        const osc = new SpectralSource(c, p, engine, Math.max(8, Math.floor(96 / layers)));
+        osc.frequency.value = freq;
+        applyLayerPitch(osc.detune, detune);
+        for (const key of SPECTRAL_KEYS) bind(key, osc.param(key));
+        sources.push(osc);
+        osc.start(start);
+        return osc;
+      };
+      const addSpectral = (gain: number, detune = 0, engine: string = p.engine, freq = frequency) => {
+        const osc = makeSpectral(engine, freq, detune), level = c.createGain();
+        level.gain.value = gain;
+        osc.connect(level).connect(layerSink);
+        nodes.push(level);
+        return { osc, level };
+      };
       const addLayerOsc = (
         wave: OscillatorType,
         freq: number,
@@ -703,15 +785,34 @@ export class SynthEngine {
         return osc;
       };
       if (p.engine === "subtractive") {
-        addLayerOsc(p.wave, frequency, 1 - p.mix * 0.5, -p.detune / 2);
-        addLayerOsc(
-          p.wave2,
-          frequency * 2 ** (p.osc2Tune / 12),
-          p.mix * 0.7,
-          p.detune / 2,
-        );
+        const add = (wave: Patch["wave"], second: boolean) => {
+          const gain = second ? p.mix * .7 : 1 - p.mix * .5;
+          const detune = (second ? .5 : -.5) * p.detune + (second ? p.osc2Tune * 100 : 0);
+          let osc: OscillatorNode | SpectralSource;
+          if (wave === "square" && routed("pulseWidth") && this.combAvailable) {
+            const result = addSpectral(gain, detune, "pulse");
+            osc = result.osc;
+            bind("mix", result.level.gain, second ? .7 : -.5);
+          } else {
+            osc = addLayerOsc(wave, frequency, gain, detune);
+            const level = nodes[nodes.length - 1] as GainNode;
+            bind("mix", level.gain, second ? .7 : -.5);
+          }
+          bind("detune", osc.detune, second ? .5 : -.5);
+          if (second) bind("osc2Tune", osc.detune, 100);
+        };
+        add(p.wave, false);
+        add(p.wave2, true);
       }
       if (p.engine === "wavetable") {
+        if (this.combAvailable && SPECTRAL_KEYS.some(routed)) {
+          const first = addSpectral(.8, -p.detune / 2);
+          bind("detune", first.osc.detune, -.5);
+          if (p.detune > .05 || routed("detune")) {
+            const second = addSpectral(.5, p.detune / 2);
+            bind("detune", second.osc.detune, .5);
+          }
+        } else {
         const { real, imag } = wavetableSpectrum(
           p.wavetable,
           p.shape,
@@ -720,13 +821,15 @@ export class SynthEngine {
           p.brightness,
         );
         const wave = c.createPeriodicWave(real, imag);
-        addLayerOsc("sine", frequency, 0.8, -p.detune / 2).setPeriodicWave(
-          wave,
-        );
-        if (p.detune > 0.05)
-          addLayerOsc("sine", frequency, 0.5, p.detune / 2).setPeriodicWave(
-            wave,
-          );
+        const first = addLayerOsc("sine", frequency, .8, -p.detune / 2);
+        first.setPeriodicWave(wave);
+        bind("detune", first.detune, -.5);
+        if (p.detune > 0.05 || routed("detune")) {
+          const second = addLayerOsc("sine", frequency, .5, p.detune / 2);
+          second.setPeriodicWave(wave);
+          bind("detune", second.detune, .5);
+        }
+        }
       }
       if (p.engine === "fm") {
         const carrier = addLayerOsc(p.wave, frequency, 0.85),
@@ -734,6 +837,7 @@ export class SynthEngine {
         fmGain = c.createGain();
         mod.type = p.wave2;
         mod.frequency.value = frequency * p.fmRatio;
+        bind("fmRatio", mod.frequency, frequency);
         applyLayerPitch(mod.detune);
         fmGain.gain.value = frequency * p.fmIndex;
         fmGains.push(fmGain.gain);
@@ -747,21 +851,24 @@ export class SynthEngine {
           Math.max(EPS, frequency * p.fmIndex * p.fmEnd),
           start + p.fmDecay,
         );
-        if (p.fmFeedback > 0.001) {
+        if (p.fmFeedback > 0.001 || routed("fmFeedback")) {
           const delay = c.createDelay(0.01),
             feedback = c.createGain();
           delay.delayTime.value = 1 / c.sampleRate;
           feedback.gain.value = frequency * p.fmFeedback * 0.7;
+          bind("fmFeedback", feedback.gain, frequency * .7);
           mod.connect(delay).connect(feedback).connect(mod.frequency);
           nodes.push(delay, feedback);
         }
-        if (p.fmIndex2 > 0.001) {
+        if (p.fmIndex2 > 0.001 || routed("fmIndex2") || routed("fmRatio2")) {
           const third = c.createOscillator(),
             index = c.createGain();
           third.type = "sine";
           third.frequency.value = frequency * p.fmRatio2;
           applyLayerPitch(third.detune);
           index.gain.value = frequency * p.fmIndex2;
+          bind("fmRatio2", third.frequency, frequency);
+          bind("fmIndex2", index.gain, frequency);
           third
             .connect(index)
             .connect(
@@ -773,6 +880,8 @@ export class SynthEngine {
         }
       }
       if (p.engine === "additive") {
+        if (this.combAvailable && SPECTRAL_KEYS.some(routed)) addSpectral(.85);
+        else {
         const real = new Float32Array(65),
           imag = new Float32Array(65);
         for (let n = 1; n <= Math.round(p.harmonics); n++) {
@@ -800,12 +909,13 @@ export class SynthEngine {
               imag[n] / Math.max(1, energy),
             );
         }
+        }
       }
       if (p.engine === "ring") {
         const carrier = c.createOscillator(),
           mod = c.createOscillator();
-        ringGain = c.createGain();
-        const depth = c.createGain();
+        const ringGain = c.createGain(), depth = c.createGain(),
+          wet = c.createGain(), dry = c.createGain();
         carrier.type = p.wave;
         carrier.frequency.value = frequency;
         applyLayerPitch(carrier.detune);
@@ -814,22 +924,26 @@ export class SynthEngine {
           0.01,
           frequency * p.fmRatio + (p.engine === "ring" ? p.ringOffset : 0),
         );
+        bind("fmRatio", mod.frequency, frequency);
+        bind("ringOffset", mod.frequency);
         applyLayerPitch(mod.detune);
-        ringGain.gain.value =
-          1 - p.ringDepth + p.ringDepth * (1 - p.shape) * 0.5 + p.ringBias;
-        depth.gain.value = (0.5 + p.shape * 0.5) * p.ringDepth;
-        if (p.ringDry > 0.001) {
-          const dry = c.createGain();
-          dry.gain.value = p.ringDry;
-          carrier.connect(dry).connect(layerSink);
-          nodes.push(dry);
-        }
+        ringGain.gain.value = (1 - p.shape) * .5;
+        depth.gain.value = .5 + p.shape * .5;
+        wet.gain.value = p.ringDepth;
+        dry.gain.value = 1 - p.ringDepth + p.ringDry + p.ringBias;
+        bind("shape", ringGain.gain, -.5);
+        bind("shape", depth.gain, .5);
+        bind("ringDepth", wet.gain);
+        bind("ringDepth", dry.gain, -1);
+        bind("ringDry", dry.gain);
+        bind("ringBias", dry.gain);
+        carrier.connect(dry).connect(layerSink);
         mod.connect(depth);
         depth.connect(ringGain.gain);
         carrier.connect(ringGain);
-        ringGain.connect(layerSink);
+        ringGain.connect(wet).connect(layerSink);
         sources.push(carrier, mod);
-        nodes.push(ringGain, depth);
+        nodes.push(ringGain, depth, wet, dry);
         carrier.start(start);
         mod.start(start);
       }
@@ -878,7 +992,19 @@ export class SynthEngine {
         body.frequency.value = 180 + p.bodySize * 650;
         body.Q.value = 0.7 + p.bodySize * 3;
         body.gain.value = p.bodySize * 12;
+        bind("bodySize", body.frequency, 650);
+        bind("bodySize", body.Q, 3);
+        bind("bodySize", body.gain, 12);
         source.connect(body).connect(layerSink);
+        if (routed("brightness")) {
+          const tone = c.createBiquadFilter();
+          tone.type = "lowpass";
+          tone.frequency.value = 500 + p.brightness * 17500;
+          body.disconnect(layerSink);
+          body.connect(tone).connect(layerSink);
+          bind("brightness", tone.frequency, 17500);
+          nodes.push(tone);
+        }
         nodes.push(body);
         sources.push(source);
         source.start(start);
@@ -900,6 +1026,8 @@ export class SynthEngine {
             p.sampleReverse >= 0.5 ? this.reverse(sample) : sample;
           source.playbackRate.value = rate * 2 ** (p.sampleFine / 1200);
           applyLayerPitch(source.detune);
+          bind("sampleRoot", source.detune, -100);
+          bind("sampleFine", source.detune);
           source.loop = p.sampleLoop;
           source.loopStart =
             sampleStart +
@@ -934,7 +1062,7 @@ export class SynthEngine {
           );
         } else {
           // Live clouds are replenished with a short lookahead, without accumulating ended grains.
-          let cursor = start;
+          let cursor = start, scanOffset = 0, scanAt = start;
           const scheduleGrains = (until: number) => {
             if (c instanceof AudioContext && cursor < c.currentTime - 0.1)
               cursor = c.currentTime;
@@ -942,37 +1070,41 @@ export class SynthEngine {
               const at = cursor,
                 source = c.createBufferSource(),
                 window = c.createGain();
-              cursor += 1 / p.grainDensity;
+              const density = numberAt("grainDensity", at);
+              scanOffset += (at - scanAt) * numberAt("grainScan", at) * .15;
+              scanAt = at;
+              cursor += 1 / density;
               source.buffer =
-                Math.random() < p.grainReverse ? this.reverse(sample) : sample;
+                Math.random() < numberAt("grainReverse", at) ? this.reverse(sample) : sample;
               source.playbackRate.value =
-                rate * 2 ** (((Math.random() - 0.5) * p.grainPitch) / 12);
+                rate * 2 ** (((Math.random() - 0.5) * numberAt("grainPitch", at)) / 12);
               applyLayerPitch(source.detune);
+              bind("sampleRoot", source.detune, -100);
               const actualRate =
                 source.playbackRate.value *
                 2 ** ((layerDetune + this.bends[track]) / 1200);
               const length = Math.min(
-                  p.grainSize,
+                  numberAt("grainSize", at),
                   sample.duration / actualRate,
                 ),
                 offset = clamp(
-                  ((((p.position + (at - start) * p.grainScan * 0.15) % 1) +
+                  ((((numberAt("position", at) + scanOffset) % 1) +
                     1) %
                     1) *
                     sample.duration +
-                    (Math.random() - 0.5) * p.spread * sample.duration,
+                    (Math.random() - 0.5) * numberAt("spread", at) * sample.duration,
                   0,
                   Math.max(0, sample.duration - length * actualRate),
                 );
               window.gain.setValueAtTime(0, at);
               window.gain.linearRampToValueAtTime(
-                0.75 / Math.sqrt(Math.max(1, p.grainDensity * length)),
-                at + length * p.grainWindow,
+                0.75 / Math.sqrt(Math.max(1, density * length)),
+                at + length * numberAt("grainWindow", at),
               );
               window.gain.linearRampToValueAtTime(0, at + length);
               source.connect(window);
               const grainPan = c.createStereoPanner();
-              grainPan.pan.value = (Math.random() * 2 - 1) * p.grainPan;
+              grainPan.pan.value = (Math.random() * 2 - 1) * numberAt("grainPan", at);
               window.connect(grainPan).connect(layerSink);
               nodes.push(grainPan);
               sources.push(source);
@@ -994,7 +1126,9 @@ export class SynthEngine {
                 const pi = pitch.indexOf(source.detune);
                 if (pi >= 0) pitch.splice(pi, 1);
                 pitchOffsets.delete(source.detune);
-                for (const mod of pitchModNodes)
+                for (const key of Object.keys(bindings))
+                  bindings[key] = bindings[key].filter((b) => b.param !== source.detune);
+                for (const mod of [...pitchModNodes, ...Object.values(routeOutputs).flat(), ...[...weightedOutputs.values()].flatMap((cache) => [...cache.values()])])
                   try {
                     mod.disconnect(source.detune);
                   } catch {
@@ -1017,18 +1151,19 @@ export class SynthEngine {
       }
     }
     if (
-      p.sub > 0.001 &&
+      (p.sub > 0.001 || routed("sub")) &&
       p.engine !== "granular" &&
       p.engine !== "sampler" &&
       p.engine !== "physical"
     )
-      addOsc("sine", frequency / 2, p.sub);
-    if (p.noise > 0.001) {
+      addOsc("sine", frequency / 2, p.sub, 0, "sub");
+    if (p.noise > 0.001 || routed("noise")) {
       const source = c.createBufferSource(),
         gain = c.createGain();
       source.buffer = this.noise;
       source.loop = true;
       gain.gain.value = p.noise;
+      bind("noise", gain.gain);
       source.connect(gain);
       gain.connect(drive);
       sources.push(source);
@@ -1037,7 +1172,30 @@ export class SynthEngine {
     }
     // Modulation is connected at audio rate, including each LFO's own depth and tempo sync.
     this.lastNotes[track] = note;
+    const activeFilter = isPara ? bus.paraFilter : filter;
+    bind("resonance", activeFilter.Q);
+    bind("combFeedback", activeFilter.combFeedback);
+    bind("combDamping", activeFilter.combDamping);
+    bind("combMix", activeFilter.combMix);
+    bind("level", volume.gain);
+    if (routed("filterAmount")) {
+      const source = c.createConstantSource(), amount = c.createGain();
+      amount.gain.value = 0;
+      scheduleEnvelope(source.offset, {
+        attack: p.filterAttack, decay: p.filterDecay,
+        sustain: p.filterSustain, release: p.filterRelease,
+      }, start, 1200);
+      source.connect(amount).connect(activeFilter.detune);
+      source.start(start);
+      sources.push(source);
+      nodes.push(amount);
+      filterEnvParams.push({ param: source.offset, scale: 1200 });
+      bind("filterAmount", amount.gain);
+    }
     const targets: Record<string, { params: AudioParam[]; scale: number }> = {
+      ...Object.fromEntries(Object.entries(bindings).map(([key, values]) => [
+        key, { params: values.map((value) => value.param), scale: modulationScale(key as ModTarget) },
+      ])),
       cutoff: {
         params: [isPara ? bus.paraFilter.frequency : filter.frequency],
         scale: Math.min(6000, p.cutoff * 2),
@@ -1047,11 +1205,38 @@ export class SynthEngine {
       pan: { params: [panner.pan], scale: 1 },
       fmIndex: { params: fmGains, scale: frequency * 10 },
     };
+    const controls = new Map<string, { input: AudioParam; bias: AudioParam; output: GainNode }>();
+    const boundedControl = (key: Param) => {
+      const existing = controls.get(key);
+      if (existing) return existing;
+      const [min, max] = PARAMS[key], half = (max - min) / 2;
+      const signal = c.createConstantSource(), bias = c.createConstantSource(),
+        clamp = c.createWaveShaper(), range = c.createGain(), output = c.createGain();
+      signal.offset.value = (p[key] - min) / half - 1;
+      bias.offset.value = min + half - p[key];
+      // WaveShaper holds its endpoints outside [-1, 1], clipping the sum of
+      // all routes once, before it is mapped back to the parameter's range.
+      clamp.curve = new Float32Array([-1, 1]);
+      range.gain.value = half;
+      signal.connect(clamp).connect(range).connect(output);
+      bias.connect(output);
+      signal.start(start); bias.start(start);
+      sources.push(signal, bias);
+      nodes.push(clamp, range, output);
+      const control = { input: signal.offset, bias: bias.offset, output };
+      controls.set(key, control);
+      for (const binding of bindings[key]) connectBinding(output, binding.param, binding.weight);
+      routeOutputs[key] = [output];
+      return control;
+    };
     for (const mod of p.mods) {
       const target = targets[mod.target];
       if (!target?.params.length || Math.abs(mod.amount) < 0.0001) continue;
+      const control = bindings[mod.target] && Object.hasOwn(PARAMS, mod.target)
+        ? boundedControl(mod.target as Param) : undefined;
       const gain = c.createGain();
-      gain.gain.value = mod.amount * target.scale;
+      const scale = mod.amount * (control ? 1 : target.scale);
+      gain.gain.value = scale;
       nodes.push(gain);
       if (
         mod.source === "lfo1" ||
@@ -1067,7 +1252,7 @@ export class SynthEngine {
           index,
           source,
           gain,
-          scale: mod.amount * target.scale,
+          scale,
           config: { ...l },
         });
         sources.push(source);
@@ -1083,7 +1268,7 @@ export class SynthEngine {
                 : 0;
         if (mod.source === "modwheel") modwheelParams.push(source.offset);
         if (mod.source === "filterEnv") {
-          filterEnvParams.push(source.offset);
+          filterEnvParams.push({ param: source.offset, scale: 1 });
           scheduleEnvelope(
             source.offset,
             {
@@ -1099,7 +1284,11 @@ export class SynthEngine {
         sources.push(source);
         source.start(start);
       }
-      for (const param of target.params) gain.connect(param);
+      if (control) gain.connect(control.input);
+      else if (bindings[mod.target]) {
+        for (const binding of bindings[mod.target]) connectBinding(gain, binding.param, binding.weight);
+        (routeOutputs[mod.target] ??= []).push(gain);
+      } else for (const param of target.params) gain.connect(param);
       if (mod.target === "pitch") pitchModNodes.push(gain);
     }
     const voice: Voice = {
@@ -1108,10 +1297,23 @@ export class SynthEngine {
       velocity,
       time: start,
       amp,
+      volume,
+      updateLevel: (value, time) => {
+        volume.gain.cancelScheduledValues(time);
+        volume.gain.setTargetAtTime(value, time, .015);
+        const control = controls.get("level");
+        if (control) {
+          control.input.cancelScheduledValues(time);
+          control.bias.cancelScheduledValues(time);
+          control.input.setTargetAtTime(value * 2 - 1, time, .015);
+          control.bias.setTargetAtTime(.5 - value, time, .015);
+        }
+      },
       filter,
       panner,
       sources,
       nodes,
+      gates,
       patch: p,
       released: false,
       releaseAt: Infinity,
@@ -1135,6 +1337,7 @@ export class SynthEngine {
           velocity *
           0.24;
       voice.releaseAt = releaseAt;
+      modulationRelease = releaseAt;
       for (const timer of grainTimers) window.clearInterval(timer);
       grainTimers.length = 0;
       for (const schedule of grainSchedulers) schedule(releaseAt + p.release);
@@ -1221,16 +1424,20 @@ export class SynthEngine {
         sustain: p.filterSustain,
         release: p.filterRelease,
       };
-      for (const param of filterEnvParams) {
+      for (const { param, scale } of filterEnvParams) {
         holdParameter(
           param,
           releaseAt,
-          envelopeAt(filterEnv, releaseAt - start),
+          envelopeAt(filterEnv, releaseAt - start) * scale,
         );
         param.linearRampToValueAtTime(0, releaseAt + p.filterRelease);
       }
       const end = releaseAt + releaseLength + 0.05;
       voice.end = end;
+      for (const gate of gates) {
+        gate.cancelScheduledValues(end);
+        gate.setValueAtTime(0, end);
+      }
       for (const source of sources) {
         try {
           source.stop(Math.min(end, fixedEnds.get(source) ?? end));
@@ -1299,6 +1506,10 @@ export class SynthEngine {
             /* Already stopped. */
           }
         v.end = now + 0.025;
+        for (const gate of v.gates) {
+          gate.cancelScheduledValues(now);
+          gate.setValueAtTime(0, v.end);
+        }
         this.queueCleanup(v);
       }
     this.buses.forEach((bus, index) => {
@@ -1568,7 +1779,8 @@ export async function renderProject(
         });
         end = Math.max(
           end,
-          when + Math.max(0.01, gate) + patch.release + effectTail(patch),
+          when + Math.max(0.01, gate) +
+            (patch.mods.some((m) => m.target === "release" && m.amount !== 0) ? PARAMS.release[1] : patch.release) + effectTail(patch),
         );
       }
     }

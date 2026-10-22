@@ -1,5 +1,21 @@
 import type { Lfo, LfoShape } from "./model";
 type Context = AudioContext | OfflineAudioContext;
+const shotCycle = (start: number, identity: number) => {
+  const value = Math.sin((start + identity * 17.17) * 127.1) * 43758.5453;
+  return Math.floor((value - Math.floor(value)) * 32);
+};
+export function lfoSnapshot(lfo: Lfo, tempo: number, start: number, time: number, identity = 0) {
+  const rate = lfo.sync ? tempo / 60 / lfo.division : lfo.rate;
+  const phase = lfo.retrigger || lfo.mode === "one" || lfo.mode === "half" ? 0 : start * rate;
+  const elapsed = Math.max(0, time - start) * rate;
+  if (lfo.mode === "hold")
+    return lfoValue(lfo.shape, phase, lfo.shape === "random" ? start + identity + 1 : identity + 1);
+  if ((lfo.mode === "one" && elapsed >= 1) || (lfo.mode === "half" && elapsed >= .5)) return 0;
+  const position = phase + elapsed;
+  return lfoValue(lfo.shape, lfo.shape === "random"
+    ? lfo.mode === "free" ? position % 32 : position + shotCycle(start, identity)
+    : position, identity + 1);
+}
 export function lfoValue(shape: LfoShape, phase: number, seed = 1) {
   const x = ((phase % 1) + 1) % 1;
   if (shape === "sine") return Math.sin(x * Math.PI * 2);
@@ -27,7 +43,7 @@ export function makeLfoSource(
       : start * rate;
   if (lfo.mode === "hold") {
     const source = ctx.createConstantSource();
-    source.offset.value = lfoValue(lfo.shape, phase, start + Math.random());
+    source.offset.value = lfoSnapshot(lfo, tempo, start, start, identity);
     source.start(start);
     return source;
   }
@@ -50,7 +66,7 @@ export function makeLfoSource(
   if (!source.loop) {
     const length = lfo.mode === "half" ? resolution / 2 : resolution;
     const shot = ctx.createBuffer(1, length, resolution);
-    const offset = random ? Math.floor(Math.random() * cycles) * resolution : 0;
+    const offset = random ? shotCycle(start, identity) * resolution : 0;
     shot.copyToChannel(
       buffer.getChannelData(0).slice(offset, offset + length),
       0,

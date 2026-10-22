@@ -6,7 +6,7 @@ import {
   Waves,
   AudioLines,
 } from "lucide-react";
-import { Knob, Select, formatHz, formatTime, percent } from "./components";
+import { Knob, Select, PanelHeader, formatHz, formatTime, percent } from "./components";
 import { HEAT_MODES, makeMasterFx } from "./model";
 import type { MasterFx } from "./model";
 import { EQ_FREQUENCIES, heatTransfer } from "./master-audio";
@@ -61,14 +61,12 @@ export default function MasterFX({
     gains = p[eqKey];
   const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
   return (
-    <section className={`master-panel ${p.enabled ? "" : "master-bypassed"}`}>
-      <header className="master-panel-header">
-        <div>
-          <span className="eyebrow">FINAL COLOUR / STEREO BUS</span>
-          <h2>
-            Master FX <span>Shape the whole session.</span>
-          </h2>
-        </div>
+    <section className={`master-panel studio-panel ${p.enabled ? "" : "master-bypassed"}`}>
+      <PanelHeader
+        icon={<SlidersHorizontal size={16} />}
+        title="Master FX"
+        context={<span className="tag">STEREO BUS</span>}
+        actions={
         <button
           className={`master-toggle ${p.enabled ? "on" : ""}`}
           aria-pressed={p.enabled}
@@ -77,7 +75,8 @@ export default function MasterFX({
           <Power size={15} />
           {p.enabled ? "MASTER FX ON" : "BYPASS ALL"}
         </button>
-      </header>
+        }
+      />
       <nav className="master-tabs" aria-label="Master-Effektbereich">
         {[
           { id: "heat", label: "Heat / Drive", icon: Flame },

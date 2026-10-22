@@ -328,6 +328,7 @@ export default function App() {
         engine.context.state !== "running"
       )
         await engine.context.resume();
+      await engine.prepare(projectRef.current);
       setAudioReady(true);
       return engine;
     };
@@ -392,11 +393,11 @@ export default function App() {
           if (head < 0)
             setSelectedStep((index + 1) % t.patterns[p.activePattern].length);
         }
-      } catch {
-        /* Error is already shown. */
+      } catch (error) {
+        notify(`Audio: ${errorMessage(error)}`);
       }
     },
-    [ensureAudio, changeStep, selectedStep],
+    [ensureAudio, changeStep, selectedStep, notify],
   );
   const noteOff = useCallback(
     (

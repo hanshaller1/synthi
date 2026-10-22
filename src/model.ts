@@ -55,7 +55,7 @@ export type ModSource =
   | "keytrack"
   | "modwheel"
   | "filterEnv";
-export type ModTarget = "cutoff" | "pitch" | "amplitude" | "pan" | "fmIndex";
+export type ModTarget = keyof typeof MOD_TARGETS;
 export type Modulation = {
   source: ModSource;
   target: ModTarget;
@@ -143,6 +143,93 @@ export const PARAMS = {
   distortion: [0, 1, 0.05],
 } as const;
 export type Param = keyof typeof PARAMS;
+const destination = (label: string, group: string, trigger = false) => ({ label, group, trigger });
+export const MOD_TARGETS = {
+  pitch: destination("Pitch", "Global"),
+  tune: destination("Transpose", "Global"),
+  unison: destination("Unison voices", "Global", true),
+  unisonDetune: destination("Unison detune", "Global"),
+  unisonWidth: destination("Unison width", "Global"),
+  glide: destination("Portamento", "Global", true),
+  wave: destination("Oscillator 1 waveform", "Subtractive", true),
+  wave2: destination("Oscillator 2 waveform", "Subtractive", true),
+  detune: destination("Oscillator detune", "Subtractive"),
+  osc2Tune: destination("Oscillator 2 transpose", "Subtractive"),
+  mix: destination("Oscillator mix", "Subtractive"),
+  pulseWidth: destination("Pulse width", "Subtractive"),
+  drift: destination("Analog drift", "Subtractive", true),
+  sub: destination("Sub level", "Global"),
+  noise: destination("Noise level", "Global"),
+  wavetable: destination("Wavetable selection", "Wavetable"),
+  shape: destination("Position / Odd-even / AM-Ring", "Engine"),
+  wtWarp: destination("Phase warp", "Wavetable"),
+  wtFormant: destination("Formant", "Wavetable"),
+  brightness: destination("Brightness", "Engine"),
+  fmRatio: destination("Operator 2 / Ring ratio", "FM / Ring"),
+  fmIndex: destination("FM index", "FM"),
+  fmFeedback: destination("FM feedback", "FM"),
+  fmDecay: destination("Index decay", "FM", true),
+  fmEnd: destination("Index end", "FM", true),
+  fmRatio2: destination("Operator 3 ratio", "FM"),
+  fmIndex2: destination("Operator 3 index", "FM"),
+  fmAlgorithm: destination("FM algorithm", "FM", true),
+  harmonics: destination("Partials", "Additive"),
+  spectralTilt: destination("Spectral tilt", "Additive"),
+  spectralPeak: destination("Peak partial", "Additive"),
+  spectralResonance: destination("Peak boost", "Additive"),
+  inharmonicity: destination("Inharmonicity", "Additive"),
+  ringDepth: destination("Ring depth", "Ring / AM"),
+  ringDry: destination("Dry carrier", "Ring / AM"),
+  ringBias: destination("Ring bias", "Ring / AM"),
+  ringOffset: destination("Modulator offset", "Ring / AM"),
+  grainSize: destination("Grain size", "Granular"),
+  grainDensity: destination("Grain density", "Granular"),
+  position: destination("Grain position", "Granular"),
+  spread: destination("Position jitter", "Granular"),
+  grainScan: destination("Scan speed", "Granular"),
+  grainPitch: destination("Pitch scatter", "Granular"),
+  grainReverse: destination("Reverse chance", "Granular"),
+  grainPan: destination("Stereo scatter", "Granular"),
+  grainWindow: destination("Window attack", "Granular"),
+  sampleId: destination("Sample selection", "Sampler", true),
+  grainSampleId: destination("Texture selection", "Granular", true),
+  sampleRoot: destination("Sample root", "Sampler"),
+  sampleFine: destination("Sample fine tune", "Sampler"),
+  sampleStart: destination("Sample start", "Sampler", true),
+  sampleEnd: destination("Sample end", "Sampler", true),
+  sampleReverse: destination("Sample reverse", "Sampler", true),
+  sampleLoop: destination("Sample loop", "Sampler", true),
+  sampleLoopStart: destination("Loop start", "Sampler", true),
+  sampleLoopEnd: destination("Loop end", "Sampler", true),
+  sampleFade: destination("Edge fade", "Sampler", true),
+  damping: destination("String damping", "Physical", true),
+  pluckPosition: destination("Pick position", "Physical", true),
+  stringDecay: destination("String decay", "Physical", true),
+  bodySize: destination("Body", "Physical"),
+  dispersion: destination("Dispersion", "Physical", true),
+  excitation: destination("Excitation type", "Physical", true),
+  filterType: destination("Filter model", "Filter", true),
+  multimodeType: destination("Multimode type", "Filter", true),
+  combPolarity: destination("Comb polarity", "Filter", true),
+  cutoff: destination("Cutoff / Comb frequency", "Filter"),
+  resonance: destination("Resonance / Peak gain", "Filter"),
+  combFeedback: destination("Comb feedback", "Filter"),
+  combDamping: destination("Comb damping", "Filter"),
+  combMix: destination("Comb dry / wet", "Filter"),
+  drive: destination("Filter drive", "Filter"),
+  filterAmount: destination("Filter envelope amount", "Filter"),
+  filterAttack: destination("Filter attack", "Filter envelope", true),
+  filterDecay: destination("Filter decay", "Filter envelope", true),
+  filterSustain: destination("Filter sustain", "Filter envelope", true),
+  filterRelease: destination("Filter release", "Filter envelope", true),
+  amplitude: destination("Amplitude", "Amplifier"),
+  level: destination("Level", "Amplifier"),
+  pan: destination("Pan", "Amplifier"),
+  attack: destination("Amp attack", "Amp envelope", true),
+  decay: destination("Amp decay", "Amp envelope", true),
+  sustain: destination("Amp sustain", "Amp envelope", true),
+  release: destination("Amp release", "Amp envelope", true),
+};
 // These values are AudioNode topology/buffer changes rather than schedulable AudioParams.
 export const LOCK_PARAMS: Param[] = (Object.keys(PARAMS) as Param[]).filter(
   (key) =>
@@ -518,10 +605,10 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     legato: true,
     fxOrder: ["saturationMode", "modulationMode", "delayMode", "reverbMode"],
     fxEnabled: {
-      saturationMode: true,
-      modulationMode: true,
-      delayMode: true,
-      reverbMode: true,
+      saturationMode: false,
+      modulationMode: false,
+      delayMode: false,
+      reverbMode: false,
     },
     fxSettings: defaultFxSettings(),
     sampleId: "sample-13-0",
@@ -857,7 +944,8 @@ export function sanitizePatch(value: unknown): Patch {
     p.fxOrder = [...value.fxOrder] as FxSlot[];
   if (isRecord(value.fxEnabled))
     for (const slot of slots)
-      p.fxEnabled[slot] = value.fxEnabled[slot] !== false;
+      if (typeof value.fxEnabled[slot] === "boolean")
+        p.fxEnabled[slot] = value.fxEnabled[slot];
   if (isRecord(value.fxSettings))
     for (const [id, controls] of Object.entries(FX_CONTROLS)) {
       const settings = value.fxSettings[id];
@@ -946,9 +1034,7 @@ export function sanitizePatch(value: unknown): Patch {
             "modwheel",
             "filterEnv",
           ].includes(String(m.source)) &&
-          ["cutoff", "pitch", "amplitude", "pan", "fmIndex"].includes(
-            String(m.target),
-          ),
+          typeof m.target === "string" && Object.hasOwn(MOD_TARGETS, m.target),
       )
       .map((m) => ({
         source: m.source as ModSource,

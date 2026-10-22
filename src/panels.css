@@ -1,0 +1,196 @@
+/* Shared shell: all three editors use the same header, palette and typography. */
+.studio-viewport .studio-panel {
+  --surface: #292c29;
+  --surface-low: #242724;
+  --surface-raised: #30332f;
+  --panel-line: #454943;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--panel-line);
+  border-radius: 6px;
+  font-family: Inter, "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
+}
+.studio-viewport .studio-panel .panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 48px;
+  height: 48px;
+  min-height: 48px;
+  padding: 0 14px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--panel-line);
+}
+.studio-viewport .panel-header .section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.studio-viewport .panel-header h2 {
+  margin: 0;
+  font: 500 14px Inter, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text);
+  white-space: nowrap;
+}
+.studio-viewport .panel-header .section-heading > svg {
+  color: #abb4a5;
+  flex-shrink: 0;
+}
+.studio-viewport .panel-header .tag {
+  color: #abb4a5;
+  background: var(--surface-low);
+  border-color: var(--panel-line);
+  font: 8px var(--mono);
+  letter-spacing: .5px;
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.panel-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--accent);
+}
+.studio-viewport .studio-panel .master-toggle {
+  color: var(--muted);
+  border-color: var(--panel-line);
+  font: 9px var(--mono);
+}
+.studio-viewport .studio-panel .master-toggle.on {
+  color: var(--accent);
+  border-color: #9a7957;
+  background: #e5ac8610;
+}
+.studio-viewport .studio-panel .master-tabs {
+  min-height: 40px;
+  flex-basis: 40px;
+  padding: 0 15px;
+  border-color: var(--panel-line);
+  gap: 22px;
+}
+.studio-viewport .studio-panel .master-tabs button {
+  color: var(--muted);
+  font-size: 13px;
+  font-family: inherit;
+}
+.studio-viewport .studio-panel .master-tabs button.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.studio-viewport .studio-panel .master-section-title h3 {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.studio-viewport .studio-panel .master-description,
+.studio-viewport .studio-panel .sequence-track-label > b {
+  color: #a8afa4;
+  font-size: 12px;
+}
+.studio-viewport .studio-panel .heat-modes button,
+.studio-viewport .studio-panel .eq-band-switch button {
+  color: #a8afa4;
+  border-color: var(--panel-line);
+  background: var(--surface-low);
+  font-size: 12px;
+}
+.studio-viewport .studio-panel .heat-modes button.active,
+.studio-viewport .studio-panel .eq-band-switch button.active {
+  color: var(--accent);
+  border-color: #9a7957;
+  background: #e5ac8610;
+}
+.studio-viewport .studio-panel .heat-modes button small,
+.studio-viewport .studio-panel .master-chain,
+.studio-viewport .studio-panel .eq-faders small,
+.studio-viewport .studio-panel .eq-faders span {
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.studio-viewport .studio-panel .master-editor svg {
+  color: #c6b58c;
+}
+.studio-viewport .studio-panel .heat-graph,
+.studio-viewport .studio-panel .eq-graph,
+.studio-viewport .studio-panel .compressor-art,
+.studio-viewport .studio-panel .master-space > section {
+  border-color: var(--panel-line);
+  background: var(--surface-low);
+}
+.studio-viewport .studio-panel .master-chain,
+.studio-viewport .studio-panel .sequencer-footer {
+  border-color: var(--panel-line);
+  background: var(--surface-low);
+}
+.studio-viewport .studio-panel .master-knobs .knob {
+  width: 55px;
+  height: 55px;
+}
+.studio-viewport .studio-panel .steps,
+.studio-viewport .studio-panel .step-numbers > .timeline-heading {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+}
+.studio-viewport .studio-panel .steps {
+  --step-gap: 4px;
+}
+.studio-viewport .studio-panel .step {
+  min-width: 0;
+  width: auto;
+  margin-right: var(--step-gap);
+}
+.studio-viewport .studio-panel .timeline-heading > span {
+  overflow: hidden;
+  text-align: left;
+  font: 8px var(--mono);
+  color: var(--muted);
+}
+.studio-viewport .studio-panel .pattern-toolbar,
+.studio-viewport .studio-panel .instrument-toolbar {
+  background: var(--surface);
+  border-color: var(--panel-line);
+}
+.studio-viewport .studio-panel .sequence-track.selected .sequence-track-label > b {
+  color: var(--accent);
+}
+.studio-viewport .studio-panel .step-numbers > .timeline-heading {
+  letter-spacing: 0;
+  overflow: hidden;
+}
+@media (max-width: 960px) {
+  .panel-header .voice-badge { display: none; }
+  .panel-preset { max-width: 160px; }
+}
+@media (max-width: 620px), (max-width: 960px) and (max-height: 620px) and (pointer: coarse) {
+  .studio-viewport .studio-panel .panel-header {
+    height: 40px;
+    min-height: 40px;
+    flex-basis: 40px;
+    padding: 0 8px;
+    gap: 5px;
+  }
+  .studio-viewport .panel-header .section-heading { gap: 6px; }
+  .studio-viewport .panel-header h2 { font-size: 12px; }
+  .studio-viewport .panel-header .tag { padding: 4px; font-size: 6px; }
+  .panel-preset { display: none; }
+  .panel-header .patch-actions { gap: 4px; }
+  .studio-viewport .panel-header-actions .icon-button { width: 25px; height: 25px; }
+  .studio-viewport .studio-panel .master-tabs { gap: 12px; padding: 0 8px; }
+  .studio-viewport .studio-panel .master-tabs button { font-size: 11px; }
+  .studio-viewport .studio-panel .master-knobs .knob { width: 42px; height: 42px; }
+  .studio-viewport .studio-panel .steps { --step-gap: 2px; }
+}

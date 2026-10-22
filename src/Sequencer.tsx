@@ -11,7 +11,7 @@ import {
   UnlockKeyhole,
   X,
 } from "lucide-react";
-import { IconButton, Select, Modal } from "./components";
+import { IconButton, Select, Modal, PanelHeader } from "./components";
 import {
   CHORDS,
   LOCK_PARAMS,
@@ -55,6 +55,20 @@ export default function Sequencer(p: Props) {
   const [addLock, setAddLock] = useState<Param>("cutoff");
   const [editorOpen, setEditorOpen] = useState(false);
   const closeEditor = useCallback(() => setEditorOpen(false), []);
+  // One shared 1/64-note scale; never normalize each track independently.
+  const timelines = project.tracks.map((t) => {
+    const pat = t.patterns[project.activePattern];
+    let position = 0;
+    return pat.steps.map((s) => {
+      const start = position, units = s.span * 64 / pat.division;
+      position += units;
+      return { start, units };
+    });
+  });
+  const first = page * 16, last = first + 15;
+  const startUnit = Math.min(...timelines.map((row) => row[first].start));
+  const endUnit = Math.max(...timelines.map((row) => row[last].start + row[last].units));
+  const timelineStyle = { gridTemplateColumns: `repeat(${endUnit - startUnit}, minmax(0, 1fr))` };
   const change = (patch: Partial<Step>) => p.onStep(track, selectedStep, patch);
   const stepEditor = (
     <div className="step-editor">
@@ -208,18 +222,19 @@ export default function Sequencer(p: Props) {
     </div>
   );
   return (
-    <section className="sequencer">
-      <header className="sequencer-header">
-        <div className="section-heading">
-          <Layers3 size={16} />
-          <h2>Step sequencer</h2>
+    <section className="sequencer studio-panel">
+      <PanelHeader
+        icon={<Layers3 size={16} />}
+        title="Step sequencer"
+        context={<>
           <span className="tag">PATTERN A0{project.activePattern + 1}</span>
           {p.recording && (
             <span className="record-tag">
               <i /> LIVE REC
             </span>
           )}
-        </div>
+        </>}
+        actions={
         <div className="sequencer-actions">
           <button
             className={`small-button fill-button ${p.fill ? "on" : ""}`}
@@ -245,7 +260,8 @@ export default function Sequencer(p: Props) {
             <Trash2 size={14} />
           </IconButton>
         </div>
-      </header>
+        }
+      />
       <div className="pattern-toolbar">
         <div className="pattern-bank" aria-label="Pattern-Speicher">
           {Array.from({ length: 8 }, (_, i) => (
@@ -321,8 +337,10 @@ export default function Sequencer(p: Props) {
       <div className="sequence-grid">
         <div className="step-numbers">
           <span>TRACK / TRIG</span>
-          <div className="timeline-heading">
-            VARIABLE STEP LENGTH · Shift + Klick / Rechtsklick: Step öffnen
+          <div className="timeline-heading" style={timelineStyle} aria-label="Gemeinsames Zeitraster in Sechzehntelnoten">
+            {Array.from({ length: Math.ceil(endUnit / 4) }, (_, i) => i * 4)
+              .filter((unit) => unit >= startUnit && unit < endUnit)
+              .map((unit) => <span key={unit} style={{ gridColumn: `${unit - startUnit + 1} / span ${Math.min(4, endUnit - unit)}` }}>{unit / 4 + 1}</span>)}
           </div>
           <span />
         </div>
@@ -344,12 +362,7 @@ export default function Sequencer(p: Props) {
               </button>
               <div
                 className="steps"
-                style={{
-                  gridTemplateColumns: pat.steps
-                    .slice(page * 16, page * 16 + 16)
-                    .map((step) => `minmax(0, ${step.span}fr)`)
-                    .join(" "),
-                }}
+                style={timelineStyle}
               >
                 {Array.from({ length: 16 }, (_, i) => {
                   const index = page * 16 + i,
@@ -358,6 +371,7 @@ export default function Sequencer(p: Props) {
                   return (
                     <button
                       key={index}
+                      style={{ gridColumn: `${timelines[ti][index].start - startUnit + 1} / span ${timelines[ti][index].units}` }}
                       className={`step ${s.on ? "enabled" : ""} ${index === selectedStep && ti === track ? "inspected" : ""} ${p.playing && p.playheads[ti] === index ? "playhead" : ""} ${index >= pat.length ? "outside" : ""} ${i % 4 === 0 ? "beat-start" : ""}`}
                       aria-label={`Track ${ti + 1} Step ${index + 1} ${s.on ? "on" : "off"}`}
                       aria-pressed={s.on}

@@ -43,8 +43,13 @@ export class VoiceFilter {
   readonly output: GainNode;
   readonly frequency: AudioParam;
   readonly Q: AudioParam;
+  readonly detune: AudioParam;
+  readonly combFeedback: AudioParam;
+  readonly combDamping: AudioParam;
+  readonly combMix: AudioParam;
   private frequencySource: ConstantSourceNode;
   private resonanceSource: ConstantSourceNode;
+  private controlsSources: Record<string, ConstantSourceNode>;
   private branches = new Set<Branch>();
   private branch?: Branch;
   private shape = "";
@@ -63,6 +68,18 @@ export class VoiceFilter {
     this.Q = this.resonanceSource.offset;
     this.frequency.value = 2400;
     this.Q.value = 2.2;
+    this.controlsSources = Object.fromEntries(
+      Object.entries({ detune: 0, feedback: .65, damping: 8000, mix: .75 }).map(([key, value]) => {
+        const source = context.createConstantSource();
+        source.offset.value = value;
+        source.start();
+        return [key, source];
+      }),
+    );
+    this.detune = this.controlsSources.detune.offset;
+    this.combFeedback = this.controlsSources.feedback.offset;
+    this.combDamping = this.controlsSources.damping.offset;
+    this.combMix = this.controlsSources.mix.offset;
     this.frequencySource.start();
     this.resonanceSource.start();
     if (bypass) this.input.connect(this.output);
@@ -76,12 +93,17 @@ export class VoiceFilter {
     }
     for (const node of branch.nodes) {
       // A shared control source must not retain the old branch's AudioParams.
-      if (node instanceof BiquadFilterNode)
+      if (node instanceof BiquadFilterNode) {
         this.frequencySource.disconnect(node.frequency);
+        this.controlsSources.detune.disconnect(node.detune);
+      }
       node.disconnect();
     }
     if (branch.worklet)
       this.frequencySource.disconnect(branch.controls!.get("frequency")!);
+    if (branch.controls)
+      for (const [key, source] of Object.entries(this.controlsSources))
+        source.disconnect(branch.controls.get(key)!);
     for (const node of branch.nodes)
       if (node instanceof GainNode && node !== branch.gain) {
         try {
@@ -121,6 +143,10 @@ export class VoiceFilter {
       worklet.parameters.forEach((param, key) => controls!.set(key, param));
       controls.get("frequency")!.value = 0;
       this.frequencySource.connect(controls.get("frequency")!);
+      for (const [key, source] of Object.entries(this.controlsSources)) {
+        controls.get(key)!.value = 0;
+        source.connect(controls.get(key)!);
+      }
       worklet.connect(gain);
       input = worklet;
       nodes.push(worklet);
@@ -133,6 +159,7 @@ export class VoiceFilter {
         filter.type = mode.type;
         filter.frequency.value = 0;
         this.frequencySource.connect(filter.frequency);
+        this.controlsSources.detune.connect(filter.detune);
         resonance.gain.value = 1 / mode.stages;
         this.resonanceSource.connect(resonance);
         if (mode.peak) {
@@ -199,7 +226,7 @@ export class VoiceFilter {
       polarity: previous.combPolarity === "negative" ? -1 : 1,
     };
     for (const key of Object.keys(values) as (keyof typeof values)[]) {
-      const param = this.branch.controls.get(key)!;
+      const param = this.controlsSources[key]?.offset ?? this.branch.controls.get(key)!;
       if (scheduled) param.setValueAtTime(values[key], when);
       else if (force || old?.[key] !== values[key]) {
         param.cancelScheduledValues(when);
@@ -231,6 +258,10 @@ export class VoiceFilter {
     this.resonanceSource.stop();
     this.frequencySource.disconnect();
     this.resonanceSource.disconnect();
+    for (const source of Object.values(this.controlsSources)) {
+      source.stop();
+      source.disconnect();
+    }
     this.input.disconnect();
     this.output.disconnect();
   }

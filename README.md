@@ -100,20 +100,24 @@ Die Engine begrenzt gleichzeitig gehaltene Noten auf 32 (jeweils zuzüglich der 
 - Separate ADSR-Hüllkurven für Filter und Lautstärke; bipolare Filter-Envelope-Tiefe.
 - Drei LFOs mit Sinus, Dreieck, Rechteck, Sägezahn, **Exp**, **Ramp** und **Random**; freie Rate oder Tempo-Synchronisation, Retrigger und Tiefe.
 - **Free:** wiederholter Verlauf; **Hold:** Wert beim Anschlag abtasten und halten; **One:** ein voller Zyklus; **Half:** ein halber Zyklus. One/Half enden danach auf null. Random liefert im Free-Modus stufenweise Zufallswerte, im Hold-Modus einen Zufallswert je Anschlag.
-- Bis zu acht Modulationsrouten: LFO 1/2/3, Velocity, Keytracking, Modwheel oder Filter-Envelope auf Cutoff, Pitch, Amplitude, Pan oder FM-Index.
+- Bis zu acht Modulationsrouten: LFO 1/2/3, Velocity, Keytracking, Modwheel oder Filter-Envelope auf die Parameter aller acht Engines, Filter und Amp. Die Zielauswahl ist nach Klangquelle, Filter und Hüllkurven gruppiert. Dazu gehören etwa PWM, Osc-Mix/Transpose, Wavetable-Auswahl/-Position/Warp/Formant, FM-Verhältnisse/Indizes/Feedback, additive Teiltöne und Spektralform, Ring/AM, sämtliche Grain-Parameter, Sample-Pitch, Filterresonanz, Comb-Feedback/-Damping/-Mix, Drive und Filter-Envelope-Tiefe.
+- Kontinuierliche Ziele verändern auch gehaltene Noten. PWM, Wavetable- und additive Spektralmodulation sowie moduliertes Filter-Drive verwenden ein lokales AudioWorklet, einschließlich beim WAV-Export. Granular-Ziele werden je Grain ausgewertet. Mit **„Anschlag“** gekennzeichnete Ziele – unter anderem Modell-/Sample-Wechsel, Unison-Anzahl, Sample-Trim/Loop, Saiten-Anregung und Hüllkurvenzeiten/-Sustain – werden auf der Audio-Zeitachse je Note abgetastet. So verändern sie neue Artikulationen, ohne laufende Samples oder Filtergraphen abzureißen.
+- Amp-Level und seine Modulation wirken pro Stimme vor den Track-FX. Mute/Solo schaltet den gemeinsamen Track-Ausgang einschließlich Effektfahnen.
 - Vier FX-Slots pro Track mit jeweils fünf Varianten:
   - **Saturation:** Soft clip, Hard clip, Wavefolder, Bit crush, Diode.
   - **Modulation:** Chorus, Flanger, Vibrato, Phaser, Tremolo.
   - **Delay:** Digital, Tape, Ping-pong, Multi-tap, Dub.
   - **Reverb:** Room, Hall, Plate, Spring, Gated.
 - Jeder Effekt hat passende eigene Parameter und eine eigene, parameterabhängige Visualisierung: unter anderem Bit-Tiefe, Folds, Bias, Modulationsrate/-tiefe, Flanger-Feedback, Tape-Age/Wow, Tap-Spacing, Reflections, Spring-Tension und Gate-Länge.
-- Die Slots liegen **seriell** im Signalweg. Mit den Pfeilen die Reihenfolge ändern; **ON/BYPASS** schaltet jeden Slot einzeln um. Parameter bleiben beim Bypass erhalten.
+- Die Slots liegen **seriell** im Signalweg. Neue Patches und Factory-Sounds starten mit allen vier Track-FX-Slots auf **BYPASS**. Mit den Pfeilen die Reihenfolge ändern; **ON/BYPASS** schaltet jeden Slot einzeln um. Parameter und ausdrücklich gespeicherte ON/BYPASS-Zustände bleiben beim Laden erhalten.
 - Die Varianten schalten echte Signalwege, Kennlinien und Impulsantworten um. Spring ist eine synthetische Federhall-Näherung; Bit crush quantisiert die Amplitude.
 - Master-Limiter, Oszilloskop und Pegelanzeige.
 
 Regler ziehen; **Shift** für Feineinstellung. Mit den Pfeiltasten lassen sich fokussierte Regler bedienen, mit Home/End die Grenzen setzen. Doppelklick stellt den Standardwert wieder her. Rechtsklick startet MIDI Learn.
 
 ## Arbeitsbereiche
+
+Alle drei Panels verwenden denselben kompakten Header mit Titel, Kontext und Aktionen nach dem Sequencer-Aufbau. Hintergrund, Rahmen, Schrift und Akzente folgen gemeinsam dem Synthesizer-Design; Master FX besitzt keine eigene gelb-grüne Gestaltung oder kursive Titelzeile mehr.
 
 **Synthesizer**, **Sequencer** und **Master FX** sind getrennte Hauptregister; nur der ausgewählte Editor ist sichtbar. Die Wiedergabe läuft beim Umschalten weiter. Das Layout nutzt die Browserhöhe ohne Seiten-Scrollleiste. Texte und Bedienelemente sind bei normalem Browserzoom größer ausgelegt. Hilfe, Einstellungen und Speicherstatus stehen in der Topbar; eine zusätzliche Workspace-Bar entfällt. Auf schmalen Displays haben Klangquelle, Filter, Amp, LFOs/Matrix und FX-Slots eigene Unterregister; die Modulationsmatrix zeigt dort vier Routen pro Seite. Das Keyboard zeigt auf Smartphones zwei Oktaven mit 25 Tasten, auch im Touch-Querformat; auf größeren Bildschirmen vier Oktaven mit 49 Tasten, jeweils einschließlich des abschließenden C. Die Anzeige passt sich beim Drehen oder Ändern der Fenstergröße automatisch an. Über −/+ oder Z/X lässt sich der angezeigte Bereich verschieben.
 
@@ -127,7 +131,7 @@ Acht Pattern-Speicher **A01–A08**, jeder mit acht Tracks. Pro Track unabhängi
 - Auflösung 1/8, 1/16 oder 1/32; Forward, Reverse, Ping-pong oder Random.
 - Notenname je Step über eine Auswahl im vollständigen MIDI-Bereich (0–127), Single/Major/Minor/Fifth/Seventh-Akkord, Velocity und Gate. Auch sehr tiefe oder hohe Live-Rec-Noten bleiben beim Speichern und Import erhalten.
 - Individuelle Step-Länge: ½, 1, 1½, 2, 3, 4, 6 oder 8 Rastereinheiten. Angezeigt werden musikalische Werte wie 1/32, 1/16, 1/8 und punktierte Längen; bei 1/32-Raster ist auch 1/64 möglich. Die Länge bestimmt den Abstand zum nächsten Step, Gate die Notendauer innerhalb dieses Abstands.
-- Step-Breiten sind pro Track proportional zur Länge. Zeilen mit unterschiedlichen Gesamtlängen laufen unabhängig; Spalten verschiedener Tracks bedeuten deshalb keine gemeinsame absolute Zeitposition.
+- Alle Track-Zeilen verwenden dieselbe Zeitskala mit 1/64-Noten als kleinster Einheit. Ein 1/8-Step belegt exakt den Platz zweier 1/16-Rasterzellen einschließlich des Zwischenraums. Folgenoten beginnen an der richtigen Rasterposition; kürzere Zeilen lassen rechts Platz frei. Die Anzeige berücksichtigt auch die Track-Auflösung und die vorigen Step-Seiten. Die Zeitmarkierungen oben zählen 1/16-Einheiten; die kleinen Zahlen im Step bleiben die Trig-Nummern.
 - Wahrscheinlichkeit, Microtiming und 1–8-fache Ratchets.
 - Always, 1:2, 2:2, 1:4, Fill und Not-Fill-Bedingungen.
 - Parameter-Locks für Klangerzeugung, Filter, Envelopes sowie planbare Effektparameter.
@@ -198,6 +202,8 @@ Die Anwendung wurde als Produktions-Bundle kompiliert; es wurden keine Tests aus
 - `src/lfo.ts`: LFO-Verläufe und Modi.
 - `src/effects.ts`, `src/fx-spec.ts`, `src/FxRack.tsx`: serieller Effekt-Rack, Parameter und Visualisierungen.
 - `src/master-audio.ts`, `src/MasterFX.tsx`: Master-Signalweg und Bedienoberfläche.
+- `src/modulation.ts`, `src/spectral-worklet.ts`: Modulationsauswertung und laufende spektrale Klangerzeugung.
+- `src/panels.css`: gemeinsame Gestaltung aller drei Panels und gemeinsames Step-Zeitraster.
 - `src/studio.css`: größere Bedienelemente und Layout der erweiterten Bereiche.
 - `src/App.tsx`: Session-Verwaltung, Routing und Dialoge.
 - `src/styles.css`: Responsives Studio-Design und barrierearme Fokuszustände.

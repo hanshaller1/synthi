@@ -1,3 +1,4 @@
+import { spectralProcessor } from "./spectral-worklet";
 type Context = AudioContext | OfflineAudioContext;
 const modules = new WeakMap<Context, Promise<void>>();
 
@@ -9,8 +10,9 @@ class PhaseCombFilter extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
       { name: 'frequency', defaultValue: 2400, minValue: 0, maxValue: 22000, automationRate: 'a-rate' },
+      { name: 'detune', defaultValue: 0, minValue: -9600, maxValue: 9600, automationRate: 'a-rate' },
       { name: 'feedback', defaultValue: 0.65, minValue: 0, maxValue: 0.98, automationRate: 'a-rate' },
-      { name: 'damping', defaultValue: 8000, minValue: 100, maxValue: 22000, automationRate: 'k-rate' },
+      { name: 'damping', defaultValue: 8000, minValue: 0, maxValue: 22000, automationRate: 'k-rate' },
       { name: 'mix', defaultValue: 0.75, minValue: 0, maxValue: 1, automationRate: 'a-rate' },
       { name: 'polarity', defaultValue: 1, minValue: -1, maxValue: 1, automationRate: 'k-rate' }
     ];
@@ -41,11 +43,11 @@ class PhaseCombFilter extends AudioWorkletProcessor {
     if (!this.active) return false;
     if (!output || !output.length) return true;
     const input = inputs[0] || [];
-    const alpha = 1 - Math.exp(-2 * Math.PI * Math.min(sampleRate * 0.45, params.damping[0]) / sampleRate);
+    const alpha = 1 - Math.exp(-2 * Math.PI * Math.max(100, Math.min(sampleRate * 0.45, params.damping[0])) / sampleRate);
     const sign = Math.max(-1, Math.min(1, params.polarity[0]));
     const frequency = params.frequency, feedback = params.feedback, mix = params.mix;
     for (let i = 0; i < output[0].length; i++) {
-      const hz = Math.max(20, Math.min(sampleRate * 0.45, frequency[frequency.length === 1 ? 0 : i]));
+      const hz = Math.max(20, Math.min(sampleRate * 0.45, frequency[frequency.length === 1 ? 0 : i] * Math.pow(2, params.detune[params.detune.length === 1 ? 0 : i] / 1200)));
       const delay = sampleRate / hz;
       const whole = Math.floor(delay), fraction = delay - whole;
       const first = (this.position - whole) & this.mask, second = (first - 1) & this.mask;
@@ -77,7 +79,7 @@ export function prepareFilterWorklet(context: Context): Promise<void> {
   // Classic and multimode filters still work in contexts without AudioWorklet.
   if (!context.audioWorklet) return Promise.resolve();
   const url = URL.createObjectURL(
-    new Blob([processor], { type: "text/javascript" }),
+    new Blob([processor, spectralProcessor], { type: "text/javascript" }),
   );
   const pending = context.audioWorklet
     .addModule(url)
