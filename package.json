@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "benchmark:fm": "node scripts/benchmark-fm.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "build:portable": "npm run build && node scripts/portable.mjs",

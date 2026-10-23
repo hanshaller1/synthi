@@ -1,3 +1,4 @@
+import { fmProcessor } from "./fm-worklet";
 import { spectralProcessor } from "./spectral-worklet";
 type Context = AudioContext | OfflineAudioContext;
 const modules = new WeakMap<Context, Promise<void>>();
@@ -79,7 +80,7 @@ export function prepareFilterWorklet(context: Context): Promise<void> {
   // Classic and multimode filters still work in contexts without AudioWorklet.
   if (!context.audioWorklet) return Promise.resolve();
   const url = URL.createObjectURL(
-    new Blob([processor, spectralProcessor], { type: "text/javascript" }),
+    new Blob([processor, spectralProcessor, fmProcessor], { type: "text/javascript" }),
   );
   const pending = context.audioWorklet
     .addModule(url)

@@ -1,3 +1,4 @@
+import { fmPatchEdits } from "./fm-config";
 import MasterFX from "./MasterFX";
 import { TrackPlayback } from "./track-playback";
 import type { TrackPlaybackState } from "./track-playback";
@@ -225,7 +226,7 @@ export default function App() {
       updateProject((p) => ({
         ...p,
         tracks: p.tracks.map((t, i) =>
-          i === which ? { ...t, patch: { ...t.patch, ...partial } } : t,
+          i === which ? { ...t, patch: { ...t.patch, ...fmPatchEdits(t.patch, partial) } } : t,
         ),
       }));
     },
@@ -1421,10 +1422,11 @@ export default function App() {
                   );
                   return;
                 }
-                if (partial.voiceMode || partial.engine)
-                  engineRef.current?.panic(track);
+                if (partial.mods && (partial.mods.length !== patch.mods.length || partial.mods.some((m, i) => m.target !== patch.mods[i]?.target || m.source !== patch.mods[i]?.source))) checkpoint();
+                if (partial.voiceMode || partial.engine) engineRef.current?.panic(track);
                 changePatch(partial);
               }}
+              onCheckpoint={checkpoint}
               onParam={setParam}
               locks={lockMode && current.mode === "step" ? currentStep.locks : {}}
               onLearn={(param) => {
@@ -2161,6 +2163,13 @@ export default function App() {
               <p><b>Werkzeuge:</b> Melodie, Euclid-Rhythmus und Arpeggio generieren; Zeit/Tonhöhen spiegeln, Legato, Zeit strecken/stauchen, rotieren und quantisieren. Humanize variiert Timing, Velocity und Länge. Bereich wählen, Vorschau erzeugen, übernehmen; jede Anwendung lässt sich mit Undo zurücknehmen.</p>
               <p>Rechtsklick oder Doppelklick löscht eine Note, Alt + Ziehen kopiert sie. Ctrl/Cmd+A wählt alle Noten, Ctrl/Cmd+X schneidet aus, Ctrl/Cmd+Shift+Z wiederholt. Ränder ziehen ändert die Länge. Alle Änderungen der Notenposition werden vorgehört.</p>
               <p>Step → Piano Roll übernimmt alle Patterns. Piano Roll → Step zeigt vorab mögliche Verluste und verlangt eine Bestätigung. Die ursprünglichen Patterns bleiben wiederherstellbar.</p>
+            </section>
+            <section>
+              <h3>FM · drei Operatoren</h3>
+              <p>In Oscillator OP 1/2/3 wählen: Waveform, Ratio oder Fixed Hz, Fine, Level und Feedback. Nur die zum Algorithmus passenden Verbindungs-Indizes werden angezeigt. Level und OP-ADSR wirken vor Modulations- und Audioausgängen; jeder Modulationspfeil hat eine eigene Tiefe.</p>
+              <p>Character / Unison bietet Serial, Parallel, Branched, Dual Carrier, Hybrid und Triple Carrier samt Schaltbild. Die separate OP-Auswahl darunter wechselt zwischen drei vollständigen ADSRs mit Attack-/Decay-/Release-Kurven. Kurve 0 ist linear; positive Werte beginnen langsamer, negative schneller. Globale Amp-ADSR und Filter bleiben zusätzlich aktiv.</p>
+              <p>Fixed Hz folgt nicht der gespielten Note; globale Transposition, Fine und Pitch Bend wirken weiterhin. Routing, Waveform, Frequenzmodus und Operator-ADSR werden beim nächsten Anschlag übernommen. Laufende Ratio-/Hz-/Level-/Fine-/Feedback-/Index-Änderungen sind geglättet. Rechtsklick auf Operator-Waveform oder Frequenzmodus: MIDI Learn.</p>
+              <p>Alte FM-Presets und Locks werden automatisch migriert. Feedback und Release können durch den neuen Signalweg anders klingen. FM benötigt AudioWorklet über HTTPS/localhost. Maximal 32 FM-Noten beziehungsweise insgesamt 128 Unison-Layer; bei acht Layern sind dies bis zu 16 Noten einschließlich Release-Phasen.</p>
             </section>
             <section>
               <h3>Make it yours</h3>

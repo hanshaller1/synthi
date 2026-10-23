@@ -1,4 +1,6 @@
-import { useMemo } from "react";
+import { FmOscillator, FmCharacter } from "./FmEditor";
+import type { FmOperator } from "./fm-config";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { AudioLines, SlidersHorizontal, Upload } from "lucide-react";
 import { Select, Waveform, formatTime, percent } from "./components";
@@ -15,6 +17,8 @@ import {
 type Props = {
   patch: Patch;
   onPatch: (p: Partial<Patch>) => void;
+  onCheckpoint: () => void;
+  onLearn: (key: Param) => void;
   onParam: (p: Param, v: number) => void;
   onSample: (f: File) => void;
   knob: (
@@ -86,12 +90,16 @@ export default function SourceEditor({
   onParam,
   onSample,
   knob,
+  onCheckpoint,
+  onLearn,
 }: Props) {
+  const [fmOp, setFmOp] = useState<FmOperator>(1);
+  const [fmEnv, setFmEnv] = useState<FmOperator>(2);
   const cents = (v: number) => `${v.toFixed(1)} ct`,
     semitone = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(0)} st`,
     number = (v: number) => v.toFixed(2);
   const isSample = p.engine === "sampler" || p.engine === "granular",
-    dual = ["subtractive", "ring", "fm"].includes(p.engine);
+    dual = ["subtractive", "ring"].includes(p.engine);
   const samples = p.engine === "granular" ? GRANULAR_SAMPLES : SAMPLER_SAMPLES,
     selectedId = p.engine === "granular" ? p.grainSampleId : p.sampleId;
   const wave = (key: "wave" | "wave2", label: string) => (
@@ -122,13 +130,7 @@ export default function SourceEditor({
         {knob("brightness", "Brightness")}
       </>
     ),
-    fm: (
-      <>
-        {knob("fmRatio", "Op 2 ratio", (v) => `${v.toFixed(2)}×`, false, 0.25)}
-        {knob("fmIndex", "FM index", number)}
-        {knob("fmDecay", "Index decay", formatTime, true)}
-      </>
-    ),
+    fm: null,
     additive: (
       <>
         {knob("harmonics", "Partials", (v) => `${Math.round(v)}`, false, 1)}
@@ -180,14 +182,7 @@ export default function SourceEditor({
         {knob("sub", "Sub level")}
       </>
     ),
-    fm: (
-      <>
-        {knob("fmFeedback", "Feedback")}
-        {knob("fmEnd", "Index end")}
-        {knob("fmRatio2", "Op 3 ratio", (v) => `${v.toFixed(2)}×`, false, 0.25)}
-        {knob("fmIndex2", "Op 3 index", number)}
-      </>
-    ),
+    fm: null,
     additive: (
       <>
         {knob("spectralTilt", "Spectral tilt", number)}
@@ -316,15 +311,14 @@ export default function SourceEditor({
         <div className="module-title">
           <h3>
             <AudioLines size={14} />
-            {p.engine === "subtractive" ? "Oscillators" : ENGINES.find((e) => e.id === p.engine)?.label}
+            {p.engine === "fm" ? "Oscillator" : p.engine === "subtractive" ? "Oscillators" : ENGINES.find((e) => e.id === p.engine)?.label}
           </h3>
           <span className="module-index">01</span>
         </div>
+        {p.engine === "fm" ? <FmOscillator patch={p} op={fmOp} setOp={setFmOp} onParam={onParam} knob={knob} onLearn={onLearn} onCheckpoint={onCheckpoint} /> : <>
         <div className={`source-visuals ${dual ? "source-dual" : ""}`}>
           {dual ? (["wave", "wave2"] as const).map((key, i) => {
-            const label = p.engine === "fm"
-              ? i ? "OP 2 · MODULATOR" : "OP 1 · CARRIER"
-              : p.engine === "ring"
+            const label = p.engine === "ring"
                 ? i ? "MODULATOR" : "CARRIER"
                 : `OSCILLATOR ${i + 1}`;
             return (
@@ -347,6 +341,7 @@ export default function SourceEditor({
           )}
         </div>
         <div className="knob-row source-basic">{basic[p.engine]}</div>
+        </>}
         <label className="inline-range source-noise">
           NOISE
           <input
@@ -367,22 +362,7 @@ export default function SourceEditor({
           <span className="module-index">02</span>
         </div>
         <div className="character-content">
-          {p.engine === "fm" && (
-            <>
-              <Select
-                label="FM-Algorithmus"
-                value={p.fmAlgorithm}
-                onChange={(value) => onPatch({ fmAlgorithm: value as Patch["fmAlgorithm"] })}
-              >
-                <option value="serial">3 → 2 → 1 · Serial</option>
-                <option value="parallel">2 + 3 → 1 · Parallel</option>
-              </Select>
-              <div className="operator-three">
-                <span>OP 3 · SINE</span>
-                <Waveform patch={{ ...p, engine: "subtractive", wave: "sine" }} />
-              </div>
-            </>
-          )}
+          {p.engine === "fm" && <FmCharacter patch={p} op={fmEnv} setOp={setFmEnv} onParam={onParam} knob={knob} onLearn={onLearn} onCheckpoint={onCheckpoint} onAlgorithm={(fmAlgorithm) => { onCheckpoint(); onPatch({ fmAlgorithm }); }} />}
           <div className="source-detail-controls">{extra[p.engine]}</div>
           {isSample && (
             <div className="source-sample-tools">

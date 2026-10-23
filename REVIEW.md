@@ -1,3 +1,37 @@
+# FM-Ausbau: sechs Algorithmen und drei Operator-ADSRs
+
+Basis: GitHub-`main` auf `bcae49b`. Die bestehenden vier Synthese-Panels bleiben erhalten; zuvor abgeschlossene Sequencer-/Hold-/Layout-Arbeiten wurden beibehalten.
+
+- Alle sechs angeforderten Verschaltungen teilen dieselbe Routing-Definition zwischen Editor, Schaltbild und DSP: Serial, Parallel, Branched, Dual Carrier, Hybrid und Triple Carrier. Modulationspfeile 2→1, 3→2, 3→1 besitzen getrennte Indizes; Audioausgänge werden mit angepasstem Summenpegel gemischt.
+- Drei vollständige Operatoren mit Waveform, Ratio/Fixed Hz, Fine, Level, eigenem Feedback und ADSR samt drei Kurven. OP-Auswahl in Oscillator und separat für die Envelope in Character / Unison. Level und ADSR liegen vor Audio-, FM- und Feedback-Ausgängen. OP-3-Waveform ist in die Oszillatoransicht integriert. Globale Amp-/Filter-ADSR und Unison bleiben erhalten.
+- Ein Stereo-AudioWorklet pro Note enthält alle Unison-Layer. Frequenzmodulation und selbstbegrenztes Feedback werden samplegenau berechnet. Bandbegrenzte Tabellen sowie gemeinsame Envelope-/Steuerwert-Berechnung reduzieren CPU-Arbeit. Release/Stop/Dispose steuern die Audio-Zeitachse und geben die Worklets frei.
+- Fixed Hz folgt bei Mono-Legato und Glide nicht der gespielten Note. Globale Transposition, Pitch Bend, Fine und gezielte Pitch-Modulation bleiben wirksam. Laufende Ratio-/Hz-/Fine-/Level-/Index-/Feedback-Änderungen sind geglättet und in die vorhandenen Modulationsbindungen integriert; Envelope-/Routing-/Waveform-Änderungen werden beim Anschlag übernommen.
+- FM-Parameter sind in Locks, Modulationsauswahl, MIDI Learn, Preset-/Projekt-Serialisierung, Undo/Redo und Offline-Rendering integriert. Waveform/Frequenzmodus unterstützen MIDI Learn per Kontextmenü. Der FM-DSP ist im portablen HTML eingebettet; kein zusätzlicher Download ist nötig.
+- Legacy-Presets, Factory-Rezepte, Modulationsrouten, Step-/Noten-Locks und Piano-Backups werden vor Nutzung automatisch migriert. Die alten Index-/Ratio-Skalierungen, OP-2-Index-Decay/-End und exponentielle Kontur werden übertragen. Ratio-Locks passen auch die Indizes an, um die alte absolute Abweichung zu erhalten. Alte Datenfelder und MIDI-Zuordnungen bleiben kompatibel; neue FM-Daten werden nicht erneut migriert.
+
+Kompatibilitätsgrenzen: Der neue samplegenaue Feedbackpfad ersetzt die frühere zyklische DelayNode-Verbindung. Feedback wird jetzt von der OP-ADSR mitgeformt, und Release folgt einer echten Operator-ADSR. Alte laufende Ratio-Modulation kann unter der expliziten Indexdefinition anders wirken. Klanggleichheit ist deshalb keine Bitidentität; eine Hörprüfung im Zielbrowser wurde nicht durchgeführt.
+
+## Gezielte Performance-Messung
+
+Die aktuelle Anforderung erlaubt ausdrücklich CPU-/Polyphonie-Messungen. Dafür wurde `npm run benchmark:fm` ergänzt und ausgeführt; keine Test-Suite, Test-Assertions oder Test-Abhängigkeiten wurden hinzugefügt. Der Benchmark führt den tatsächlichen Worklet-DSP in Node aus, ohne VM-Proxy für globale Mathematikfunktionen. 48 kHz, 128 Frames, 96 Warmup-Blöcke, drei Messungen à 256 ms Audio; angegeben ist der Median. Waveforms sind gemischt, Feedback beträgt 95 %, Verbindungs-Indizes 6.
+
+| Algorithmus | 16 Noten × 8 Unison: CPU / 256 ms Audio | Mit Audio-Rate-Modulation und Release |
+| --- | ---: | ---: |
+| Serial | 72,6 ms | 124,3 ms |
+| Parallel | 78,5 ms | 119,7 ms |
+| Branched | 67,7 ms | 134,5 ms |
+| Dual Carrier | 67,0 ms | 115,6 ms |
+| Hybrid | 73,1 ms | 125,7 ms |
+| Triple Carrier | 72,7 ms | 120,1 ms |
+
+Alle 30 Profile (auch 1/8 Noten ohne Unison und 32 × 8 als zusätzliche Überlast) lieferten ausschließlich endliche Samples. 16 × 8 bedeutet 384 Operatorinstanzen; je nach Algorithmus etwa 26–31 % einer Kern-Zeitspanne, mit Audio-Rate-Modulation/Release etwa 45–53 %. Das sind Messungen dieser Cloud-CPU inklusive Ergebnis-Erfassung, keine Garantie für die Echtzeitfähigkeit des gesamten Studios. Native Filter, Effekte, AudioParam-Verarbeitung, Browser-/Gerätepuffer und Rendering sind darin nicht enthalten.
+
+Die Engine begrenzt aktive FM-Arbeit einschließlich Releases auf 32 Noten und 128 Unison-Layer. Zuerst werden ausklingende, dann die ältesten Stimmen über 15 ms ausgeblendet. Die zusätzlich gemessenen 32 × 8 Layer liegen über diesem dauerhaften Runtime-Budget. Kein automatisches Absenken der eingestellten Unison-Zahl.
+
+Abschlussprüfung: statische Durchsicht von Migration, Routing, Stimmen-/Gate-Lebenszyklus, Modulation, Mono/Legato, Locks/MIDI und Export; TypeScript-/Produktions-Build und drei Veröffentlichungsdateien über `npm run build:pages`, außerdem `git diff --check`. Keine allgemeinen Funktions-, Browser- oder Hardware-Tests ausgeführt.
+
+---
+
 # Track-Wiedergabe und Bedienung vom 23.10.2026
 
 Basis: GitHub-`main` auf `6318ee6`, identisch mit dem lokalen Commitstand bei der Übernahme. Vorhandene uncommittete Änderungen wurden geprüft und vervollständigt; die bereits veröffentlichten Erweiterungen wurden beibehalten.

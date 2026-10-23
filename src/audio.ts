@@ -1,3 +1,5 @@
+import { FmSource } from "./fm-worklet";
+import { FM_KEYS, FM_TARGETS, migrateFmLocks } from "./fm-config";
 import { sequenceFrame } from "./sequence";
 import type { ChanceState } from "./sequence";
 import { SAMPLE_LIBRARY, sampleData, wavetableSpectrum } from "./catalog";
@@ -21,7 +23,7 @@ import { PARAMS } from "./model";
 import type { Envelope, ModTarget, Numbers, Param, Patch, Project, Track } from "./model";
 
 type Context = AudioContext | OfflineAudioContext;
-type Source = OscillatorNode | AudioBufferSourceNode | ConstantSourceNode | SpectralSource;
+type Source = OscillatorNode | AudioBufferSourceNode | ConstantSourceNode | SpectralSource | FmSource;
 type Voice = {
   track: number;
   note: number;
@@ -30,6 +32,7 @@ type Voice = {
   amp: GainNode;
   volume: GainNode;
   updateLevel: (value: number, time: number) => void;
+  updateFm: (patch: Patch, previous: Patch | undefined, time: number) => void;
   filter: VoiceFilter;
   panner: StereoPannerNode;
   sources: Source[];
@@ -299,6 +302,7 @@ export class SynthEngine {
       (v) => v.track === track.id && v.end > t,
     )) {
       if (previous?.level !== p.level) voice.updateLevel(p.level, t);
+      if (voice.time <= t && voice.releaseAt > t) voice.updateFm(p, previous, t);
       voice.patch.lfos = p.lfos;
       for (const control of voice.lfoControls) {
         const l = p.lfos[control.index];
@@ -419,6 +423,8 @@ export class SynthEngine {
         "Der Combfilter konnte nicht geladen werden. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden oder einen anderen Filter wählen.",
         { cause: workletError },
       );
+    if (!this.combAvailable && project.tracks.some((t) => t.patch.engine === "fm"))
+      throw new Error("FM benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if (!this.combAvailable && project.tracks.some((t) => requiresModulationWorklet(t.patch)))
       throw new Error("Laufende Spektral- und Drive-Modulation benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if (!this.filtersReady) {
@@ -489,6 +495,7 @@ export class SynthEngine {
       start = Math.max(when, c.currentTime),
       p = triggerPatch(patch, start, note, velocity, this.modwheel, this.tempo, this.combAvailable),
       frequency = midiHz(note + p.tune);
+    if (!this.combAvailable && p.engine === "fm") throw new Error("FM benötigt AudioWorklet über HTTPS oder localhost.");
     if (!this.combAvailable && requiresModulationWorklet(p))
       throw new Error("Diese Modulationsziele benötigen AudioWorklet über HTTPS oder localhost.");
     // Background tabs may delay cleanup timers beyond the next note.
@@ -539,6 +546,22 @@ export class SynthEngine {
         old.released = true;
         this.queueCleanup(old);
       }
+    if (p.engine === "fm") {
+      const candidates = this.voices.filter((v) => v.patch.engine === "fm" && v.time <= start && v.end > start);
+      candidates.sort((a, b) => Number(!a.released) - Number(!b.released) || a.time - b.time);
+      let layers = candidates.reduce((sum, v) => sum + Math.round(v.patch.unison), 0);
+      while (candidates.length >= 32 || layers + Math.round(p.unison) > 128) {
+        const victim = candidates.shift(); if (!victim) break;
+        layers -= Math.round(victim.patch.unison);
+        victim.release(start);
+        holdParameter(victim.amp.gain, start, Math.max(EPS, victim.amp.gain.value));
+        victim.amp.gain.setTargetAtTime(EPS, start, .002);
+        victim.end = start + .015;
+        for (const source of victim.sources) try { source.stop(victim.end); } catch { /* Already finished. */ }
+        for (const gate of victim.gates) { gate.cancelScheduledValues(start); gate.setValueAtTime(0, victim.end); }
+        this.queueCleanup(victim);
+      }
+    }
     if (alive.length >= 32) {
       const oldest = alive.find((v) => !v.released) || alive[0];
       oldest.release(start);
@@ -719,8 +742,6 @@ export class SynthEngine {
         param.linearRampToValueAtTime(target, start + p.glide);
       }
     };
-    let fmGain: GainNode | undefined;
-    const fmGains: AudioParam[] = [];
     const addOsc = (
       wave: OscillatorType,
       freq: number,
@@ -743,7 +764,26 @@ export class SynthEngine {
       return osc;
     };
     const layers = Math.round(p.unison);
-    for (let layer = 0; layer < layers; layer++) {
+    let fmSource: FmSource | undefined;
+    if (p.engine === "fm") {
+      const fm = new FmSource(c, p);
+      fmSource = fm;
+      fm.frequency.value = frequency;
+      applyPitch(fm.detune);
+      // Note tracking / glide belongs to the ratio reference. Fixed-Hz operators
+      // still receive transpose, pitch bend and deliberate pitch modulation.
+      fm.detune.cancelScheduledValues(start);
+      fm.detune.setValueAtTime(this.bends[track], start);
+      if (p.voiceMode === "mono" && held.length > 0 && p.glide > .001) {
+        fm.frequency.setValueAtTime(midiHz(previousNote + p.tune), start);
+        fm.frequency.exponentialRampToValueAtTime(frequency, start + p.glide);
+      }
+      bind("unisonDetune", fm.param("unisonDetune"));
+      bind("unisonWidth", fm.param("unisonWidth"));
+      for (const key of FM_KEYS) if (!FM_TARGETS[key].trigger) bind(key, fm.param(key));
+      fm.connect(drive); fm.start(start); sources.push(fm);
+    }
+    for (let layer = 0; layer < (p.engine === "fm" ? 0 : layers); layer++) {
       const position = layers === 1 ? 0 : (layer / (layers - 1)) * 2 - 1;
       const layerDetune =
         position * p.unisonDetune + (Math.random() - 0.5) * p.drift;
@@ -847,54 +887,6 @@ export class SynthEngine {
           second.setPeriodicWave(wave);
           bind("detune", second.detune, .5);
         }
-        }
-      }
-      if (p.engine === "fm") {
-        const carrier = addLayerOsc(p.wave, frequency, 0.85),
-          mod = c.createOscillator();
-        fmGain = c.createGain();
-        mod.type = p.wave2;
-        mod.frequency.value = frequency * p.fmRatio;
-        bind("fmRatio", mod.frequency, frequency);
-        applyLayerPitch(mod.detune);
-        fmGain.gain.value = frequency * p.fmIndex;
-        fmGains.push(fmGain.gain);
-        mod.connect(fmGain);
-        fmGain.connect(carrier.frequency);
-        sources.push(mod);
-        nodes.push(fmGain);
-        mod.start(start);
-        fmGain.gain.setValueAtTime(Math.max(EPS, frequency * p.fmIndex), start);
-        fmGain.gain.exponentialRampToValueAtTime(
-          Math.max(EPS, frequency * p.fmIndex * p.fmEnd),
-          start + p.fmDecay,
-        );
-        if (p.fmFeedback > 0.001 || routed("fmFeedback")) {
-          const delay = c.createDelay(0.01),
-            feedback = c.createGain();
-          delay.delayTime.value = 1 / c.sampleRate;
-          feedback.gain.value = frequency * p.fmFeedback * 0.7;
-          bind("fmFeedback", feedback.gain, frequency * .7);
-          mod.connect(delay).connect(feedback).connect(mod.frequency);
-          nodes.push(delay, feedback);
-        }
-        if (p.fmIndex2 > 0.001 || routed("fmIndex2") || routed("fmRatio2")) {
-          const third = c.createOscillator(),
-            index = c.createGain();
-          third.type = "sine";
-          third.frequency.value = frequency * p.fmRatio2;
-          applyLayerPitch(third.detune);
-          index.gain.value = frequency * p.fmIndex2;
-          bind("fmRatio2", third.frequency, frequency);
-          bind("fmIndex2", index.gain, frequency);
-          third
-            .connect(index)
-            .connect(
-              p.fmAlgorithm === "serial" ? mod.frequency : carrier.frequency,
-            );
-          sources.push(third);
-          nodes.push(index);
-          third.start(start);
         }
       }
       if (p.engine === "additive") {
@@ -1230,7 +1222,6 @@ export class SynthEngine {
       pitch: { params: pitch, scale: 1200 },
       amplitude: { params: [tremolo.gain], scale: 0.66 },
       pan: { params: [panner.pan], scale: 1 },
-      fmIndex: { params: fmGains, scale: frequency * 10 },
     };
     const controls = new Map<string, { input: AudioParam; bias: AudioParam; output: GainNode }>();
     const boundedControl = (key: Param) => {
@@ -1337,6 +1328,32 @@ export class SynthEngine {
           control.bias.setTargetAtTime(.5 - value, time, .015);
         }
       },
+      updateFm: (next, previous, time) => {
+        if (!fmSource || next.engine !== "fm") return;
+        if (previous?.tune !== next.tune) {
+          fmSource.frequency.cancelScheduledValues(time);
+          fmSource.frequency.setTargetAtTime(midiHz(note + next.tune), time, .015);
+          fmSource.param("transpose").setTargetAtTime(next.tune, time, .015);
+          p.tune = next.tune;
+          const control = controls.get("tune");
+          if (control) {
+            control.input.setTargetAtTime(next.tune / 24, time, .015);
+            control.bias.setTargetAtTime(-next.tune, time, .015);
+          }
+        }
+        for (const key of [...FM_KEYS.filter((key) => !FM_TARGETS[key].trigger), "unisonDetune", "unisonWidth"] as Param[]) {
+          if (previous?.[key] === next[key]) continue;
+          const param = fmSource.param(key), value = next[key];
+          param.cancelScheduledValues(time); param.setTargetAtTime(value, time, .015);
+          const control = controls.get(key);
+          if (control) {
+            const [min, max] = PARAMS[key], half = (max-min)/2;
+            control.input.cancelScheduledValues(time); control.bias.cancelScheduledValues(time);
+            control.input.setTargetAtTime((value-min)/half-1, time, .015);
+            control.bias.setTargetAtTime(min+half-value, time, .015);
+          }
+        }
+      },
       filter,
       panner,
       sources,
@@ -1349,7 +1366,12 @@ export class SynthEngine {
         pitchShift += delta;
         note = next;
         voice.note = next;
+        if (fmSource) {
+          holdParameter(fmSource.frequency, at, fmSource.frequency.value, true);
+          fmSource.frequency.exponentialRampToValueAtTime(midiHz(next + p.tune), at + Math.max(.003, p.glide));
+        }
         for (const param of pitch) {
+          if (param === fmSource?.detune) continue;
           const offset = (pitchOffsets.get(param) ?? 0) + delta;
           pitchOffsets.set(param, offset);
           holdParameter(param, at, param.value);
@@ -1380,6 +1402,7 @@ export class SynthEngine {
           0.24;
       voice.releaseAt = releaseAt;
       modulationRelease = releaseAt;
+      for (const source of sources) if (source instanceof FmSource) source.release(releaseAt);
       for (const timer of grainTimers) window.clearInterval(timer);
       grainTimers.length = 0;
       for (const schedule of grainSchedulers) schedule(releaseAt + p.release);
@@ -1757,9 +1780,10 @@ export class Transport {
 }
 export function lockedPatch(patch: Patch, locks: Partial<Numbers>): Patch {
   const p = { ...patch };
-  for (const key of Object.keys(locks) as Param[])
+  const migrated = migrateFmLocks(locks, patch);
+  for (const key of Object.keys(migrated) as Param[])
     if (LOCK_PARAMS.includes(key))
-      p[key] = clamp(locks[key]!, PARAMS[key][0], PARAMS[key][1]);
+      p[key] = clamp(migrated[key]!, PARAMS[key][0], PARAMS[key][1]);
   return p;
 }
 function delayTail(time: number, feedback: number) {

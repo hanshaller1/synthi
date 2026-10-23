@@ -1,3 +1,5 @@
+import { FM_PARAMS, FM_KEYS, FM_TARGETS, FM_ALGORITHMS, LEGACY_FM_KEYS, migrateFmPatch, migrateFmLocks } from "./fm-config";
+import type { FmAlgorithm } from "./fm-config";
 import { FX_CONTROLS, defaultFxSettings } from "./fx-spec";
 import type { FxSettings } from "./fx-spec";
 export const TRACK_COUNT = 12;
@@ -62,6 +64,7 @@ export type Modulation = {
   amount: number;
 };
 export const PARAMS = {
+  ...FM_PARAMS,
   tune: [-24, 24, 0],
   unison: [1, 8, 1],
   unisonDetune: [0, 50, 12],
@@ -145,6 +148,7 @@ export const PARAMS = {
 export type Param = keyof typeof PARAMS;
 const destination = (label: string, group: string, trigger = false) => ({ label, group, trigger });
 export const MOD_TARGETS = {
+  ...FM_TARGETS,
   pitch: destination("Pitch", "Global"),
   tune: destination("Transpose", "Global"),
   unison: destination("Unison voices", "Global", true),
@@ -165,7 +169,7 @@ export const MOD_TARGETS = {
   wtWarp: destination("Phase warp", "Wavetable"),
   wtFormant: destination("Formant", "Wavetable"),
   brightness: destination("Brightness", "Engine"),
-  fmRatio: destination("Operator 2 / Ring ratio", "FM / Ring"),
+  fmRatio: destination("Ring modulator ratio", "Ring / AM"),
   fmIndex: destination("FM index", "FM"),
   fmFeedback: destination("FM feedback", "FM"),
   fmDecay: destination("Index decay", "FM", true),
@@ -356,7 +360,8 @@ export type Patch = Numbers &
     fxSettings: FxSettings;
     sampleId: string;
     grainSampleId: string;
-    fmAlgorithm: "serial" | "parallel";
+    fmAlgorithm: FmAlgorithm;
+    fmVersion: 2;
     excitation: "noise" | "pick" | "bow";
     mods: Modulation[];
     sample: string | null;
@@ -601,7 +606,7 @@ export const ENGINES: {
     label: "FM",
     short: "FM",
     description:
-      "Drei FM-Operatoren mit Serial/Parallel-Algorithmus, Feedback und Index-Hüllkurve.",
+      "Drei FM-Operatoren mit sechs Algorithmen, eigenen ADSRs, Fixed Hz und Feedback.",
   },
   {
     id: "additive",
@@ -682,7 +687,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
   const numbers = Object.fromEntries(
     Object.entries(PARAMS).map(([key, range]) => [key, range[2]]),
   ) as Numbers;
-  return {
+  const patch: Patch = {
     ...numbers,
     name: "Velvet circuit",
     engine: "subtractive",
@@ -704,6 +709,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     sampleId: "sample-13-0",
     grainSampleId: "grain-2-0",
     fmAlgorithm: "serial",
+    fmVersion: 2,
     excitation: "noise",
     saturationMode: "soft",
     modulationMode: "chorus",
@@ -744,6 +750,8 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     sampleLoop: true,
     ...overrides,
   };
+  if (overrides.fmVersion !== 2 && !FM_KEYS.some((key) => key in overrides) && (overrides.engine === "fm" || LEGACY_FM_KEYS.some((key) => key in overrides))) migrateFmPatch(patch);
+  return patch;
 }
 export const PRESETS: Patch[] = [
   makePatch(),
@@ -1072,7 +1080,7 @@ export function sanitizePatch(value: unknown): Patch {
     /^grain-[0-7]-[0-3]$/.test(value.grainSampleId)
   )
     p.grainSampleId = value.grainSampleId;
-  if (["serial", "parallel"].includes(String(value.fmAlgorithm)))
+  if (FM_ALGORITHMS.some((a) => a.id === value.fmAlgorithm))
     p.fmAlgorithm = value.fmAlgorithm as Patch["fmAlgorithm"];
   if (["noise", "pick", "bow"].includes(String(value.excitation)))
     p.excitation = value.excitation as Patch["excitation"];
@@ -1144,7 +1152,13 @@ export function sanitizePatch(value: unknown): Patch {
         target: m.target as ModTarget,
         amount: num(m.amount, -1, 1, 0),
       }));
+  if (value.fmVersion !== 2 && !FM_KEYS.some((key) => key in value)) migrateFmPatch(p);
+  for (const key of Object.keys(FM_PARAMS) as (keyof typeof FM_PARAMS)[]) if (/(?:Wave|Mode)$/.test(key)) p[key] = Math.round(p[key]);
   return p;
+}
+function sanitizeLockNumber(key: Param, value: unknown) {
+  const result = num(value, PARAMS[key][0], PARAMS[key][1], PARAMS[key][2]);
+  return /^fm[123](Wave|Mode)$/.test(key) ? Math.round(result) : result;
 }
 function sanitizeSteps(value: unknown): Step[] {
   if (!Array.isArray(value)) return Array.from({ length: MAX_STEPS }, makeStep);
@@ -1170,12 +1184,7 @@ function sanitizeSteps(value: unknown): Step[] {
     if (isRecord(q.locks))
       for (const key of Object.keys(q.locks) as Param[])
         if (LOCK_PARAMS.includes(key))
-          s.locks[key] = num(
-            q.locks[key],
-            PARAMS[key][0],
-            PARAMS[key][1],
-            PARAMS[key][2],
-          );
+          s.locks[key] = sanitizeLockNumber(key, q.locks[key]);
     return s;
   });
 }
@@ -1189,7 +1198,7 @@ function sanitizeNotes(value: unknown): PianoNote[] {
     ids.add(id);
     const locks: Partial<Numbers> = {};
     if (isRecord(n.locks)) for (const key of LOCK_PARAMS)
-      if (key in n.locks) locks[key] = num(n.locks[key], PARAMS[key][0], PARAMS[key][1], PARAMS[key][2]);
+      if (key in n.locks) locks[key] = sanitizeLockNumber(key, n.locks[key]);
     return {
       id,
       start: num(n.start, 0, MAX_STEPS - .001, 0),
@@ -1312,6 +1321,12 @@ export function sanitizeProject(value: unknown): Project {
             division: [8, 16, 32].includes(Number(saved.division)) ? Number(saved.division) : pat.division,
             direction: ["forward", "reverse", "pingpong", "random"].includes(String(saved.direction)) ? saved.direction as Pattern["direction"] : pat.direction,
           };
+        }
+        if (base.patch.engine === "fm") {
+          const migrateSteps = (steps: Step[]) => steps.map((s) => ({ ...s, locks: migrateFmLocks(s.locks, base.patch) }));
+          const migrateNotes = (notes: PianoNote[]) => notes.map((n) => ({ ...n, locks: migrateFmLocks(n.locks, base.patch) }));
+          pat.steps = migrateSteps(pat.steps); pat.notes = migrateNotes(pat.notes);
+          if (pat.pianoBackup) { pat.pianoBackup.steps = migrateSteps(pat.pianoBackup.steps); pat.pianoBackup.notes = migrateNotes(pat.pianoBackup.notes); }
         }
         return pat;
       });

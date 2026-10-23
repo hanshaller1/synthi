@@ -1,3 +1,4 @@
+import { visibleFmTarget } from "./fm-config";
 import SourceEditor from "./SourceEditor";
 import FxRack from "./FxRack";
 import FilterResponse from "./FilterResponse";
@@ -49,6 +50,7 @@ type Props = {
   tab: string;
   setTab: (tab: string) => void;
   onPatch: (patch: Partial<Patch>) => void;
+  onCheckpoint: () => void;
   onParam: (key: Param, value: number) => void;
   locks: Partial<Record<Param, number>>;
   onLearn: (key: Param) => void;
@@ -72,6 +74,7 @@ const targetNames = Object.fromEntries(
 );
 export default function Instrument(props: Props) {
   const { patch: p, onPatch, onParam, tab, setTab } = props;
+  const visibleTargets = Object.entries(MOD_TARGETS).filter(([key]) => visibleFmTarget(key));
   const knob = (
     key: Param,
     label: string,
@@ -81,6 +84,7 @@ export default function Instrument(props: Props) {
   ) => (
     <Knob
       key={key}
+      onEdit={props.onCheckpoint}
       label={label}
       value={props.locks[key] ?? p[key]}
       min={PARAMS[key][0]}
@@ -296,8 +300,8 @@ export default function Instrument(props: Props) {
         <>
 
           <div className="module-grid synth-grid">
-            <SourceEditor
-              patch={p}
+            <SourceEditor onCheckpoint={props.onCheckpoint} onLearn={props.onLearn}
+              patch={{ ...p, ...props.locks }}
               onPatch={onPatch}
               onParam={onParam}
               onSample={props.onSample}
@@ -552,9 +556,9 @@ export default function Instrument(props: Props) {
                     })
                   }
                 >
-                  {[...new Set(Object.values(MOD_TARGETS).map((item) => item.group))].map((group) => (
+                  {[...new Set(visibleTargets.map(([, item]) => item.group))].map((group) => (
                     <optgroup key={group} label={group}>
-                      {Object.entries(MOD_TARGETS).filter(([, item]) => item.group === group).map(([key, item]) => (
+                      {visibleTargets.filter(([, item]) => item.group === group).map(([key, item]) => (
                         <option key={key} value={key}>{item.label}{item.trigger ? " · Anschlag" : ""}</option>
                       ))}
                     </optgroup>
@@ -563,6 +567,8 @@ export default function Instrument(props: Props) {
                 <label className="mod-amount">
                   <input
                     aria-label={`Modulation ${i + 1} amount`}
+                    onPointerDown={props.onCheckpoint}
+                    onKeyDown={(e) => { if (!e.repeat && e.key.startsWith("Arrow")) props.onCheckpoint(); }}
                     type="range"
                     min="-1"
                     max="1"

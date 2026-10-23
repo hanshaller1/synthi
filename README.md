@@ -68,7 +68,7 @@ Jeder der zwölf Tracks besitzt eine eigene Engine, einen Resonanzfilter, zwei A
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Subtractive | Zwei einzeln visualisierte Oszillatoren, Osc-2-Transpose, Pulsbreite, analoger Drift, Detune, Mix, Sub und Noise                           |
 | Wavetable   | 32 Tabellen aus acht Familien; Morph-Position, spektrale Helligkeit, Phase-Warp, Formanten und Detune                                      |
-| FM          | Bis zu drei Operatoren, serieller/paralleler Algorithmus, zwei Modulationsverhältnisse und Indizes, Feedback sowie Index-Decay und Endwert |
+| FM          | Drei Operatoren, sechs Algorithmen, Ratio/Fixed Hz, Fine Tune, Level, eigene ADSRs mit Kurven, getrennte Verbindungs-Indizes und Feedback je Operator |
 | Additive    | 1–32 Teiltöne, gerade/ungerade Harmonische, Helligkeit, Tilt, Partial-Peak mit Boost und Inharmonizität                                    |
 | Ring / AM   | Eigene Oszillatoranzeigen, AM/Ring-Übergang, Tiefe, Dry-Carrier, Bias und Modulator-Frequenzoffset                                         |
 | Granular    | 32 Texturen, Grain-Größe und Dichte, Position/Jitter, Scan, Pitch-Streuung, Reverse-Wahrscheinlichkeit, Pan-Streuung und Fenster-Attack    |
@@ -80,6 +80,31 @@ Die Syntheseform wird über die Combobox im Synthesizer-Header direkt vor dem Pr
 Die Bibliotheken werden deterministisch im Browser als PCM erzeugt und sind vollständig offline verfügbar. Es handelt sich um synthetische Samples, keine externen Aufnahmen. Granular bietet acht Gruppen mit jeweils vier Texturen: Nature, Vocal, Tonal, Metal, Digital, Rhythmic, Bass und Atmosphere. Der Sampler enthält je vier Varianten in Kick, Hat, Percussion, Tom, Ride, Shaker, Rimshot, Snare, FX, Chord, Lead, Bass, Acid, Piano, Stab und Pad. Die Wavetable-Familien heißen Analog, Digital, Formant, Harmonic, Metal, Organ, Chiptune und Texture; jede umfasst vier morphbare Tabellen.
 
 Sampler und Granular akzeptieren außerdem eigene Audiodateien (maximal 15 MB und 60 Sekunden). Unterstützte Formate hängen vom Browser-Decoder ab. Eigene Samples werden in Projekt- und Preset-Dateien eingebettet; bei eingebauten Sounds genügt die gespeicherte Bibliotheks-ID. Aufwendige Klangquellen-Einstellungen gelten ab dem nächsten Anschlag; Filter und laufende LFOs lassen sich während gehaltener Noten ändern.
+
+### FM: drei Operatoren, sechs Algorithmen
+
+Die vier Synthese-Spalten bleiben erhalten. **Oscillator** schaltet zwischen OP 1/2/3 um und zeigt Waveform (Sine, Triangle, Saw, Square), Ratio oder Fixed Hz, Fine Tune, Level und Feedback. Die FM-Index-Regler erscheinen für die aktiven Verbindungen des gewählten Operators. **Character / Unison** enthält die Algorithmuswahl mit Schaltbild und eine eigene OP-Auswahl für die Hüllkurve: Attack, Decay, Sustain, Release sowie Attack-/Decay-/Release-Kurve. Unison bleibt darunter. Filter und globale Amp-ADSR bearbeiten weiterhin das Gesamtsignal; Level, Pan und Transpose bleiben erhalten.
+
+| Algorithmus | Modulation | Hörbare Operatoren |
+| --- | --- | --- |
+| 01 · Serial | OP 3 → OP 2 → OP 1 | OP 1 |
+| 02 · Parallel | OP 2 → OP 1, OP 3 → OP 1 | OP 1 |
+| 03 · Branched | OP 3 → OP 2 → OP 1, zusätzlich OP 3 → OP 1 | OP 1 |
+| 04 · Dual Carrier | OP 3 → OP 2 | OP 1 + OP 2 |
+| 05 · Hybrid | OP 3 → OP 2 → OP 1 | OP 1 + OP 2 |
+| 06 · Triple Carrier | Keine Verbindung zwischen Operatoren | OP 1 + OP 2 + OP 3 |
+
+**Level und Index:** Jeder Operator erhält zuerst seinen Level und seine ADSR. Dieses Signal wird sowohl an Audioausgänge als auch an Modulationsverbindungen weitergegeben. Jeder Pfeil besitzt einen eigenen Index: 2→1, 3→2 und 3→1. Ein Index von 1 bedeutet eine maximale Frequenzabweichung in Höhe der nominalen Modulatorfrequenz bei vollem Operatorpegel. Mehrere hörbare Operatoren werden summiert und nach ihrer Anzahl im Pegel ausgeglichen. Feedback ist für alle drei Operatoren unabhängig verfügbar und führt das vorherige Sample desselben Operators zurück. Signalpegel und momentane Frequenzen werden numerisch begrenzt; extreme Indizes können dadurch anders klingen als unbegrenzte FM.
+
+**Artikulation und Tuning:** Ratio folgt der gespielten Note; Fixed Hz behält beim Notenwechsel seine Frequenz, auch bei Mono-Legato/Glide. Fine Tune, globale Transposition, Pitch Bend und bewusst zugewiesene Pitch-Modulation wirken weiterhin. Die OP-ADSRs sind zusätzlich zur globalen Amp-ADSR aktiv: Eine kurze globale Release-Zeit kann eine längere OP-Release abschneiden. Kurve 0 ist linear, positive Werte verlaufen zunächst langsamer, negative zunächst schneller. Routing, Waveform, Frequenzmodus und ADSR-/Kurvenwerte werden beim Anschlag übernommen. Ratio, Hz, Fine, Level, Index und Feedback sind laufend modulierbar und bei manuellen Änderungen geglättet. Waveform und Frequenzmodus unterstützen MIDI Learn per Rechtsklick auf die Auswahl, die Regler per Rechtsklick wie bisher. Alle numerischen Operatorparameter stehen als Locks und Modulationsziele bereit; Algorithmus-Modulation wird pro Anschlag ausgewertet. Reglergesten und die FM-Auswahl lassen sich rückgängig machen.
+
+**Alte FM-Presets:** Import, lokaler Speicher und Factory-Presets migrieren automatisch nach `fmVersion: 2`. Die bisherigen Waveforms und Ratios werden OP 1/2/3 zugeordnet; OP 1 startet mit Ratio 1. Alte Indizes werden unter Berücksichtigung der Modulator-Ratio auf die jeweiligen Verbindungen umgerechnet. Index-Decay und -Endwert werden zu OP-2-Decay/Sustain; eine passende negative Decay-Kurve erhält den alten exponentiellen Verlauf. Sehr späte OP-Releases erhalten die bisher hauptsächlich globale Lautstärkeartikulation möglichst weitgehend. Alte Locks, Migrations-Backups und Modulationsziele werden ebenfalls übernommen, vorhandene MIDI-Zuordnungen bleiben bedienbar. Die alten Parameterfelder bleiben für Kompatibilität in den Daten, erscheinen aber nicht mehr als FM-Regler. `fmRatio` bleibt separat für Ring/AM nutzbar. Moderne FM-Presets werden beim erneuten Laden nicht nochmals migriert.
+
+Die Umstellung ist nicht bitidentisch: Samplegenaues Feedback ersetzt die frühere zyklische DelayNode-Verbindung; OP-Envelopes formen nun auch Feedback, und Release bei während Decay losgelassenen Tasten folgt der neuen ADSR. Laufend modulierte alte Ratios können wegen der expliziten Indexdefinition andere Modulationstiefen erzeugen. WAV-Export und Echtzeit verwenden denselben neuen DSP. FM benötigt AudioWorklet über HTTPS oder localhost.
+
+**FM-Performance:** Ein Stereo-Prozessor pro Note enthält alle Unison-Layer. Gemeinsam verwendete Hüllkurven und Steuerwerte werden einmal pro Sample berechnet; bandbegrenzte Waveform-Tabellen ersetzen laufende trigonometrische Oszillatorberechnungen. Gleichzeitig gelten maximal 32 FM-Noten und insgesamt 128 FM-Unison-Layer, einschließlich Release-Phasen (also bis zu 16 Noten bei acht Layern). Bei Überschreitung werden zuerst ausklingende, dann die ältesten Stimmen kurz ausgeblendet. Kurze Überlappungen dienen dem weichen Wechsel.
+
+Der ausdrücklich angeforderte DSP-Benchmark ist mit `npm run benchmark:fm` wiederholbar. Er misst sechs Algorithmen, 1/8/16/32 Stimmen, achtfache Unison-Belegung, alle Waveforms, hohes Feedback sowie Audio-Rate-Modulation und Release. Er enthält keine Test-Assertions und benötigt keine zusätzlichen Abhängigkeiten. Er ersetzt keine Messung des gesamten Studios im Zielbrowser: Filter, Effekte, native AudioParam-Verarbeitung und Gerätepuffer sind darin nicht enthalten. Ergebnisse dieser Umgebung stehen in `REVIEW.md`.
 
 ### Mono, para und poly
 
@@ -226,12 +251,16 @@ Wahrscheinlichkeiten und zufallsbasierte Klangerzeugung werden bei jedem WAV-Exp
 
 ## Hinweise zur Implementierung
 
-Die acht Engines sind native Web-Audio-Implementierungen. Wavetables werden aus 32 definierten spektralen Rezepten erzeugt; FM verwendet bis zu drei Operatoren; Physical ist ein Saitenmodell. Es werden keine VSTs oder proprietären Hardware-Engines emuliert. Granular hält Live-Noten über einen nachgefüllten Grain-Scheduler und gibt beendete Grains laufend frei. Effekte pro Track sind gemeinsam für alle Stimmen des Tracks.
+Die acht Engines sind native Web-Audio-Implementierungen. Wavetables werden aus 32 definierten spektralen Rezepten erzeugt; FM verwendet einen AudioWorklet-Prozessor mit drei Operatoren pro Unison-Layer; Physical ist ein Saitenmodell. Es werden keine VSTs oder proprietären Hardware-Engines emuliert. Granular hält Live-Noten über einen nachgefüllten Grain-Scheduler und gibt beendete Grains laufend frei. Effekte pro Track sind gemeinsam für alle Stimmen des Tracks.
 
 Die Anwendung wurde als Produktions-Bundle kompiliert; es wurden keine Tests ausgeführt. Hardware-MIDI erfordert die lokale Verbindung eines tatsächlichen Geräts.
 
 ## Dateien
 
+- `src/fm-config.ts`: FM-Parameter, sechs Routing-Definitionen und Preset-/Lock-Migration.
+- `src/fm-worklet.ts`: Stereo-FM-DSP, Operator-ADSRs, Feedback und integriertes Unison.
+- `src/FmEditor.tsx`: Operatorwahl, Schaltbilder und Hüllkurven-Bedienung.
+- `scripts/benchmark-fm.mjs`: gezielte FM-CPU-/Polyphonie-Messung.
 - `src/model.ts`: Datenmodell, Factory-Presets, Importvalidierung und WAV-Codierung.
 - `src/sequence.ts`: gemeinsame musikalische Ereignisse, verlustfreie Übernahme und bestätigte Rückmigration.
 - `src/PianoTools.tsx`, `src/piano-tools.ts`: Generatoren, Transformationen und Humanize mit Vorschau.

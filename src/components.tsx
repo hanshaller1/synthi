@@ -1,3 +1,4 @@
+import { FM_ALGORITHMS } from "./fm-config";
 import { wavetableSpectrum } from "./catalog";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
@@ -106,12 +107,14 @@ export function Select({
   onChange,
   children,
   className = "",
+  onLearn,
 }: {
   label: string;
   value: string | number;
   onChange: (value: string) => void;
   children: ReactNode;
   className?: string;
+  onLearn?: () => void;
 }) {
   return (
     <label className={`select-wrap ${className}`}>
@@ -120,6 +123,8 @@ export function Select({
         aria-label={label}
         value={value}
         onChange={(e) => { onChange(e.target.value); e.currentTarget.blur(); }}
+        title={onLearn ? `${label} · Rechtsklick: MIDI Learn` : undefined}
+        onContextMenu={onLearn ? (e) => { e.preventDefault(); onLearn(); } : undefined}
       >
         {children}
       </select>
@@ -141,6 +146,7 @@ export function Knob({
   maxLabel,
   locked = false,
   onLearn,
+  onEdit,
 }: {
   label: string;
   value: number;
@@ -155,6 +161,7 @@ export function Knob({
   maxLabel?: string;
   locked?: boolean;
   onLearn?: () => void;
+  onEdit?: () => void;
 }) {
   const drag = useRef<{ y: number; x: number; value: number } | null>(null);
   const normalized = log
@@ -181,7 +188,8 @@ export function Knob({
         tabIndex={0}
         title={`${label}: ${format(value)} · Ziehen · Shift: fein · Doppelklick: Reset${onLearn ? " · Rechtsklick: MIDI Learn" : ""}`}
         onPointerDown={(e) => {
-          e.preventDefault();
+          if (e.button !== 0) return;
+          e.preventDefault(); onEdit?.();
           e.currentTarget.setPointerCapture(e.pointerId);
           drag.current = { y: e.clientY, x: e.clientX, value: normalized };
         }}
@@ -201,7 +209,7 @@ export function Knob({
         onPointerCancel={() => {
           drag.current = null;
         }}
-        onDoubleClick={() => onChange(defaultValue ?? min)}
+        onDoubleClick={() => { onEdit?.(); onChange(defaultValue ?? min); }}
         onContextMenu={(e) => {
           if (onLearn) {
             e.preventDefault();
@@ -219,7 +227,7 @@ export function Knob({
               "End",
             ].includes(e.key)
           ) {
-            e.preventDefault();
+            e.preventDefault(); if (!e.repeat) onEdit?.();
             if (e.key === "Home") onChange(min);
             else if (e.key === "End") onChange(max);
             else
@@ -358,8 +366,16 @@ export function Waveform({
   const points = Array.from({ length: 241 }, (_, i) => {
     const t = (i / 240) * 4 * Math.PI;
     let value = 0;
-    if (patch.engine === "fm")
-      value = Math.sin(t + Math.sin(t * patch.fmRatio) * patch.fmIndex);
+    if (patch.engine === "fm") {
+      const a = FM_ALGORITHMS.find((a) => a.id === patch.fmAlgorithm)!;
+      const signals = [0, 0, 0];
+      for (let op = 3; op >= 1; op--) {
+        const ratio = patch[`fm${op}Ratio` as "fm1Ratio"];
+        const depth = a.edges.filter((edge) => edge[1] === op).reduce((sum, [source, , key]) => sum + signals[source - 1] * patch[key], 0);
+        signals[op - 1] = Math.sin(t * ratio + depth) * patch[`fm${op}Level` as "fm1Level"];
+      }
+      value = a.out.reduce((sum, op) => sum + signals[op - 1], 0) / a.out.length;
+    }
     else if (patch.engine === "ring")
       value = Math.sin(t) * Math.sin(t * patch.fmRatio);
     else if (spectrum) {

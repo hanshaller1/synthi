@@ -1,3 +1,4 @@
+import { FM_ALGORITHMS } from "./fm-config";
 import { lfoSnapshot } from "./lfo";
 import { MOD_TARGETS, PARAMS, MULTIMODE_FILTERS, clamp } from "./model";
 import type { ModSource, ModTarget, Param, Patch } from "./model";
@@ -6,7 +7,7 @@ import { GRANULAR_SAMPLES, SAMPLER_SAMPLES } from "./catalog";
 const choices = {
   wave: ["sine", "triangle", "sawtooth", "square"],
   wave2: ["sine", "triangle", "sawtooth", "square"],
-  fmAlgorithm: ["serial", "parallel"],
+  fmAlgorithm: FM_ALGORITHMS.map((a) => a.id),
   excitation: ["noise", "pick", "bow"],
   filterType: ["lowpass", "highpass", "bandpass", "notch", "multimode", "comb"],
   multimodeType: MULTIMODE_FILTERS.map((m) => m.id),
