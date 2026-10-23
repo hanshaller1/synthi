@@ -165,7 +165,7 @@ export function Knob({
   onEdit?: () => void;
 }) {
   const drag = useRef<{ y: number; x: number; value: number } | null>(null);
-  const normalized = log
+  const normalized = max === min ? 0 : log
     ? Math.log(value / min) / Math.log(max / min)
     : (value - min) / (max - min);
   const toValue = (n: number) =>

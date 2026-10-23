@@ -1,4 +1,5 @@
-import { enginePatchEdits, needsEngineWorklet } from "./engine-config";
+import { normalizeTrackSampleLocks } from "./model";
+import { enginePatchEdits, needsEngineWorklet, sampleSliceSelection } from "./engine-config";
 import { filterPatchEdits, needsAdvancedFilter } from "./filter-config";
 import { FM_ALGORITHMS, randomizeFmPatch, fmPatchEdits } from "./fm-config";
 import MasterFX from "./MasterFX";
@@ -215,7 +216,9 @@ export default function App() {
   }, []);
   const updateProject = useCallback(
     (fn: (p: Project) => Project) => {
-      const next = fn(projectRef.current);
+      const previous = projectRef.current, proposed = fn(previous);
+      const next = { ...proposed, tracks: proposed.tracks.map((track, i) =>
+        track === previous.tracks[i] ? track : normalizeTrackSampleLocks(track, previous.tracks[i])) };
       projectRef.current = next;
       setProject(next);
       redoRef.current = [];
@@ -225,7 +228,7 @@ export default function App() {
   );
   const changePatch = useCallback(
     (partial: Partial<Patch>, which = trackRef.current) => {
-      const edits = enginePatchEdits(filterPatchEdits(partial));
+      const edits = enginePatchEdits(filterPatchEdits(partial), projectRef.current.tracks[which].patch);
       if (engineRef.current && !engineRef.current.combAvailable && (needsAdvancedFilter({ ...projectRef.current.tracks[which].patch, ...edits }) || needsEngineWorklet({ ...projectRef.current.tracks[which].patch, ...edits }))) {
         notify("Diese Klangfunktionen benötigen AudioWorklet über HTTPS oder localhost."); return;
       }
@@ -673,7 +676,9 @@ export default function App() {
           }
           return;
         }
-        const range = binding.legacyPeak ? [0, 20] : PARAMS[binding.param];
+        const range = binding.legacyPeak ? [0, 20] : binding.param === "sampleSlice"
+          ? [0, sampleSliceSelection(projectRef.current.tracks[binding.track].patch.sampleSlices, 0).sampleSlices - 1]
+          : PARAMS[binding.param];
         changePatch(
           { [binding.param]: range[0] + value * (range[1] - range[0]) },
           binding.track,

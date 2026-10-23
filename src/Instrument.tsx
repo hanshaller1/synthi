@@ -1,3 +1,4 @@
+import { sampleSliceSelection } from "./engine-config";
 import { visibleFmTarget } from "./fm-config";
 import SourceEditor from "./SourceEditor";
 import FxRack from "./FxRack";
@@ -84,9 +85,9 @@ export default function Instrument(props: Props) {
       key={key}
       onEdit={props.onCheckpoint}
       label={label}
-      value={props.locks[key] ?? p[key]}
+      value={key === "sampleSlice" ? sampleSliceSelection(props.locks.sampleSlices ?? p.sampleSlices, props.locks.sampleSlice ?? p.sampleSlice).sampleSlice : props.locks[key] ?? p[key]}
       min={PARAMS[key][0]}
-      max={PARAMS[key][1]}
+      max={key === "sampleSlice" ? sampleSliceSelection(props.locks.sampleSlices ?? p.sampleSlices, 0).sampleSlices - 1 : PARAMS[key][1]}
       defaultValue={PARAMS[key][2]}
       onChange={(v) => onParam(key, v)}
       format={format}

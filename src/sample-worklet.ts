@@ -1,8 +1,10 @@
+import { sampleSliceSelection } from "./engine-config";
 import { sampleDescriptors } from "./engine-worklet";
 
 // PCM is registered once per context, then shared by all note/unison processors.
 // Active voices retain their data when an old cache entry is evicted.
 export const sampleProcessor = `
+const phaseSampleSelection=${sampleSliceSelection.toString()};
 const phaseSampleBank=new Map();
 const phaseSampleWindow=Float32Array.from({length:2048},(_,i)=>.5-.5*Math.cos(2*Math.PI*i/2048));
 const phaseSampleClamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -26,7 +28,7 @@ class PhaseSamplePlayer extends AudioWorkletProcessor {
   }
   initialize(p){
     const n=this.length,start=Math.min(p.sampleStart,p.sampleEnd-.01)*n,end=Math.max(p.sampleEnd,p.sampleStart+.01)*n;
-    const count=Math.max(1,Math.round(p.sampleSlices)),slice=phaseSampleClamp(Math.round(p.sampleSlice),0,count-1),size=(end-start)/count;
+    const {sampleSlices:count,sampleSlice:slice}=phaseSampleSelection(p.sampleSlices,p.sampleSlice),size=(end-start)/count;
     const velocity=p.sampleVelocityStart>=0?this.o.velocity*p.sampleVelocityStart:(1-this.o.velocity)*-p.sampleVelocityStart;
     this.start=phaseSampleClamp(start+size*slice+size*velocity*.95,0,n-2);this.end=phaseSampleClamp(start+size*(slice+1),this.start+1,n-1);
     this.loop=p.samplePlayback===3||(p.samplePlayback===0&&this.o.sampleLoop);

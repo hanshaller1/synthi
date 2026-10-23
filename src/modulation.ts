@@ -1,4 +1,4 @@
-import { ENGINE_DISCRETE } from "./engine-config";
+import { ENGINE_DISCRETE, sampleSliceSelection } from "./engine-config";
 import { FILTER_DISCRETE, LEGACY_MULTIMODE_TYPES, filterAdsrAt, filterAdsrReleaseAt } from "./filter-config";
 import { FM_ALGORITHMS } from "./fm-config";
 import { lfoSnapshot } from "./lfo";
@@ -72,7 +72,7 @@ export function triggerPatch(
   }
   if (!p.sample && p.sampleId !== patch.sampleId)
     p.sampleRoot = SAMPLER_SAMPLES.find((sample) => sample.id === p.sampleId)?.root ?? p.sampleRoot;
-  return p;
+  return Object.assign(p, sampleSliceSelection(p.sampleSlices, p.sampleSlice));
 }
 export function requiresModulationWorklet(p: Patch) {
   return p.mods.some((route) => route.amount !== 0 && (

@@ -21,6 +21,12 @@ const phaseEngineAdsr=(p,prefix,t)=> {
   const a=p[prefix+'Attack'],d=p[prefix+'Decay'],s=p[prefix+'Sustain'];
   return a>0&&t<a ? t/a : t<a+d ? 1+(s-1)*(t-a)/d : s;
 };
+// Initialization and phase increments must use the identical effective frequency.
+const phaseEngineOsc2Hz=(hz,p)=>Math.min(sampleRate*.45,hz*Math.pow(2,(p.detune/2+p.osc2Tune*100)/1200)*Math.pow(2,p.syncAmount*4));
+const phaseEngineRingHz=(hz,p,pitchEnv)=>{
+  const base=p.ringModMode>=.5?p.ringModHz*Math.pow(2,(p.pitch+p.transpose*100)/1200):hz*p.fmRatio;
+  return phaseEngineClamp((base+p.ringOffset)*Math.pow(2,pitchEnv*p.ringPitchDepth/12),.01,sampleRate*.45);
+};
 class PhaseEngineVoice extends AudioWorkletProcessor {
   static get parameterDescriptors(){return [
     {name:'frequency',defaultValue:440,minValue:0,maxValue:48000,automationRate:'a-rate'},
@@ -41,10 +47,11 @@ class PhaseEngineVoice extends AudioWorkletProcessor {
   }
   random(){let x=this.seed|0;x^=x<<13;x^=x>>>17;x^=x<<5;this.seed=x;return (x>>>0)/4294967296;}
   read(line,delay){const d=Math.max(1,Math.min(this.mask-2,delay)),n=Math.floor(d),f=d-n,a=line[(this.position-n)&this.mask],b=line[(this.position-n-1)&this.mask];return a+(b-a)*f;}
-  initialize(hz,p){
-    const clock=currentFrame/sampleRate;
+  initialize(hz,p,frame){
+    const clock=(currentFrame+frame)/sampleRate;
     this.phase1=this.o.engine==='ring'?0:phaseEngineFract(p.osc1Phase+(p.oscPhaseReset<.5?clock*hz:0));
-    this.phase2=phaseEngineFract((this.o.engine==='ring'?p.ringModPhase:p.osc2Phase)+((this.o.engine==='ring'?p.ringPhaseReset:p.oscPhaseReset)<.5?clock*hz:0));
+    const secondHz=this.o.engine==='ring'?phaseEngineRingHz(hz,p,phaseEngineAdsr(p,'ringPitch',0)):phaseEngineOsc2Hz(hz,p);
+    this.phase2=phaseEngineFract((this.o.engine==='ring'?p.ringModPhase:p.osc2Phase)+((this.o.engine==='ring'?p.ringPhaseReset:p.oscPhaseReset)<.5?clock*secondHz:0));
     if(this.o.engine==='physical'){
       const period=Math.max(2,Math.ceil(sampleRate/hz)),line=this.strings[0];let low=0;
       const alpha=.03+Math.pow(p.pickHardness,2)*.97;
@@ -95,7 +102,11 @@ class PhaseEngineVoice extends AudioWorkletProcessor {
       this.strings[j][this.position]=Math.tanh((mixed*loss+(j===0?excitation:0))*.8)/.8;
     }
     let out=this.values[0];
-    if(p.pickupPosition>0)out-=this.read(this.strings[0],Math.max(1,sampleRate/hz*(1-p.pickupPosition)));
+    if(p.pickupPosition>0){
+      // Keep the neutral endpoint continuous; full differential pickup above 10%.
+      const mix=Math.min(1,p.pickupPosition/.1),weight=mix*mix*(3-2*mix);
+      out-=weight*this.read(this.strings[0],Math.max(1,sampleRate/hz*(1-p.pickupPosition)));
+    }
     if(count>1)out=(out+sum*p.stringCoupling*.25)/(1+p.stringCoupling*.75);
     const dc=out-this.dc[0]+.997*this.dc[1];this.dc[0]=out;this.dc[1]=dc;
     this.rebuildBody();const b=this.body,filtered=b[0]*dc+this.bs[0];this.bs[0]=b[1]*dc-b[3]*filtered+this.bs[1];this.bs[1]=b[2]*dc-b[4]*filtered;
@@ -110,18 +121,17 @@ class PhaseEngineVoice extends AudioWorkletProcessor {
       for(const key of varying)p[key]=params[key][i];
       if(p.active<.5){out[i]=0;continue;}
       const hz=phaseEngineClamp(p.frequency*Math.pow(2,p.pitch/1200),this.o.engine==='physical'?20:.01,sampleRate*.45);
-      if(!this.started){this.initialize(hz,p);this.started=true;}
+      if(!this.started){this.initialize(hz,p,i);this.started=true;}
       if(p.gate<.5&&this.releaseAt<0){this.releasePitch=phaseEngineAdsr(p,'ringPitch',this.elapsed);this.releaseDepth=phaseEngineAdsr(p,'ringEnv',this.elapsed);this.releaseAt=this.elapsed;}
       let value=0;
       if(this.o.engine==='subtractive'){
-        const f1=hz*Math.pow(2,-p.detune/2400),f2=Math.min(sampleRate*.45,hz*Math.pow(2,(p.detune/2+p.osc2Tune*100)/1200)*Math.pow(2,p.syncAmount*4));
+        const f1=hz*Math.pow(2,-p.detune/2400),f2=phaseEngineOsc2Hz(hz,p);
         value=phaseEngineWave(this.o.wave,this.phase1,f1/sampleRate,p.pulseWidth)*(1-p.mix*.5)+(phaseEngineWave(this.o.wave2,this.phase2,f2/sampleRate,p.pulseWidth2)+this.syncTail)*p.mix*.7;
         this.syncTail*=.25;this.phase1+=f1/sampleRate;this.phase2=phaseEngineFract(this.phase2+f2/sampleRate);
         if(this.phase1>=1){this.phase1-=1;if(p.syncAmount>1e-5){const before=phaseEngineWave(this.o.wave2,this.phase2,f2/sampleRate,p.pulseWidth2);this.phase2=phaseEngineFract(p.osc2Phase);this.syncTail+=before-phaseEngineWave(this.o.wave2,this.phase2,f2/sampleRate,p.pulseWidth2);}}
       }else if(this.o.engine==='ring'){
         const pitchEnv=this.envelope('ringPitch',this.releasePitch),env=p.ringEnvEnabled>=.5?this.envelope('ringEnv',this.releaseDepth):1,depth=p.ringDepth*env;
-        const base=p.ringModMode>=.5?p.ringModHz*Math.pow(2,(p.pitch+p.transpose*100)/1200):hz*p.fmRatio;
-        const modHz=phaseEngineClamp((base+p.ringOffset)*Math.pow(2,pitchEnv*p.ringPitchDepth/12),.01,sampleRate*.45);
+        const modHz=phaseEngineRingHz(hz,p,pitchEnv);
         const carrier=phaseEngineWave(this.o.wave,this.phase1,hz/sampleRate),mod=phaseEngineWave(this.o.wave2,this.phase2,modHz/sampleRate);
         let wet=carrier*((1-p.shape)*.5+(.5+p.shape*.5)*mod+(p.ringBiasMode>=.5?p.ringBias:0));
         this.side+=(wet-this.side)*(1-Math.exp(-2*Math.PI*1000/sampleRate));

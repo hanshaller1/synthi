@@ -1,4 +1,4 @@
-import { ENGINE_DISCRETE, ENGINE_OPTIONS } from "./engine-config";
+import { ENGINE_DISCRETE, ENGINE_OPTIONS, sampleSliceSelection } from "./engine-config";
 import { FILTER_DISCRETE } from "./filter-config";
 import { FM_KEYS, visibleFmTarget } from "./fm-config";
 import { useEffect, useRef, useState } from "react";
@@ -40,9 +40,9 @@ export function LockControls({ locks, patch, onSet }: {
   return <>
     <span className="lock-heading"><LockKeyhole size={13} /> PARAMETER LOCKS</span>
     {Object.entries(locks).map(([name, value]) => {
-      const key = name as Param, [min, max] = PARAMS[key];
+      const key = name as Param, min = PARAMS[key][0], max = key === "sampleSlice" ? sampleSliceSelection(locks.sampleSlices ?? patch.sampleSlices, 0).sampleSlices - 1 : PARAMS[key][1];
       const log = min > 0 && max / min >= 100 && !integral.has(key);
-      const normalized = log ? Math.log(value! / min) / Math.log(max / min) : (value! - min) / (max - min);
+      const normalized = max === min ? 0 : log ? Math.log(value! / min) / Math.log(max / min) : (value! - min) / (max - min);
       const set = (v: number) => onSet(key, clamp(integral.has(key) ? Math.round(v) : +v.toFixed(4), min, max));
       return <div className="lock-chip" key={key}>
         <label>{PARAM_LABELS[key]}<input aria-label={`${PARAM_LABELS[key]} per Maus ändern`} type="range" min="0" max="1" step=".001" value={normalized} onChange={(e) => set(log ? min * (max / min) ** +e.target.value : min + +e.target.value * (max - min))} /></label>

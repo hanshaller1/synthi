@@ -1,4 +1,4 @@
-import { ENGINE_PARAMS, ENGINE_KEYS, ENGINE_TARGETS, ENGINE_DISCRETE } from "./engine-config";
+import { ENGINE_PARAMS, ENGINE_KEYS, ENGINE_TARGETS, ENGINE_DISCRETE, sampleSliceSelection, normalizeSampleLocks } from "./engine-config";
 import { makeSoundBank } from "./factory-presets";
 import { FILTER_PARAMS, FILTER_KEYS, FILTER_TARGETS, FILTER_DISCRETE } from "./filter-config";
 import { FM_PARAMS, FM_KEYS, FM_TARGETS, FM_ALGORITHMS, LEGACY_FM_KEYS, migrateFmPatch, migrateFmLocks } from "./fm-config";
@@ -772,7 +772,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
   if (overrides.fmVersion !== 2 && !FM_KEYS.some((key) => key in overrides) && LEGACY_FM_KEYS.some((key) => key in overrides)) migrateFmPatch(patch);
   if (overrides.filterPeakGain === undefined && patch.filterType === "multimode" && patch.multimodeType === "peak") patch.filterPeakGain = patch.resonance;
   if (overrides.pulseWidth2 === undefined && overrides.pulseWidth !== undefined) patch.pulseWidth2 = overrides.pulseWidth;
-  return patch;
+  return Object.assign(patch, sampleSliceSelection(patch.sampleSlices, patch.sampleSlice));
 }
 const makeLegacyPatch = (recipe: Partial<Patch> = {}) => makePatch({ ...recipe, engineVersion: 1, ringBiasMode: 0, bowMode: 0 });
 export const PRESETS: Patch[] = [
@@ -1205,7 +1205,7 @@ export function sanitizePatch(value: unknown): Patch {
     p.legacyPeakModulation = true;
     p.mods = p.mods.map((m) => m.target === "resonance" ? { ...m, target: "filterPeakGain", amount: m.amount * 20 / 48 } : m);
   }
-  return p;
+  return Object.assign(p, sampleSliceSelection(p.sampleSlices, p.sampleSlice));
 }
 function sanitizeLockNumber(key: Param, value: unknown) {
   const result = num(value, PARAMS[key][0], PARAMS[key][1], PARAMS[key][2]);
@@ -1263,6 +1263,28 @@ function sanitizeNotes(value: unknown): PianoNote[] {
       ...(typeof n.group === "string" ? { group: n.group.slice(0, 100) } : {}),
     };
   });
+}
+export function normalizeTrackSampleLocks(track: Track, previous?: Track): Track {
+  const selection = sampleSliceSelection(track.patch.sampleSlices, track.patch.sampleSlice);
+  const patch = track.patch.sampleSlices === selection.sampleSlices && track.patch.sampleSlice === selection.sampleSlice
+    ? track.patch : { ...track.patch, ...selection };
+  const normalize = <T extends { locks: Partial<Numbers> }>(items: T[]): T[] => {
+    const next = items.map((item) => {
+      const locks = normalizeSampleLocks(item.locks, patch);
+      return locks === item.locks ? item : { ...item, locks };
+    });
+    return next.every((item, i) => item === items[i]) ? items : next;
+  };
+  const patterns = track.patterns.map((pattern, i) => {
+    if (patch.sampleSlices === previous?.patch.sampleSlices && pattern === previous?.patterns[i]) return pattern;
+    const steps = normalize(pattern.steps), notes = normalize(pattern.notes);
+    const saved = pattern.pianoBackup;
+    const savedSteps = saved ? normalize(saved.steps) : undefined, savedNotes = saved ? normalize(saved.notes) : undefined;
+    if (steps === pattern.steps && notes === pattern.notes && savedSteps === saved?.steps && savedNotes === saved?.notes) return pattern;
+    return { ...pattern, steps, notes, ...(saved ? { pianoBackup: { ...saved, steps: savedSteps!, notes: savedNotes! } } : {}) };
+  });
+  return patch === track.patch && patterns.every((pattern, i) => pattern === track.patterns[i])
+    ? track : { ...track, patch, patterns };
 }
 export function sanitizeProject(value: unknown): Project {
   if (
@@ -1390,7 +1412,7 @@ export function sanitizeProject(value: unknown): Project {
         }
         return pat;
       });
-    return base;
+    return normalizeTrackSampleLocks(base);
   });
   return p;
 }

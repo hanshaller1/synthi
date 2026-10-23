@@ -1,5 +1,5 @@
 import { EngineSource } from "./engine-worklet";
-import { ENGINE_KEYS, engineOwner, needsEngineWorklet, sampleRegion } from "./engine-config";
+import { ENGINE_KEYS, engineOwner, needsEngineWorklet, sampleRegion, sampleSliceSelection } from "./engine-config";
 import { grainEnvelope, quantizeGrain, GRAIN_BEATS } from "./grain-tools";
 import { FILTER_KEYS, FILTER_TARGETS, filterAdsrAt, filterAdsrReleaseAt, filterCurve, filterFrequencyAt, filterReleaseFrequencyAt, filterLevels, needsAdvancedFilter } from "./filter-config";
 import { FmSource } from "./fm-worklet";
@@ -1818,7 +1818,7 @@ export function lockedPatch(patch: Patch, locks: Partial<Numbers>): Patch {
     if (LOCK_PARAMS.includes(key))
       p[key] = clamp(migrated[key]!, PARAMS[key][0], PARAMS[key][1]);
   if (patch.engineVersion === 1 && locks.pulseWidth !== undefined && locks.pulseWidth2 === undefined) p.pulseWidth2 = p.pulseWidth;
-  return p;
+  return Object.assign(p, sampleSliceSelection(p.sampleSlices, p.sampleSlice));
 }
 function delayTail(time: number, feedback: number) {
   // Include repeats until their amplitude falls below -60 dB.

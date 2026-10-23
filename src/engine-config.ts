@@ -1,4 +1,4 @@
-import type { Engine, Patch } from "./model";
+import type { Engine, Numbers, Patch } from "./model";
 
 export const ENGINE_PARAMS = {
   syncAmount: [0, 1, 0], pulseWidth2: [.05, .95, .5],
@@ -56,12 +56,30 @@ const owner = (key: EngineParam): Exclude<Engine, "fm"> => Object.entries(ENGINE
 export const engineOwner = owner;
 export const ENGINE_TRIGGER = new Set<EngineParam>(["subWave", "subOctave", "osc1Phase", "osc2Phase", "oscPhaseReset", "wtWarpMode", "wtPhase", "wtPhaseReset", "wtRandomPhase", "addRandomPhase", "ringModMode", "ringModPhase", "ringPhaseReset", "ringBiasMode", "ringPitchAttack", "ringPitchDecay", "ringPitchSustain", "ringPitchRelease", "ringEnvEnabled", "ringEnvAttack", "ringEnvDecay", "ringEnvSustain", "ringEnvRelease", "samplePlayback", "sampleSlices", "sampleSlice", "sampleVelocityStart", "sampleStretchMode", "samplePingPong", "bowMode"]);
 export const ENGINE_TARGETS = Object.fromEntries(ENGINE_KEYS.map((key) => [key, { label: `${owner(key)} · ${ENGINE_LABELS[key]}`, group: owner(key) === "granular" ? "Granular · per grain" : `${owner(key)} · character`, trigger: ENGINE_TRIGGER.has(key) }])) as Record<EngineParam, { label: string; group: string; trigger: boolean }>;
-export function enginePatchEdits(values: Partial<Patch>): Partial<Patch> {
+/** Shared invariant for patch state, note locks, the UI and render helpers. */
+export function sampleSliceSelection(sampleSlices: number, sampleSlice: number) {
+  const count = Math.max(1, Math.min(32, Math.round(Number.isFinite(sampleSlices) ? sampleSlices : 1)));
+  const slice = Math.max(0, Math.min(count - 1, Math.round(Number.isFinite(sampleSlice) ? sampleSlice : 0)));
+  return { sampleSlices: count, sampleSlice: slice };
+}
+export function normalizeSampleLocks(locks: Partial<Numbers>, patch: Pick<Patch, "sampleSlices" | "sampleSlice">): Partial<Numbers> {
+  const selection = sampleSliceSelection(locks.sampleSlices ?? patch.sampleSlices, locks.sampleSlice ?? patch.sampleSlice);
+  if ((locks.sampleSlices === undefined || locks.sampleSlices === selection.sampleSlices) &&
+      (locks.sampleSlice === undefined || locks.sampleSlice === selection.sampleSlice)) return locks;
+  return { ...locks, ...(locks.sampleSlices !== undefined ? { sampleSlices: selection.sampleSlices } : {}),
+    ...(locks.sampleSlice !== undefined ? { sampleSlice: selection.sampleSlice } : {}) };
+}
+export function enginePatchEdits(values: Partial<Patch>, previous: Patch): Partial<Patch> {
   const result = { ...values };
   for (const key of ENGINE_DISCRETE) if (result[key] !== undefined) result[key] = Math.round(result[key]!);
   if (values.engine || ENGINE_KEYS.some((key) => key in values)) result.engineVersion = 2;
   if (values.engine) { result.ringBiasMode = 1; result.bowMode = 1; }
   if (values.ringBias !== undefined && values.ringBiasMode === undefined) result.ringBiasMode = 1;
+  if (values.sampleSlices !== undefined || values.sampleSlice !== undefined) {
+    const selection = sampleSliceSelection(values.sampleSlices ?? previous.sampleSlices, values.sampleSlice ?? previous.sampleSlice);
+    if (values.sampleSlices !== undefined) result.sampleSlices = selection.sampleSlices;
+    result.sampleSlice = selection.sampleSlice;
+  }
   if (values.samplePlayback !== undefined && values.samplePlayback !== 0) result.sampleLoop = values.samplePlayback === 3;
   return result;
 }
@@ -72,7 +90,7 @@ export function needsEngineWorklet(p: Patch) {
 export const isSampleLoop = (p: Patch) => p.samplePlayback === 3 || p.samplePlayback === 0 && p.sampleLoop;
 export function sampleRegion(p: Patch, seconds: number, velocity: number) {
   const trimStart = Math.min(p.sampleStart, p.sampleEnd - .01) * seconds, trimEnd = Math.max(p.sampleEnd, p.sampleStart + .01) * seconds;
-  const count = Math.max(1, Math.round(p.sampleSlices)), slice = Math.max(0, Math.min(count - 1, Math.round(p.sampleSlice)));
+  const { sampleSlices: count, sampleSlice: slice } = sampleSliceSelection(p.sampleSlices, p.sampleSlice);
   const start = trimStart + (trimEnd - trimStart) * slice / count, end = trimStart + (trimEnd - trimStart) * (slice + 1) / count;
   const shift = p.sampleVelocityStart >= 0 ? velocity * p.sampleVelocityStart : (1 - velocity) * -p.sampleVelocityStart;
   return { start: Math.min(end - 1e-5, start + (end - start) * shift * .95), end };
