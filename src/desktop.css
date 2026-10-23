@@ -236,3 +236,8 @@ body, #root { overflow: hidden; }
 .studio-viewport .filter-envelope-graph > svg { height: calc(100% - 18px); }
 .filter-envelope-values { display: flex; justify-content: space-between; font: 7px/18px var(--mono); white-space: nowrap; color: var(--muted); gap: 4px; }
 .studio-viewport .synth-grid .filter-envelope-title output { flex-basis: 62px; }
+
+.studio-viewport .filter-adsr-grid { display: grid; grid-template-columns: repeat(4, minmax(55px, 1fr)); gap: 4px; overflow-x: auto; padding: 3px 0 7px; scrollbar-width: thin; }
+.studio-viewport .filter-envelope-graph .filter-envelope-axis { font-size: 7px; opacity: .75; }
+.studio-viewport .synth-grid > .filter-module > .module-title { margin-bottom: 0; }
+.studio-viewport .filter-module > .base-width-section { border-top: 0; padding-top: 0; }

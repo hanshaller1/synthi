@@ -1,4 +1,4 @@
-import { FILTER_DISCRETE, LEGACY_MULTIMODE_TYPES, filterAdsrAt, filterCurve } from "./filter-config";
+import { FILTER_DISCRETE, LEGACY_MULTIMODE_TYPES, filterAdsrAt, filterAdsrReleaseAt } from "./filter-config";
 import { FM_ALGORITHMS } from "./fm-config";
 import { lfoSnapshot } from "./lfo";
 import { MOD_TARGETS, PARAMS, MULTIMODE_FILTERS, clamp } from "./model";
@@ -28,7 +28,7 @@ export function sourceValue(
   const elapsed = Math.max(0, Math.min(time, releaseAt) - start);
   if (source === "filterEnv") {
     const value = filterAdsrAt(p, elapsed);
-    return time > releaseAt ? value * (1 - filterCurve((time - releaseAt) / p.filterRelease, p.filterReleaseCurve)) : value;
+    return time > releaseAt ? filterAdsrReleaseAt(p, value, time - releaseAt) : value;
   }
   const index = Number(source.slice(-1)) - 1, lfo = p.lfos[index];
   return lfo.depth * lfoSnapshot(lfo, tempo, start, time, index);

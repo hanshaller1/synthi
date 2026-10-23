@@ -4,7 +4,7 @@ export function createFilterDsp() {
   type Complex = [number, number];
   type Coeff = [number, number, number, number, number];
   type Settings = {
-    native?: boolean; type: string; mode: string; character: number; frequency: number; resonance: number; detune: number; note: number;
+    native?: boolean; type: string; mode: string; character: number; filterOversampling: number; frequency: number; resonance: number; detune: number; note: number;
     baseWidthEnabled: number; baseWidthBase: number; baseWidthWidth: number;
     filterPeakGain: number; filterMorph: number; filterCompensation: number; filterMix: number; filterKeytrack: number; drivePosition: number; drive: number;
     polarity: number; combFeedback: number; combDamping: number; combMix: number; combMode: number; combGain: number; combKeytrack: number; combFine: number; combSpread: number; combHighpass: number; combSaturation: number; combInterpolation: number;
@@ -22,8 +22,9 @@ export function createFilterDsp() {
     return { name: name.startsWith("lp") ? "lowpass" : name.startsWith("hp") ? "highpass" : name === "bp" ? "bandpass" : name === "peak" ? "peaking" : name === "morph" ? "morph" : name,
       stages: Number(name.match(/[2468]$/)?.[0] ?? (name === "morph" ? 4 : 2)) / 2 };
   }
-  function coefficients(type: string, hz: number, q: number, gain: number, sr: number, legacy = false, bpGain = 1, out: Coeff = [0, 0, 0, 0, 0]): Coeff {
-    const w = 2 * Math.PI * clamp(hz, 5, sr * (legacy ? .5 : .499)) / sr, c = Math.cos(w), s = Math.sin(w);
+  function coefficients(type: string, hz: number, q: number, gain: number, sr: number, legacy = false, bpGain = 1, out: Coeff = [0, 0, 0, 0, 0], cosine?: number, sine?: number, peakAmplitude?: number): Coeff {
+    const w = cosine === undefined ? 2 * Math.PI * clamp(hz, 5, sr * (legacy ? .5 : .499)) / sr : 0;
+    const c = cosine ?? Math.cos(w), s = sine ?? Math.sin(w);
     const physicalQ = legacy && (type === "lowpass" || type === "highpass") ? 10 ** (q / 20) : Math.max(.0001, q);
     const alpha = s / (2 * physicalQ);
     let a0 = 1 + alpha, a1 = -2 * c, a2 = 1 - alpha, b0: number, b1: number, b2: number;
@@ -31,7 +32,7 @@ export function createFilterDsp() {
     else if (type === "highpass") { b0 = (1 + c) / 2; b1 = -(1 + c); b2 = b0; }
     else if (type === "bandpass") { b0 = alpha * bpGain; b1 = 0; b2 = -b0; }
     else if (type === "notch") { b0 = 1; b1 = -2 * c; b2 = 1; }
-    else { const A = 10 ** (gain / 40); b0 = 1 + alpha * A; b1 = -2 * c; b2 = 1 - alpha * A; a0 = 1 + alpha / A; a1 = -2 * c; a2 = 1 - alpha / A; }
+    else { const A = peakAmplitude ?? 10 ** (gain / 40); b0 = 1 + alpha * A; b1 = -2 * c; b2 = 1 - alpha * A; a0 = 1 + alpha / A; a1 = -2 * c; a2 = 1 - alpha / A; }
     out[0] = b0 / a0; out[1] = b1 / a0; out[2] = b2 / a0; out[3] = a1 / a0; out[4] = a2 / a0; return out;
   }
   function transfer(b: Coeff, z: Complex): Complex {
@@ -66,7 +67,30 @@ export function createFilterDsp() {
     else { out[0] = 1 - f; out[1] = f; }
     out.length = hd ? 4 : 2; return out;
   }
+  function isOversampled(p: Pick<Settings, "type" | "mode" | "character" | "filterOversampling">) {
+    return p.filterOversampling >= .5 && p.type !== "comb" && (p.character === 2 || p.character === 4) && !(p.type === "multimode" && (p.mode === "peak" || p.mode === "notch"));
+  }
+  // 63-tap linear-phase half-band FIR. The odd taps are zero except the
+  // centre, enabling two polyphase stages with a 31 base-sample roundtrip.
+  const halfband = new Float64Array(63);
+  let firSum = 0;
+  for (let i = 0; i < 63; i++) {
+    const t = i - 31, window = .42 - .5 * Math.cos(2 * Math.PI * i / 62) + .08 * Math.cos(4 * Math.PI * i / 62);
+    halfband[i] = t === 0 ? .5 : i % 2 ? 0 : Math.sin(Math.PI * t / 2) / (Math.PI * t) * window;
+    firSum += halfband[i];
+  }
+  for (let i = 0; i < 63; i++) halfband[i] /= firSum;
+  function firResponse(w: number): Complex {
+    let amplitude = halfband[31];
+    for (let i = 0; i < 31; i += 2) amplitude += 2 * halfband[i] * Math.cos(w * (31 - i));
+    return [amplitude * Math.cos(w * 31), -amplitude * Math.sin(w * 31)];
+  }
   function mainResponse(p: Settings, hz: number, sr: number): Complex {
+    if (isOversampled(p)) {
+      const high = { ...p, frequency: frequency(p, sr), detune: 0, note: 60, filterKeytrack: 0, filterOversampling: 0, native: false };
+      const w = Math.PI * hz / sr, a = firResponse(w), b = firResponse(w + Math.PI);
+      return add(mul(mul(a, a), mainResponse(high, hz, sr * 2)), mul(mul(b, b), mainResponse(high, hz + sr, sr * 2)));
+    }
     const m = mode(p), w = 2 * Math.PI * hz / sr, z: Complex = [Math.cos(w), -Math.sin(w)];
     const fc = frequency(p, sr), stages = m.stages;
     let lp: Complex = [1, 0], bp: Complex = [1, 0], hp: Complex = [1, 0];
@@ -109,7 +133,8 @@ export function createFilterDsp() {
       wet = p.combMode >= .5 ? scale(add([1, 0], scale(loop, signed)), 1 / (1 + p.combFeedback)) : div([1 - p.combFeedback, 0], add([1, 0], scale(loop, -signed)));
       wet = add([1 - p.combMix, 0], scale(wet, p.combMix * 10 ** (p.combGain / 20)));
     } else wet = mainResponse(p, hz, sr);
-    const mixed = add([1 - p.filterMix, 0], scale(wet, p.filterMix));
+    const dry: Complex = isOversampled(p) ? [Math.cos(w * 31), -Math.sin(w * 31)] : [1, 0];
+    const mixed = add(scale(dry, 1 - p.filterMix), scale(wet, p.filterMix));
     const bw = width(p, sr);
     let B: Complex = [1, 0];
     if (bw.low) B = mul(B, add([1, 0], scale(onePole(bw.loG, z), -1)));
@@ -118,6 +143,11 @@ export function createFilterDsp() {
   }
   class Core {
     sr: number;
+    rate: number;
+    oversampled: boolean;
+    osInput: Float64Array[] | null;
+    osOutput: Float64Array[] | null;
+    delayedDry = [0, 0];
     rings: Float64Array[];
     mask: number;
     position = 0;
@@ -133,14 +163,22 @@ export function createFilterDsp() {
     base = NaN; bandWidth = NaN;
     type = ""; modeName = ""; lastHz = NaN; lastRes = NaN; lastPeak = NaN; lastCharacter = NaN;
     lastCompensation = NaN; bandpassBoost = 1;
+    physicalQ = Array.from({ length: 3 }, () => new Float64Array(4));
+    peakAmplitude = 1; criticalFeedback = 4;
     postGain = NaN; postDrive = 1; postNormalization = 1;
     hpWeights = new Float64Array(9); bpWeights = new Float64Array(9); ladderWeights = new Float64Array(8);
     svf = Array.from({ length: 4 }, () => new Float64Array(4));
     topology = { name: "lowpass", stages: 1 };
     p!: Settings;
     bwConfig = { low: 0, high: 0, loG: 0, hiG: 1 };
-    ladderConfig = { n: 4, G: .1, k: 0, compensation: 1 };
-    constructor(sr: number) { this.sr = sr; let size = 1; while (size < sr / 20 + 8) size *= 2; this.rings = [new Float64Array(size), new Float64Array(size)]; this.mask = size - 1; }
+    ladderConfig = { n: 4, G: .1, k: 0, compensation: 1, denominator: 1 };
+    constructor(sr: number, oversampled = false) {
+      this.sr = sr; this.oversampled = oversampled; this.rate = sr * (oversampled ? 2 : 1);
+      this.osInput = oversampled ? [new Float64Array(32), new Float64Array(32)] : null;
+      this.osOutput = oversampled ? [new Float64Array(64), new Float64Array(64)] : null;
+      let size = 1; while (size < sr / 20 + 8) size *= 2;
+      this.rings = [new Float64Array(size), new Float64Array(size)]; this.mask = size - 1;
+    }
     configure(p: Settings) {
       this.p = p;
       if (this.postGain !== p.drive) { this.postGain = p.drive; this.postDrive = 1 + p.drive * 14; this.postNormalization = Math.tanh(this.postDrive); }
@@ -160,32 +198,87 @@ export function createFilterDsp() {
         }
         this.combHd = p.combInterpolation; return;
       }
-      if (this.type !== p.type || this.modeName !== p.mode) {
+      const topologyChanged = this.type !== p.type || this.modeName !== p.mode;
+      if (topologyChanged) {
         this.type = p.type; this.modeName = p.mode; this.topology = mode(p); this.lastHz = NaN;
         const m = this.topology, n = m.stages * 2;
+        this.ladderConfig.n = n;
+        this.criticalFeedback = n > 2 ? 1 / Math.cos(Math.PI / n) ** n : 4;
         for (let i = 0; i <= n; i++) { this.hpWeights[i] = choose(n, i) * (-1) ** i; this.bpWeights[i] = i >= m.stages ? choose(m.stages, i - m.stages) * (-1) ** (i - m.stages) * 2 ** m.stages : 0; }
       }
       const m = this.topology, hz = frequency(p, this.sr);
       if (hz === this.lastHz && p.resonance === this.lastRes && p.filterPeakGain === this.lastPeak && p.character === this.lastCharacter && p.filterCompensation === this.lastCompensation) return;
-      this.lastHz = hz; this.lastRes = p.resonance; this.lastPeak = p.filterPeakGain; this.lastCharacter = p.character; this.lastCompensation = p.filterCompensation;
-      const g = Math.tan(Math.PI * hz / this.sr);
-      this.bandpassBoost = 10 ** (p.resonance / (20 * m.stages));
-      if (p.character === 2 || p.character === 4) {
-        this.ladderConfig = ladder(p, this.sr);
-        const l = this.ladderConfig;
-        for (let i = 0; i < l.n; i++) this.ladderWeights[i] = (1 - l.G) * l.G ** (l.n - i - 1);
-      }
-      for (let i = 0; i < m.stages; i++) {
-        if (p.character === 3) { const k = 1 / stageQ(p, i, m.stages, m.name), a1 = 1 / (1 + g * (g + k)); const values = this.svf[i]; values[0] = k; values[1] = a1; values[2] = g * a1; values[3] = g * g * a1; }
-        if ((p.character === 2 || p.character === 4) && m.name !== "peaking" && m.name !== "notch") continue;
-        const banks = m.name === "morph" ? 3 : 1;
+      const toneChanged = topologyChanged || p.resonance !== this.lastRes || p.character !== this.lastCharacter;
+      const banks = m.name === "morph" ? 3 : 1;
+      if (toneChanged) {
+        this.bandpassBoost = 10 ** (p.resonance / (20 * m.stages));
         for (let bank = 0; bank < banks; bank++) {
           const type = m.name === "morph" ? bank === 0 ? "lowpass" : bank === 1 ? "bandpass" : "highpass" : m.name;
-          coefficients(type, hz, stageQ(p, i, m.stages, type), p.filterPeakGain / m.stages, this.sr, p.character === 0, type === "bandpass" && p.character ? 10 ** (p.resonance / (20 * m.stages)) : 1, this.coeff[bank][i]);
+          for (let i = 0; i < m.stages; i++) {
+            const q = stageQ(p, i, m.stages, type);
+            this.physicalQ[bank][i] = p.character === 0 && (type === "lowpass" || type === "highpass") ? 10 ** (q / 20) : q;
+          }
         }
       }
+      if (topologyChanged || p.filterPeakGain !== this.lastPeak) this.peakAmplitude = 10 ** (p.filterPeakGain / (m.stages * 40));
+      this.lastHz = hz; this.lastRes = p.resonance; this.lastPeak = p.filterPeakGain; this.lastCharacter = p.character; this.lastCompensation = p.filterCompensation;
+      if ((p.character === 2 || p.character === 4) && m.name !== "peaking" && m.name !== "notch") {
+        const l = this.ladderConfig, g = Math.tan(Math.PI * hz / this.rate);
+        l.G = g / (1 + g);
+        if (toneChanged) l.k = this.criticalFeedback * .94 * (p.character === 4 ? Math.sqrt(clamp(p.resonance / 20, 0, 1)) : clamp(p.resonance / 20, 0, 1));
+        l.compensation = 1 + l.k * p.filterCompensation; l.denominator = 1 + l.k * l.G ** l.n;
+        let weight = 1 - l.G;
+        for (let i = l.n - 1; i >= 0; i--) { this.ladderWeights[i] = weight; weight *= l.G; }
+        return;
+      }
+      if (p.character === 3 && m.name !== "peaking") {
+        const g = Math.tan(Math.PI * hz / this.rate);
+        for (let i = 0; i < m.stages; i++) {
+          const k = 1 / this.physicalQ[0][i], a1 = 1 / (1 + g * (g + k)), values = this.svf[i];
+          values[0] = k; values[1] = a1; values[2] = g * a1; values[3] = g * g * a1;
+        }
+        return;
+      }
+      // Only two trig calls per cutoff update, shared by all stages and morph
+      // branches. Pole Q, gain powers and unused SVF/ladder coefficients are cached.
+      const w = 2 * Math.PI * hz / this.rate, cosine = Math.cos(w), sine = Math.sin(w);
+      for (let bank = 0; bank < banks; bank++) {
+        const type = m.name === "morph" ? bank === 0 ? "lowpass" : bank === 1 ? "bandpass" : "highpass" : m.name;
+        for (let i = 0; i < m.stages; i++) coefficients(type, hz, this.physicalQ[bank][i], p.filterPeakGain / m.stages, this.rate, false, type === "bandpass" && p.character ? this.bandpassBoost : 1, this.coeff[bank][i], cosine, sine, this.peakAmplitude);
+      }
     }
-    reset() { this.rings.forEach((r) => r.fill(0)); this.low.fill(0); this.high.fill(0); this.bw.forEach((v) => v.fill(0)); this.ladderStates.forEach((v) => v.fill(0)); this.states.forEach((v) => v.forEach((s) => s.fill(0))); }
+    reset() { this.position = 0; this.osInput?.forEach((v) => v.fill(0)); this.osOutput?.forEach((v) => v.fill(0)); this.rings.forEach((r) => r.fill(0)); this.low.fill(0); this.high.fill(0); this.bw.forEach((v) => v.fill(0)); this.ladderStates.forEach((v) => v.fill(0)); this.states.forEach((v) => v.forEach((s) => s.fill(0))); }
+    private ladderChannel(x: number, ch: number) {
+      const p = this.p, m = this.topology, l = this.ladderConfig, states = this.ladderStates[ch];
+      let S = 0;
+      for (let i = 0; i < l.n; i++) S += states[i] * this.ladderWeights[i];
+      let u = (x - l.k * S) / l.denominator;
+      const strength = p.character === 4 ? u >= 0 ? 1.4 : 1.1 : 1;
+      u = Math.tanh(u * strength) / strength;
+      let current = u, hp = u, bp = 0;
+      for (let i = 0; i < l.n; i++) {
+        const out = l.G * (current - states[i]) + states[i];
+        states[i] = safe(2 * out - states[i]); current = out;
+        hp += this.hpWeights[i + 1] * out; bp += this.bpWeights[i + 1] * out;
+      }
+      const morph = clamp(p.filterMorph * 2, 0, 2);
+      const y = m.name === "lowpass" ? current : m.name === "highpass" ? hp : m.name === "bandpass" ? bp
+        : morph <= 1 ? current * (1 - morph) + bp * morph : bp * (2 - morph) + hp * (morph - 1);
+      return y * l.compensation;
+    }
+    private oversampleLadder(x: number, ch: number) {
+      const source = this.osInput![ch], output = this.osOutput![ch], pos = this.position & 31, target = (this.position * 2) & 63;
+      source[pos] = x;
+      let even = 0;
+      for (let i = 0; i < 32; i++) even += 2 * halfband[2 * i] * source[(pos - i) & 31];
+      const odd = 2 * halfband[31] * source[(pos - 15) & 31];
+      output[target] = this.ladderChannel(even, ch);
+      output[target + 1] = this.ladderChannel(odd, ch);
+      let result = halfband[31] * output[(target - 31) & 63];
+      for (let i = 0; i < 32; i++) result += halfband[2 * i] * output[(target - 2 * i) & 63];
+      this.delayedDry[ch] = source[(pos - 31) & 31];
+      return result;
+    }
     channel(input: number, ch: number) {
       const p = this.p, b = this.bwConfig, state = this.bw[ch];
       let x = input, v = x;
@@ -209,19 +302,8 @@ export function createFilterDsp() {
       } else {
         const m = this.topology;
         if ((p.character === 2 || p.character === 4) && m.name !== "peaking" && m.name !== "notch") {
-          const l = this.ladderConfig, states = this.ladderStates[ch];
-          let S = 0; for (let i = 0; i < l.n; i++) S += states[i] * this.ladderWeights[i];
-          let u = (x - l.k * S) / (1 + l.k * l.G ** l.n);
-          const strength = p.character === 4 ? u >= 0 ? 1.4 : 1.1 : 1;
-          u = Math.tanh(u * strength) / strength;
-          let current = u, hp = u, bp = 0;
-          for (let i = 0; i < l.n; i++) { const out = l.G * (current - states[i]) + states[i]; states[i] = safe(2 * out - states[i]); current = out;
-            hp += this.hpWeights[i + 1] * out;
-            bp += this.bpWeights[i + 1] * out;
-          }
-          const morph = clamp(p.filterMorph * 2, 0, 2);
-          y = m.name === "lowpass" ? current : m.name === "highpass" ? hp : m.name === "bandpass" ? bp : morph <= 1 ? current * (1 - morph) + bp * morph : bp * (2 - morph) + hp * (morph - 1);
-          y *= l.compensation;
+          y = this.oversampled ? this.oversampleLadder(x, ch) : this.ladderChannel(x, ch);
+          if (this.oversampled) x = this.delayedDry[ch];
         } else {
           const values = this.values, banks = m.name === "morph" ? 3 : 1;
           for (let bank = 0; bank < banks; bank++) {
@@ -251,6 +333,6 @@ export function createFilterDsp() {
       return safe(out);
     }
   }
-  return { Core, response, mainResponse, coefficients, frequency, mode, width, mul, add, scale, div, pow, transfer, onePole };
+  return { Core, response, isOversampled, mainResponse, coefficients, frequency, mode, width, mul, add, scale, div, pow, transfer, onePole };
 }
 export type FilterDspSettings = Parameters<ReturnType<typeof createFilterDsp>["response"]>[0];

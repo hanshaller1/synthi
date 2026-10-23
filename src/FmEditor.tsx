@@ -3,11 +3,11 @@ import type { ReactNode } from "react";
 import { Select, Waveform, formatHz, formatTime, percent } from "./components";
 import { FM_ALGORITHMS, FM_OPERATORS, FM_OP_KEYS, FM_WAVES, fmCurve } from "./fm-config";
 import type { FmOperator } from "./fm-config";
-import type { Param, Patch } from "./model";
+import type { MidiTarget, Param, Patch } from "./model";
 
 type Controls = {
   patch: Patch; op: FmOperator; setOp: (op: FmOperator) => void;
-  onParam: (key: Param, value: number) => void; onCheckpoint: () => void; onLearn: (key: Param) => void;
+  onParam: (key: Param, value: number) => void; onCheckpoint: () => void; onLearn: (key: MidiTarget) => void;
   knob: (key: Param, label: string, format?: (v: number) => string, log?: boolean, step?: number) => ReactNode;
 };
 function OperatorTabs({ value, onChange, label }: { value: FmOperator; onChange: (op: FmOperator) => void; label: string }) {
@@ -69,10 +69,10 @@ function OperatorEnvelope({ patch: p, op }: { patch: Patch; op: FmOperator }) {
   }
   return <svg className="fm-envelope-graph" viewBox="0 0 300 90" preserveAspectRatio="none" role="img" aria-label={`OP ${op} ADSR · Attack ${formatTime(a)}, Decay ${formatTime(d)}, Sustain ${percent(s)}, Release ${formatTime(r)}`}><path className="fm-envelope-baseline" d="M5 85H295" /><polyline points={points.join(" ")} /></svg>;
 }
-export function FmCharacter({ patch: p, op, setOp, knob, onAlgorithm }: Controls & { onAlgorithm: (id: Patch["fmAlgorithm"]) => void }) {
+export function FmCharacter({ patch: p, op, setOp, knob, onLearn, onAlgorithm }: Controls & { onAlgorithm: (id: Patch["fmAlgorithm"]) => void }) {
   const k = FM_OP_KEYS[op];
   return <div className="fm-character">
-    <Select label="FM-Algorithmus" value={p.fmAlgorithm} onChange={(id) => onAlgorithm(id as Patch["fmAlgorithm"])}>{FM_ALGORITHMS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</Select>
+    <Select label="FM-Algorithmus" onLearn={() => onLearn("fmAlgorithm")} value={p.fmAlgorithm} onChange={(id) => onAlgorithm(id as Patch["fmAlgorithm"])}>{FM_ALGORITHMS.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}</Select>
     <Routing patch={p} />
     <div className="fm-envelope-section">
       <span className="synthesis-subheading">OPERATOR ENVELOPE</span>

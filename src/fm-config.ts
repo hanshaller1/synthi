@@ -47,8 +47,8 @@ export const FM_PARAMS = {
   fm3DecayCurve: [-12, 12, 0],
   fm3ReleaseCurve: [-12, 12, 0],
   fmIndex21: [0, 80, 1.5],
-  fmIndex32: [0, 80, 0],
-  fmIndex31: [0, 80, 0],
+  fmIndex32: [0, 80, 0.65],
+  fmIndex31: [0, 80, 0.45],
 } as const;
 export type FmParam = keyof typeof FM_PARAMS;
 export const FM_KEYS = Object.keys(FM_PARAMS) as FmParam[];
@@ -145,5 +145,37 @@ export function fmPatchEdits(p: Patch, values: Partial<Patch>): Partial<Patch> {
   const result = { ...values, ...migrateFmLocks(values, p) };
   for (const key of FM_KEYS) if (/(?:Wave|Mode)$/.test(key) && result[key] !== undefined)
     result[key] = Math.round(result[key]!);
+  return result;
+}
+
+/** Musical ranges, with the current operator/routing parameters only. */
+export function randomizeFmPatch(): Partial<Patch> {
+  const choose = <T,>(values: readonly T[]): T => values[Math.floor(Math.random() * values.length)];
+  const between = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
+  const algorithm = choose(FM_ALGORITHMS), percussive = Math.random() < .45;
+  const result: Partial<Patch> = { fmVersion: 2, fmAlgorithm: algorithm.id, sub: 0, noise: 0,
+    attack: percussive ? .003 : between(.02, .3), decay: between(.3, 1.8),
+    sustain: percussive ? 0 : between(.45, .85), release: between(.25, 1.6) };
+  for (const op of FM_OPERATORS) {
+    const k = FM_OP_KEYS[op], carrier = (algorithm.out as readonly number[]).includes(op);
+    result[k.wave] = choose([0, 0, 0, 0, 1, 1, 2, 3]);
+    result[k.mode] = Math.random() < .12 ? 1 : 0;
+    result[k.ratio] = choose([.5, 1, 1, 1.5, 2, 3, 4, 5, 7, 8]);
+    result[k.hz] = choose([55, 110, 165, 220, 330, 440, 660, 880]);
+    result[k.fine] = between(-7, 7);
+    result[k.level] = between(carrier ? .65 : .35, 1);
+    result[k.feedback] = between(0, result[k.wave]! >= 2 ? .1 : .3);
+    result[k.attack] = carrier ? result.attack! : between(.001, .045);
+    result[k.decay] = between(.12, 1.5);
+    result[k.sustain] = carrier ? percussive ? 0 : between(.5, 1) : between(.05, .65);
+    result[k.release] = between(.2, 1.8);
+    result[k.attackCurve] = between(-3, 3);
+    result[k.decayCurve] = between(-5, 1);
+    result[k.releaseCurve] = between(-4, 1);
+  }
+  for (const key of ["fmIndex21", "fmIndex32", "fmIndex31"] as const) {
+    const op = key === "fmIndex21" ? 2 : 3;
+    result[key] = between(.2, result[FM_OP_KEYS[op].wave]! >= 2 ? .9 : 3);
+  }
   return result;
 }

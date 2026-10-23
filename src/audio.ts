@@ -1,4 +1,4 @@
-import { FILTER_KEYS, FILTER_TARGETS, filterAdsrAt, filterCurve, filterFrequencyAt, filterReleaseFrequencyAt, filterLevels, needsAdvancedFilter } from "./filter-config";
+import { FILTER_KEYS, FILTER_TARGETS, filterAdsrAt, filterAdsrReleaseAt, filterCurve, filterFrequencyAt, filterReleaseFrequencyAt, filterLevels, needsAdvancedFilter } from "./filter-config";
 import { FmSource } from "./fm-worklet";
 import { FM_KEYS, FM_TARGETS, migrateFmLocks } from "./fm-config";
 import { sequenceFrame } from "./sequence";
@@ -101,8 +101,8 @@ function scheduleFilterRelease(param: AudioParam, p: Patch, at: number, held: nu
   if (hz && p.filterReleaseCurve === 0) { param.setTargetAtTime(p.cutoff, at, Math.max(.005, p.filterRelease / 4)); return; }
   if (!hz && p.filterReleaseCurve === 0) { param.linearRampToValueAtTime(0, at + p.filterRelease); return; }
   for (let i = 1; i <= 64; i++) {
-    const x = i / 64, curve = filterCurve(x, p.filterReleaseCurve);
-    const value = hz ? filterReleaseFrequencyAt(p, held, p.filterRelease * x) : held * (1 - curve);
+    const x = i / 64;
+    const value = hz ? filterReleaseFrequencyAt(p, held, p.filterRelease * x) : filterAdsrReleaseAt(p, held, p.filterRelease * x);
     param.linearRampToValueAtTime(value, at + p.filterRelease * x);
   }
   if (hz) param.setTargetAtTime(p.cutoff, at + p.filterRelease, Math.max(.005, p.filterRelease / 4));

@@ -1,3 +1,4 @@
+import { makeSoundBank } from "./factory-presets";
 import { FILTER_PARAMS, FILTER_KEYS, FILTER_TARGETS, FILTER_DISCRETE } from "./filter-config";
 import { FM_PARAMS, FM_KEYS, FM_TARGETS, FM_ALGORITHMS, LEGACY_FM_KEYS, migrateFmPatch, migrateFmLocks } from "./fm-config";
 import type { FmAlgorithm } from "./fm-config";
@@ -153,6 +154,7 @@ export const PARAMS = {
   distortion: [0, 1, 0.05],
 } as const;
 export type Param = keyof typeof PARAMS;
+export type MidiTarget = Param | "fmAlgorithm";
 const destination = (label: string, group: string, trigger = false) => ({ label, group, trigger });
 export const MOD_TARGETS = {
   ...FM_TARGETS,
@@ -762,7 +764,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     sampleLoop: true,
     ...overrides,
   };
-  if (overrides.fmVersion !== 2 && !FM_KEYS.some((key) => key in overrides) && (overrides.engine === "fm" || LEGACY_FM_KEYS.some((key) => key in overrides))) migrateFmPatch(patch);
+  if (overrides.fmVersion !== 2 && !FM_KEYS.some((key) => key in overrides) && LEGACY_FM_KEYS.some((key) => key in overrides)) migrateFmPatch(patch);
   if (overrides.filterPeakGain === undefined && patch.filterType === "multimode" && patch.multimodeType === "peak") patch.filterPeakGain = patch.resonance;
   return patch;
 }
@@ -924,6 +926,7 @@ export const PRESETS: Patch[] = [
     reverb: 0.1,
     chorus: 0,
   }),
+  ...makeSoundBank(makePatch),
 ];
 export function makeProject(): Project {
   const patches = [
@@ -1167,6 +1170,12 @@ export function sanitizePatch(value: unknown): Patch {
         target: m.target as ModTarget,
         amount: num(m.amount, -1, 1, 0),
       }));
+  // Old partial v2 imports also retain the former zero OP-3 indices. New
+  // patches get musical defaults; serialized presets always carry their values.
+  if (value.fmVersion === 2) {
+    if (value.fmIndex32 === undefined) p.fmIndex32 = 0;
+    if (value.fmIndex31 === undefined) p.fmIndex31 = 0;
+  }
   if (value.fmVersion !== 2 && !FM_KEYS.some((key) => key in value)) migrateFmPatch(p);
   for (const key of Object.keys(FM_PARAMS) as (keyof typeof FM_PARAMS)[]) if (/(?:Wave|Mode)$/.test(key)) p[key] = Math.round(p[key]);
   for (const key of FILTER_DISCRETE) p[key] = Math.round(p[key]);

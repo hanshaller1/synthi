@@ -1,7 +1,7 @@
 import { createFilterDsp } from "./filter-dsp";
 import { FILTER_PARAMS } from "./filter-config";
 
-export const FILTER_AUDIO_PARAMS = Object.keys(FILTER_PARAMS).filter((key) => !key.endsWith("Curve") && key !== "filterVelocity" && key !== "filterCharacter" && key !== "drivePosition") as (keyof typeof FILTER_PARAMS)[];
+export const FILTER_AUDIO_PARAMS = Object.keys(FILTER_PARAMS).filter((key) => !key.endsWith("Curve") && key !== "filterVelocity" && key !== "filterCharacter" && key !== "filterOversampling" && key !== "drivePosition") as (keyof typeof FILTER_PARAMS)[];
 const descriptors = Object.entries(FILTER_PARAMS).filter(([key]) => FILTER_AUDIO_PARAMS.includes(key as keyof typeof FILTER_PARAMS)).map(([name, [minValue, maxValue, defaultValue]]) => ({ name, minValue: Math.min(0, minValue), maxValue, defaultValue, automationRate: "a-rate" }));
 export const advancedFilterProcessor = `
 const phaseFilterDsp = (${createFilterDsp.toString()})();
@@ -20,9 +20,10 @@ class PhaseAdvancedFilter extends AudioWorkletProcessor {
   ]; }
   constructor(options) {
     super();
-    this.core = new phaseFilterDsp.Core(sampleRate);
     this.settings = {...options.processorOptions};
+    this.core = new phaseFilterDsp.Core(sampleRate, phaseFilterDsp.isOversampled(this.settings));
     this.keys = PhaseAdvancedFilter.parameterDescriptors.map((p) => p.name);
+    this.varying = [];
     this.active = true;
     this.port.onmessage = ({data}) => {
       if(data==='reset') this.core.reset();
@@ -33,7 +34,7 @@ class PhaseAdvancedFilter extends AudioWorkletProcessor {
     if(!this.active) return false;
     const output=outputs[0], input=inputs[0] || [];
     if(!output || !output.length) return true;
-    const varying=[];
+    const varying=this.varying; varying.length=0;
     for(const key of this.keys) { const a=params[key]; this.settings[key]=a[0]; if(a.length>1) varying.push(key); }
     if(!varying.length) this.core.configure(this.settings);
     for(let i=0;i<output[0].length;i++) {

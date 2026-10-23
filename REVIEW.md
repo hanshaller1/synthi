@@ -1,3 +1,19 @@
+# FM-/Filter-Korrekturen und neue Soundbank vom 23.10.2026
+
+Basis: GitHub-`main` auf `ff77f42`, sauberer Checkout und unveränderter Remote-Stand bei Arbeitsbeginn. Keine Tests, Browser-/Hörprüfungen oder Benchmarks ausgeführt.
+
+- FM-Randomize verwendet die tatsächlichen drei Operatoren samt Modi, Waveforms, Tuning, Pegeln, Feedback, ADSRs/Kurven, drei Indizes und sechs Algorithmen. Die alten FM-Ratio/Index-Felder werden nicht mehr für FM randomisiert; Ring/AM behält seinen Ratio-Regler. Neue FM-Patches beginnen mit wirksamen OP-3-Indizes. Nur explizite Legacy-Rezepte werden migriert; importierte Legacy-Patches und vorhandene Null-Indizes, auch in partiellen v2-Importen, behalten ihre Werte.
+- MIDI Learn an der Algorithmusauswahl, sechs gleich große CC-Bereiche, persistente Bindings und Undo beim Routingwechsel. Numerische Operator-Bindings bleiben unverändert.
+- Comb-Regler und Katalogziel heißen Wet gain; gespeicherter Schlüssel und Pegelwirkung bleiben unverändert. Die Beschriftung erklärt die Anhebung des gesamten Wet-Signals auch bei Feedback 0.
+- Optionales 2×-Oversampling für Ladder/Acid mit zwei polyphasen 63-Tap-Halbband-FIR-Stufen, intern doppelter DSP-Rate und um 31 Basissamples verzögertem Dry-Pfad. Umschaltung verwendet die bestehende Topologie-Überblendung, Locks/MIDI/Matrix und WAV-Export. 1× bleibt Default. Notenlokale Filter-Locks und abgetastete Topologie bleiben bei unbeteiligten Projektänderungen erhalten; explizite Filteränderungen wirken weiter live. Notch/Peak und separates Post-Drive werden nicht oversampled. Kleinsignal-Response enthält beide FIRs, die beiden Multirate-Frequenzzweige und die Dry-Verzögerung.
+- Der Filter berechnet pro Biquad-Cutoff-Aktualisierung nur ein Sinus-/Cosinus-Paar für alle Stufen/Branches. Polgüten, Resonanz-Kennlinien und Gain-Potenzen werden bei Änderung separat aktualisiert; ungenutzte SVF/Biquad/Ladder-Berechnungen entfallen. Ladder-Gewichte werden ohne neue Arrays rekursiv berechnet; die Worklet-Liste variierender Parameter wird wiederverwendet. Audio-Rate-Steuerung bleibt erhalten. Das reduziert berechnete Operationen; die tatsächliche CPU-Last wurde nicht gemessen.
+- Filter-ADSR-Grafik auf 0–100 % normalisiert und vollständig von Cutoff, Tiefe, Vorzeichen und Velocity entkoppelt. Sie verwendet dieselben normierten Kurvenfunktionen wie die Filter-Envelope als Modulationsquelle; die bestehende asymptotische Hz-Rückkehr zur Basis bleibt im Klangpfad erhalten. Phasengrenzen werden exakt abgetastet, damit auch ein sehr kurzer Attack den 100-%-Peak zeigt. Zeitverhältnisse bleiben proportional. Vier ADSR-Knöpfe wieder nebeneinander, doppelter oberer Divider und Leerabstand entfernt.
+- 56 handgeschriebene Soundrezepte, acht je Engine außer Sampler. Als feste Acht-Tupel typisiert. Alle bisherigen zwölf Demo-Presets und deren Indizes bleiben erhalten. Neue Presets sind im bestehenden Browser mit Suche/Engine-Filter ladbar; ausgewählte Sounds speichern bewusst FX-ON. Keine externen Audiodateien oder Dienste.
+
+Abschlussprüfung: statische Durchsicht, TypeScript-/Produktionsbuild und portable App-Dateien über `npm run build:pages`, außerdem `git diff --check`. Die bestehende Vite-Warnung für das große Bundle bleibt bestehen. Preset-Klang und Oversampling wurden nicht gehörmäßig oder per Audiovergleich beurteilt.
+
+---
+
 # Filter-Ausbau vom 23.10.2026
 
 Basis: GitHub-`main` auf `53d2c6f`. Bereits abgeschlossene FM-, Sequencer-, Hold- und Layout-Arbeiten wurden beibehalten. Keine Tests, Testabhängigkeiten, Browser-/Hörprüfungen oder Benchmarks für diesen Ausbau ausgeführt; ausschließlich statische Durchsicht und Produktionsbuild.

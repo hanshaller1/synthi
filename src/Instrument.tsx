@@ -29,6 +29,7 @@ import {
 } from "./components";
 import { ENGINES, MOD_TARGETS, PARAMS } from "./model";
 import type {
+  MidiTarget,
   Lfo,
   LfoShape,
   LfoMode,
@@ -50,7 +51,7 @@ type Props = {
   onCheckpoint: () => void;
   onParam: (key: Param, value: number) => void;
   locks: Partial<Record<Param, number>>;
-  onLearn: (key: Param) => void;
+  onLearn: (key: MidiTarget) => void;
   onLibrary: () => void;
   onSave: () => void;
   onRandom: () => void;

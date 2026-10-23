@@ -1,7 +1,7 @@
 import { PARAMS } from "./model";
 import type { Param, Patch } from "./model";
 import { FILTER_AUDIO_PARAMS } from "./advanced-filter-worklet";
-import { needsAdvancedFilter } from "./filter-config";
+import { FILTER_KEYS, needsAdvancedFilter } from "./filter-config";
 import { createFilterDsp } from "./filter-dsp";
 import type { FilterDspSettings } from "./filter-dsp";
 
@@ -36,6 +36,7 @@ export class VoiceFilter {
   private shape = "";
   private timers = new Set<number>();
   private disposed = false;
+  private patch?: Patch;
   constructor(private context: Context, private bypass = false) {
     this.input = context.createGain(); this.output = context.createGain();
     this.sources = Object.fromEntries(Object.entries({ frequency: 2400, resonance: 2.2, ...controlDefaults }).map(([key, value]) => {
@@ -60,7 +61,7 @@ export class VoiceFilter {
   private setShape(p: Patch, when: number) {
     if (this.bypass || this.disposed) return false;
     const advanced = needsAdvancedFilter(p), mode = nativeMode(p);
-    const shape = `${p.filterType}:${p.multimodeType}:${advanced ? p.filterCharacter : "native"}:${p.drivePosition >= .5 ? "post" : "pre"}:${p.combMode}:${p.combInterpolation}`;
+    const shape = `${p.filterType}:${p.multimodeType}:${advanced ? p.filterCharacter : "native"}:${p.drivePosition >= .5 ? "post" : "pre"}:${p.combMode}:${p.combInterpolation}:${p.filterOversampling}`;
     if (this.shape === shape) return false;
     const c = this.context, gain = c.createGain(), nodes: AudioNode[] = [gain], connections: Branch["connections"] = [];
     const wire = (key: string, target: AudioParam | AudioNode, scale = 1) => {
@@ -74,7 +75,7 @@ export class VoiceFilter {
       if (!c.audioWorklet || typeof AudioWorkletNode === "undefined") throw new Error("Diese Filter benötigen AudioWorklet über HTTPS oder localhost.");
       worklet = new AudioWorkletNode(c, advanced ? "phase-advanced-filter" : "phase-comb-filter", {
         numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: "explicit",
-        processorOptions: { type: p.filterType, mode: p.multimodeType, character: p.filterCharacter, drivePosition: p.drivePosition },
+        processorOptions: { type: p.filterType, mode: p.multimodeType, character: p.filterCharacter, filterOversampling: p.filterOversampling, drivePosition: p.drivePosition },
       });
       worklet.parameters.forEach((param, key) => wire(({ feedback: "combFeedback", damping: "combDamping", mix: "combMix" } as Record<string, string>)[key] ?? key, param));
       input = worklet; worklet.connect(gain); nodes.push(worklet);
@@ -115,8 +116,17 @@ export class VoiceFilter {
       else if (force || old !== value) { param.cancelScheduledValues(when); param.setTargetAtTime(value, when, .015); }
     }
   }
-  update(p: Patch, previous: Patch | undefined, when: number) { this.controls(p, when, previous, false, this.setShape(p, when)); }
-  schedule(p: Patch, when: number) { this.setShape(p, when); this.controls(p, when, undefined, true); }
+  update(p: Patch, previous: Patch | undefined, when: number) {
+    // Keep note-local locks and sampled topology when an unrelated project
+    // value changes. Explicit edits of a filter control still apply live.
+    const keys = [...FILTER_KEYS, "drive", "combFeedback", "combDamping", "combMix", "filterType", "multimodeType", "combPolarity", "cutoff", "resonance"] as const;
+    const next = previous && this.patch ? { ...p, ...Object.fromEntries(keys.filter((key) => p[key] === previous[key]).map((key) => [key, this.patch![key]])) } : p;
+    this.controls(next, when, this.patch, false, this.setShape(next, when));
+    this.patch = { ...next };
+  }
+  schedule(p: Patch, when: number) {
+    this.setShape(p, when); this.controls(p, when, undefined, true); this.patch = { ...p };
+  }
   connect(destination: AudioNode) { return this.output.connect(destination); }
   reset() { for (const b of this.branches) b.worklet?.port.postMessage("reset"); }
   dispose() {

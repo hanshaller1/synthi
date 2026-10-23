@@ -1,5 +1,5 @@
 import { filterPatchEdits, needsAdvancedFilter } from "./filter-config";
-import { fmPatchEdits } from "./fm-config";
+import { FM_ALGORITHMS, randomizeFmPatch, fmPatchEdits } from "./fm-config";
 import MasterFX from "./MasterFX";
 import { TrackPlayback } from "./track-playback";
 import type { TrackPlaybackState } from "./track-playback";
@@ -73,7 +73,7 @@ import {
   sanitizePatch,
   sanitizeProject,
 } from "./model";
-import type { EditorMode, Param, Patch, Pattern, PianoNote, Project, Step, Track } from "./model";
+import type { EditorMode, MidiTarget, Param, Patch, Pattern, PianoNote, Project, Step, Track } from "./model";
 import { download, fileData, readStored, writeStored } from "./storage";
 
 type ModalName =
@@ -85,7 +85,7 @@ type ModalName =
   | "settings"
   | "preset"
   | null;
-type Binding = { cc: number; track: number; param: Param; legacyPeak?: boolean };
+type Binding = { cc: number; track: number; param: MidiTarget; legacyPeak?: boolean };
 const KEYBOARD_KEYS = [
   "a",
   "w",
@@ -153,7 +153,7 @@ export default function App() {
     [externalClock, setExternalClock] = useState(false),
     [midiLearn, setMidiLearn] = useState<{
       track: number;
-      param: Param;
+      param: MidiTarget;
     } | null>(null),
     [bindings, setBindings] = useState<Binding[]>([]);
   const [exportBars, setExportBars] = useState(4),
@@ -583,7 +583,7 @@ export default function App() {
             mapping.map((m) => m && m.param === "resonance" && restored?.tracks[m.track]?.patch.legacyPeakModulation ? { ...m, param: "filterPeakGain" as const, legacyPeak: true } : m).filter(
               (m) =>
                 m &&
-                Object.hasOwn(PARAMS, m.param) &&
+                (Object.hasOwn(PARAMS, m.param) || m.param === "fmAlgorithm") &&
                 m.cc >= 0 &&
                 m.cc <= 127 &&
                 m.track >= 0 &&
@@ -665,6 +665,13 @@ export default function App() {
       }
       const binding = bindingsRef.current.find((b) => b.cc === cc);
       if (binding) {
+        if (binding.param === "fmAlgorithm") {
+          const fmAlgorithm = FM_ALGORITHMS[Math.min(FM_ALGORITHMS.length - 1, Math.floor(value * FM_ALGORITHMS.length))].id;
+          if (projectRef.current.tracks[binding.track].patch.fmAlgorithm !== fmAlgorithm) {
+            checkpoint(); changePatch({ fmAlgorithm }, binding.track);
+          }
+          return;
+        }
         const range = binding.legacyPeak ? [0, 20] : PARAMS[binding.param];
         changePatch(
           { [binding.param]: range[0] + value * (range[1] - range[0]) },
@@ -866,13 +873,12 @@ export default function App() {
       shape: Math.random(),
       detune: Math.random() * 30,
       mix: Math.random(),
-      fmRatio: [0.5, 1, 1.5, 2, 3, 4, 7][Math.floor(Math.random() * 7)],
-      fmIndex: Math.random() * 8,
       brightness: Math.random(),
       harmonics: Math.ceil(Math.random() * 24),
       decay: 0.08 + Math.random() * 0.9,
       delay: Math.random() * 0.35,
       reverb: Math.random() * 0.4,
+      ...(patch.engine === "fm" ? randomizeFmPatch() : patch.engine === "ring" ? { fmRatio: [0.5, 1, 1.5, 2, 3, 4, 7][Math.floor(Math.random() * 7)] } : {}),
     });
     notify(
       "Sound variiert. Mit Undo lässt sich der vorherige Klang wiederherstellen.",
@@ -2174,22 +2180,22 @@ export default function App() {
               <h3>FM · drei Operatoren</h3>
               <p>In Oscillator OP 1/2/3 wählen: Waveform, Ratio oder Fixed Hz, Fine, Level und Feedback. Nur die zum Algorithmus passenden Verbindungs-Indizes werden angezeigt. Level und OP-ADSR wirken vor Modulations- und Audioausgängen; jeder Modulationspfeil hat eine eigene Tiefe.</p>
               <p>Character / Unison bietet Serial, Parallel, Branched, Dual Carrier, Hybrid und Triple Carrier samt Schaltbild. Die separate OP-Auswahl darunter wechselt zwischen drei vollständigen ADSRs mit Attack-/Decay-/Release-Kurven. Kurve 0 ist linear; positive Werte beginnen langsamer, negative schneller. Globale Amp-ADSR und Filter bleiben zusätzlich aktiv.</p>
-              <p>Fixed Hz folgt nicht der gespielten Note; globale Transposition, Fine und Pitch Bend wirken weiterhin. Routing, Waveform, Frequenzmodus und Operator-ADSR werden beim nächsten Anschlag übernommen. Laufende Ratio-/Hz-/Level-/Fine-/Feedback-/Index-Änderungen sind geglättet. Rechtsklick auf Operator-Waveform oder Frequenzmodus: MIDI Learn.</p>
+              <p>Fixed Hz folgt nicht der gespielten Note; globale Transposition, Fine und Pitch Bend wirken weiterhin. Routing, Waveform, Frequenzmodus und Operator-ADSR werden beim nächsten Anschlag übernommen. Randomize variiert alle drei Operatoren, ihre Hüllkurven und die sechs Routings mit moderaten Indizes. Neue FM-Patches starten mit wirksamen OP-3-Verbindungen; importierte Indexwerte bleiben erhalten. Laufende Ratio-/Hz-/Level-/Fine-/Feedback-/Index-Änderungen sind geglättet. Rechtsklick auf Operator-Waveform, Frequenzmodus oder Algorithmusauswahl: MIDI Learn. Der Algorithmus wird in sechs gleich großen MIDI-CC-Bereichen gewählt.</p>
               <p>Alte FM-Presets und Locks werden automatisch migriert. Feedback und Release können durch den neuen Signalweg anders klingen. FM benötigt AudioWorklet über HTTPS/localhost. Maximal 32 FM-Noten beziehungsweise insgesamt 128 Unison-Layer; bei acht Layern sind dies bis zu 16 Noten einschließlich Release-Phasen.</p>
             </section>
             <section>
               <h3>Filter & envelope</h3>
               <p><b>Base-Width:</b> 6-dB-Hochpass und Tiefpass vor dem Main Filter, für alle acht Engines. Base = untere Grenze, Width = Bandbreite in Oktaven. Base und Width auf Open: neutral, auch bei eingeschaltetem Filter.</p>
-              <p><b>Main:</b> Classic behält die bisherige Abstimmung. Butterworth, Ladder, State Variable und Acid bieten neue Resonanzverläufe; Multimode ergänzt 36/48 dB und Morph LP ↔ BP ↔ HP. Peak gain erlaubt Absenkung und Anhebung. Main Character enthält Keytrack, Resonance compensation, Mix und Drive Pre/Post.</p>
-              <p><b>Comb:</b> Feedback oder Feedforward, ±-Polarität, Resonance gain, Keytrack, Fine und Stereo spread. Feedback HP und Saturation bearbeiten nur den Feedback-Pfad. HD verwendet Lagrange-Interpolation; Legacy bewahrt alte Klänge.</p>
+              <p><b>Main:</b> Classic behält die bisherige Abstimmung. Butterworth, Ladder, State Variable und Acid bieten neue Resonanzverläufe; Multimode ergänzt 36/48 dB und Morph LP ↔ BP ↔ HP. Ladder/Acid bieten unter Main Character optional 2×-Oversampling gegen Aliasing, mit zusätzlicher CPU-Last und 31 Samples Latenz; 1× bleibt Standard. Peak gain erlaubt Absenkung und Anhebung. Main Character enthält Keytrack, Resonance compensation, Mix und Drive Pre/Post.</p>
+              <p><b>Comb:</b> Feedback oder Feedforward, ±-Polarität, Wet gain, Keytrack, Fine und Stereo spread. Feedback HP und Saturation bearbeiten nur den Feedback-Pfad. HD verwendet Lagrange-Interpolation; Legacy bewahrt alte Klänge. Wet gain verstärkt den gesamten Wet-Pfad, auch ohne Feedback; seine Umbenennung ändert keine gespeicherten Werte.</p>
               <p><b>ENV DEPTH:</b> ±6 Oktaven, separate Attack-/Decay-/Release-Kurven. Kurve 0 erhält den bisherigen Verlauf. Velocity → depth skaliert die Tiefe mit dem Anschlag. Keytrack 100 % verschiebt die Frequenz pro zwölf Halbtönen um eine Oktave, Referenz C4.</p>
-              <p>Die Response zeigt Base, Peak und Sustain für die ausgewählte Vorschau-Note und Velocity, einschließlich Base-Width und Filter-Mix. Bei Sättigung ist sie eine Kleinsignalantwort. Ohne laufende Matrix/LFOs. Neue Parameter unterstützen Locks und MIDI Learn; mit „Anschlag“ markierte Matrixziele gelten ab dem nächsten Anschlag.</p>
+              <p>Die normierte Filter-ADSR zeigt 0–100 %, ihre Kurven und proportionalen Zeitverhältnisse, unabhängig von Cutoff, Env depth und Velocity. Auch bei Tiefe 0 oder negativer Tiefe bleibt die Form sichtbar. Die vier ADSR-Regler stehen in einer Reihe. Die Response zeigt Base, Peak und Sustain für die ausgewählte Vorschau-Note und Velocity, einschließlich Base-Width und Filter-Mix. Bei Sättigung ist sie eine Kleinsignalantwort. Ohne laufende Matrix/LFOs. Neue Parameter unterstützen Locks und MIDI Learn; mit „Anschlag“ markierte Matrixziele gelten ab dem nächsten Anschlag.</p>
             </section>
             <section>
               <h3>Make it yours</h3>
               <p>
                 Acht Engines: Subtractive, Wavetable, FM, Additive, Ring/AM,
-                Granular, Sampler und Physical.
+                Granular, Sampler und Physical. Die Sound Library enthält zusätzlich acht neue Presets je Syntheseform außer Sampler, insgesamt 56 Sounds. Alle bisherigen Presets bleiben verfügbar.
               </p>
               <p>
                 Granular und Sampler enthalten eine interne Textur. Eigene 32

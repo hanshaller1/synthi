@@ -5,6 +5,7 @@ export const FILTER_PARAMS = {
   baseWidthBase: [10, 20000, 10],
   baseWidthWidth: [0, 12, 12],
   filterCharacter: [0, 4, 0],
+  filterOversampling: [0, 1, 0],
   filterPeakGain: [-24, 24, 0],
   filterMorph: [0, 1, 0],
   filterCompensation: [0, 1, 0],
@@ -29,15 +30,15 @@ export const FILTER_KEYS = Object.keys(FILTER_PARAMS) as FilterParam[];
 export const FILTER_CHARACTERS = ["Classic", "Butterworth", "Ladder", "State Variable", "Acid"] as const;
 export const FILTER_LABELS = {
   baseWidthEnabled: "Base-Width · Enable", baseWidthBase: "Base-Width · Base", baseWidthWidth: "Base-Width · Width (octaves)",
-  filterCharacter: "Main filter · Character", filterPeakGain: "Main filter · Peak gain (dB)", filterMorph: "Main filter · LP/BP/HP morph",
+  filterCharacter: "Main filter · Character", filterOversampling: "Main filter · Ladder/Acid 2× oversampling", filterPeakGain: "Main filter · Peak gain (dB)", filterMorph: "Main filter · LP/BP/HP morph",
   filterCompensation: "Main filter · Resonance compensation", filterMix: "Main filter · Dry/Wet", drivePosition: "Main filter · Drive position",
-  combMode: "Comb · Feedback/Feedforward", combGain: "Comb · Resonance gain (dB)", combKeytrack: "Comb · Keytracking",
+  combMode: "Comb · Feedback/Feedforward", combGain: "Comb · Wet gain (dB)", combKeytrack: "Comb · Keytracking",
   combFine: "Comb · Fine tune (cents)", combSpread: "Comb · Stereo spread (cents)", combHighpass: "Comb · Feedback highpass",
   combSaturation: "Comb · Feedback saturation", combInterpolation: "Comb · Interpolation",
   filterAttackCurve: "Filter envelope · Attack curve", filterDecayCurve: "Filter envelope · Decay curve", filterReleaseCurve: "Filter envelope · Release curve",
   filterVelocity: "Filter envelope · Velocity depth", filterKeytrack: "Main filter · Keytracking",
 } satisfies Record<FilterParam, string>;
-export const FILTER_DISCRETE = ["baseWidthEnabled", "filterCharacter", "drivePosition", "combMode", "combInterpolation"] as const;
+export const FILTER_DISCRETE = ["baseWidthEnabled", "filterCharacter", "filterOversampling", "drivePosition", "combMode", "combInterpolation"] as const;
 export const FILTER_TARGETS = Object.fromEntries(FILTER_KEYS.map((key) => [key, {
   label: FILTER_LABELS[key], group: key.startsWith("baseWidth") ? "Base-Width filter" : key.startsWith("comb") ? "Comb filter" : key.includes("Curve") || key === "filterVelocity" ? "Filter envelope" : "Main filter",
   trigger: (key !== "baseWidthEnabled" && (FILTER_DISCRETE as readonly string[]).includes(key)) || key.includes("Curve") || key === "filterVelocity",
@@ -83,4 +84,9 @@ export function filterReleaseFrequencyAt(p: Patch, held: number, elapsed: number
 export const LEGACY_MULTIMODE_TYPES = ["lp2", "lp4", "hp2", "hp4", "bp", "notch", "peak"] as const;
 export function filterPatchEdits(partial: Partial<Patch>): Partial<Patch> {
   return { ...partial, ...(partial.filterPeakGain !== undefined ? { legacyPeakModulation: false } : {}), ...Object.fromEntries(FILTER_DISCRETE.filter((key) => partial[key] !== undefined).map((key) => [key, Math.round(partial[key]!)])) };
+}
+
+/** The normalized control envelope is independent of cutoff, depth and velocity. */
+export function filterAdsrReleaseAt(p: Patch, held: number, elapsed: number) {
+  return held * (1 - filterCurve(elapsed / p.filterRelease, p.filterReleaseCurve));
 }

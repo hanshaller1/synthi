@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { AudioLines, SlidersHorizontal, Upload } from "lucide-react";
 import { Select, Waveform, formatTime, percent } from "./components";
 import { ENGINES } from "./model";
-import type { Param, Patch, Wave } from "./model";
+import type { MidiTarget, Param, Patch, Wave } from "./model";
 import {
   WAVETABLES,
   WAVETABLE_TYPES,
@@ -18,7 +18,7 @@ type Props = {
   patch: Patch;
   onPatch: (p: Partial<Patch>) => void;
   onCheckpoint: () => void;
-  onLearn: (key: Param) => void;
+  onLearn: (key: MidiTarget) => void;
   onParam: (p: Param, v: number) => void;
   onSample: (f: File) => void;
   knob: (
