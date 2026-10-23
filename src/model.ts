@@ -1,3 +1,4 @@
+import { ENGINE_PARAMS, ENGINE_KEYS, ENGINE_TARGETS, ENGINE_DISCRETE } from "./engine-config";
 import { makeSoundBank } from "./factory-presets";
 import { FILTER_PARAMS, FILTER_KEYS, FILTER_TARGETS, FILTER_DISCRETE } from "./filter-config";
 import { FM_PARAMS, FM_KEYS, FM_TARGETS, FM_ALGORITHMS, LEGACY_FM_KEYS, migrateFmPatch, migrateFmLocks } from "./fm-config";
@@ -73,6 +74,7 @@ export type Modulation = {
 export const PARAMS = {
   ...FM_PARAMS,
   ...FILTER_PARAMS,
+  ...ENGINE_PARAMS,
   tune: [-24, 24, 0],
   unison: [1, 8, 1],
   unisonDetune: [0, 50, 12],
@@ -159,6 +161,7 @@ const destination = (label: string, group: string, trigger = false) => ({ label,
 export const MOD_TARGETS = {
   ...FM_TARGETS,
   ...FILTER_TARGETS,
+  ...ENGINE_TARGETS,
   pitch: destination("Pitch", "Global"),
   tune: destination("Transpose", "Global"),
   unison: destination("Unison voices", "Global", true),
@@ -357,6 +360,7 @@ export type Patch = Numbers &
   FxSelection & {
     name: string;
     engine: Engine;
+    engineVersion: 1 | 2;
     wave: Wave;
     wave2: Wave;
     filterType: FilterType;
@@ -703,6 +707,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     ...numbers,
     name: "Velvet circuit",
     engine: "subtractive",
+    engineVersion: 2,
     wave: "sawtooth",
     wave2: "triangle",
     filterType: "lowpass",
@@ -766,11 +771,13 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
   };
   if (overrides.fmVersion !== 2 && !FM_KEYS.some((key) => key in overrides) && LEGACY_FM_KEYS.some((key) => key in overrides)) migrateFmPatch(patch);
   if (overrides.filterPeakGain === undefined && patch.filterType === "multimode" && patch.multimodeType === "peak") patch.filterPeakGain = patch.resonance;
+  if (overrides.pulseWidth2 === undefined && overrides.pulseWidth !== undefined) patch.pulseWidth2 = overrides.pulseWidth;
   return patch;
 }
+const makeLegacyPatch = (recipe: Partial<Patch> = {}) => makePatch({ ...recipe, engineVersion: 1, ringBiasMode: 0, bowMode: 0 });
 export const PRESETS: Patch[] = [
-  makePatch(),
-  makePatch({
+  makeLegacyPatch(),
+  makeLegacyPatch({
     name: "Deep architecture",
     cutoff: 600,
     resonance: 4,
@@ -782,7 +789,7 @@ export const PRESETS: Patch[] = [
     chorus: 0,
     reverb: 0.08,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Soft focus",
     engine: "wavetable",
     shape: 0.64,
@@ -796,7 +803,7 @@ export const PRESETS: Patch[] = [
     reverb: 0.5,
     level: 0.45,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Glass mathematics",
     engine: "fm",
     wave: "sine",
@@ -811,7 +818,7 @@ export const PRESETS: Patch[] = [
     delay: 0.28,
     reverb: 0.35,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Harmonic garden",
     engine: "additive",
     harmonics: 16,
@@ -822,7 +829,7 @@ export const PRESETS: Patch[] = [
     chorus: 0.35,
     reverb: 0.35,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Satellite radio",
     engine: "ring",
     fmRatio: 1.41,
@@ -833,7 +840,7 @@ export const PRESETS: Patch[] = [
     delay: 0.25,
     reverb: 0.3,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Slow particles",
     engine: "granular",
     grainSize: 0.18,
@@ -845,7 +852,7 @@ export const PRESETS: Patch[] = [
     cutoff: 8500,
     reverb: 0.5,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Tape fragments",
     engine: "sampler",
     sampleRoot: 60,
@@ -855,7 +862,7 @@ export const PRESETS: Patch[] = [
     chorus: 0.25,
     reverb: 0.2,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Copper strings",
     engine: "physical",
     damping: 0.994,
@@ -868,7 +875,7 @@ export const PRESETS: Patch[] = [
     filterAmount: 0,
     reverb: 0.3,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Voltage kick",
     wave: "sine",
     wave2: "sine",
@@ -889,7 +896,7 @@ export const PRESETS: Patch[] = [
     filterDecay: 0.045,
     filterSustain: 0,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Air / closed hat",
     wave: "sine",
     mix: 0,
@@ -907,7 +914,7 @@ export const PRESETS: Patch[] = [
     reverb: 0.08,
     level: 0.25,
   }),
-  makePatch({
+  makeLegacyPatch({
     name: "Acid afterhours",
     wave: "sawtooth",
     cutoff: 500,
@@ -926,7 +933,15 @@ export const PRESETS: Patch[] = [
     reverb: 0.1,
     chorus: 0,
   }),
-  ...makeSoundBank(makePatch),
+  ...makeSoundBank(makeLegacyPatch),
+  // Additional expansion sounds leave every existing preset and index intact.
+  makePatch({ name: "Sync / copper teeth", engine: "subtractive", wave: "sawtooth", wave2: "square", syncAmount: .43, pulseWidth: .36, pulseWidth2: .64, mix: .8, subWave: 1, subOctave: -2, noiseColor: -.3, cutoff: 3400, filterAmount: 2, mods: [] }),
+  makePatch({ name: "Prismatic folds", engine: "wavetable", wavetable: 8, wtWarpMode: 1, wtWarp: .4, wtSpread: .6, wtMorphSkew: -.25, wtBlur: .2, wtRandomPhase: 1, unison: 3, unisonDetune: 8, attack: .3, release: 1.8, cutoff: 7400, mods: [] }),
+  makePatch({ name: "Eight-band glass", engine: "additive", harmonics: 32, addBand2: .5, addBand4: .35, addBand6: .65, addBand8: .3, addSpectralDecay: 1.2, addPartialDetune: 3, addPartialDrift: 2, addBlur: .25, addRandomPhase: 1, decay: 1.4, sustain: .2, release: 1.4, cutoff: 13000, mods: [] }),
+  makePatch({ name: "Biased orbit", engine: "ring", wave: "sine", wave2: "sine", fmRatio: 1.5, ringBias: .18, ringPitchDepth: 12, ringPitchDecay: .3, ringEnvEnabled: 1, ringEnvDecay: .7, ringEnvSustain: .4, ringSidebandTilt: -.25, cutoff: 11000, decay: .9, sustain: .25, release: .7, mods: [] }),
+  makePatch({ name: "Clocked aurora", engine: "granular", grainSampleId: "grain-2-0", grainWindowShape: 1, grainAttack: .04, grainRelease: .08, grainSync: 1, grainSyncDivision: 1, grainQuantize: 4, grainPitch: 12, grainSize: .2, grainStereoMotion: .65, grainMotionRate: .12, grainDrift: .25, attack: .3, release: 1.8, cutoff: 9000, mods: [] }),
+  makePatch({ name: "Stretched tape slice", engine: "sampler", sampleId: "sample-13-0", sampleRoot: 60, samplePlayback: 3, sampleLoop: true, sampleLoopCrossfade: .04, sampleStretchMode: 1, sampleStretch: 1.7, samplePingPong: 1, sampleSlices: 4, sampleSlice: 1, attack: .04, release: .6, cutoff: 9000, mods: [] }),
+  makePatch({ name: "Coupled bow chamber", engine: "physical", excitation: "bow", bowPressure: .55, bowSpeed: .35, stringCoupling: .35, stringStiffness: .16, pickupPosition: .28, bodyFrequency: 360, bodyQ: 2.8, pickHardness: .35, damping: .998, attack: .1, sustain: .8, release: 1.1, cutoff: 7200, mods: [] }),
 ];
 export function makeProject(): Project {
   const patches = [
@@ -1052,6 +1067,10 @@ export function sanitizePatch(value: unknown): Patch {
   const p = makePatch();
   for (const key of Object.keys(PARAMS) as Param[])
     p[key] = num(value[key], PARAMS[key][0], PARAMS[key][1], p[key]);
+  p.engineVersion = value.engineVersion === 2 ? 2 : 1;
+  if (value.pulseWidth2 === undefined) p.pulseWidth2 = p.pulseWidth;
+  if (value.ringBiasMode === undefined) p.ringBiasMode = 0;
+  if (value.bowMode === undefined) p.bowMode = 0;
   p.filterVersion = value.filterVersion === 1 ? 1 : value.filterVersion === 2 || FILTER_KEYS.some((key) => key in value) ? 2 : 1;
   p.legacyPeakModulation = value.legacyPeakModulation === true;
   p.name =
@@ -1178,6 +1197,8 @@ export function sanitizePatch(value: unknown): Patch {
   }
   if (value.fmVersion !== 2 && !FM_KEYS.some((key) => key in value)) migrateFmPatch(p);
   for (const key of Object.keys(FM_PARAMS) as (keyof typeof FM_PARAMS)[]) if (/(?:Wave|Mode)$/.test(key)) p[key] = Math.round(p[key]);
+  for (const key of ENGINE_DISCRETE) p[key] = Math.round(p[key]);
+  if (p.engineVersion === 1 && ENGINE_KEYS.some((key) => key in value) && value.engineVersion === undefined) p.engineVersion = 2;
   for (const key of FILTER_DISCRETE) p[key] = Math.round(p[key]);
   if (value.filterPeakGain === undefined && p.filterType === "multimode" && p.multimodeType === "peak") {
     p.filterPeakGain = p.resonance;
@@ -1188,7 +1209,7 @@ export function sanitizePatch(value: unknown): Patch {
 }
 function sanitizeLockNumber(key: Param, value: unknown) {
   const result = num(value, PARAMS[key][0], PARAMS[key][1], PARAMS[key][2]);
-  return /^fm[123](Wave|Mode)$/.test(key) || (FILTER_DISCRETE as readonly string[]).includes(key) ? Math.round(result) : result;
+  return /^fm[123](Wave|Mode)$/.test(key) || (FILTER_DISCRETE as readonly string[]).includes(key) || (ENGINE_DISCRETE as readonly string[]).includes(key) ? Math.round(result) : result;
 }
 function sanitizeSteps(value: unknown): Step[] {
   if (!Array.isArray(value)) return Array.from({ length: MAX_STEPS }, makeStep);

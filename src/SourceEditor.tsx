@@ -1,3 +1,5 @@
+import EngineExtensions from "./EngineExtensions";
+import { isSampleLoop } from "./engine-config";
 import { FmOscillator, FmCharacter } from "./FmEditor";
 import type { FmOperator } from "./fm-config";
 import { useMemo, useState } from "react";
@@ -140,7 +142,7 @@ export default function SourceEditor({
     ),
     ring: (
       <>
-        {knob("fmRatio", "Mod ratio", (v) => `${v.toFixed(2)}×`)}
+        {p.ringModMode < .5 ? knob("fmRatio", "Mod ratio", (v) => `${v.toFixed(2)}×`) : knob("ringModHz", "Modulator Hz", (v) => `${v.toFixed(1)} Hz`, true)}
         {knob("shape", "AM / Ring")}
         {knob("ringDepth", "Depth")}
       </>
@@ -171,13 +173,13 @@ export default function SourceEditor({
     subtractive: (
       <>
         {knob("osc2Tune", "Osc 2 tune", semitone, false, 1)}
-        {knob("pulseWidth", "Pulse width")}
+        {knob("pulseWidth", "OSC 1 pulse width")}
         {knob("drift", "Analog drift", cents)}
       </>
     ),
     wavetable: (
       <>
-        {knob("wtWarp", "Phase warp", number)}
+        {knob("wtWarp", "Warp amount", number)}
         {knob("wtFormant", "Formant")}
         {knob("sub", "Sub level")}
       </>
@@ -281,11 +283,11 @@ export default function SourceEditor({
     <Select
       label="Saitenanregung"
       value={p.excitation}
-      onChange={(value) => onPatch({ excitation: value as Patch["excitation"] })}
+      onChange={(value) => onPatch({ excitation: value as Patch["excitation"], ...(value === "bow" ? { bowMode: 1, engineVersion: 2 } : {}) })}
     >
       <option value="noise">Noise · Pluck</option>
       <option value="pick">Pick · Position comb</option>
-      <option value="bow">Bow · Soft excitation</option>
+      <option value="bow">Bow · Continuous friction</option>
     </Select>
   ) : (
     <Select
@@ -381,8 +383,8 @@ export default function SourceEditor({
               {p.engine === "sampler" && (
                 <>
                   <button
-                    className={`small-button ${p.sampleLoop ? "on" : ""}`}
-                    onClick={() => onPatch({ sampleLoop: !p.sampleLoop })}
+                    className={`small-button ${isSampleLoop(p) ? "on" : ""}`}
+                    onClick={() => onPatch({ samplePlayback: isSampleLoop(p) ? 2 : 3, sampleLoop: !isSampleLoop(p) })}
                   >LOOP</button>
                   <button
                     className={`small-button ${p.sampleReverse >= 0.5 ? "on" : ""}`}
@@ -392,6 +394,7 @@ export default function SourceEditor({
               )}
             </div>
           )}
+          <EngineExtensions patch={p} onParam={onParam} onCheckpoint={onCheckpoint} onLearn={onLearn} knob={knob} />
         </div>
         <div className="unison-section">
           <div className="synthesis-subheading">UNISON</div>

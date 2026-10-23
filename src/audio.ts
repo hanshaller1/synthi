@@ -1,3 +1,6 @@
+import { EngineSource } from "./engine-worklet";
+import { ENGINE_KEYS, engineOwner, needsEngineWorklet, sampleRegion } from "./engine-config";
+import { grainEnvelope, quantizeGrain, GRAIN_BEATS } from "./grain-tools";
 import { FILTER_KEYS, FILTER_TARGETS, filterAdsrAt, filterAdsrReleaseAt, filterCurve, filterFrequencyAt, filterReleaseFrequencyAt, filterLevels, needsAdvancedFilter } from "./filter-config";
 import { FmSource } from "./fm-worklet";
 import { FM_KEYS, FM_TARGETS, migrateFmLocks } from "./fm-config";
@@ -20,11 +23,18 @@ import { VoiceFilter } from "./filters";
 import { prepareFilterWorklet } from "./filter-worklet";
 import { SpectralSource, SPECTRAL_KEYS } from "./spectral-worklet";
 import { modulatedNumber, modulationScale, triggerPatch, requiresModulationWorklet } from "./modulation";
-import { PARAMS } from "./model";
+import { PARAMS, MOD_TARGETS } from "./model";
 import type { Envelope, ModTarget, Numbers, Param, Patch, Project, Track } from "./model";
 
 type Context = AudioContext | OfflineAudioContext;
-type Source = OscillatorNode | AudioBufferSourceNode | ConstantSourceNode | SpectralSource | FmSource;
+async function decodeSample(context: Context, data: string): Promise<AudioBuffer> {
+  const raw=atob(data.slice(data.indexOf(",")+1)),bytes=new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
+  const buffer=await context.decodeAudioData(bytes.buffer);
+  if(buffer.duration>60)throw new Error("Samples dürfen maximal 60 Sekunden lang sein.");
+  return buffer;
+}
+type Source = OscillatorNode | AudioBufferSourceNode | ConstantSourceNode | SpectralSource | FmSource | EngineSource;
 type Voice = {
   track: number;
   note: number;
@@ -201,8 +211,9 @@ export class SynthEngine {
   private monoHeld: { note: number; velocity: number; patch: Patch }[][] =
     Array.from({ length: TRACK_COUNT }, () => []);
   tempo = 118;
-  constructor(context: Context) {
+  constructor(context: Context, samples?: Map<string, AudioBuffer>) {
     this.context = context;
+    if (samples) this.sampleCache = samples;
     this.master = context.createGain();
     this.master.gain.value = 0.7;
     this.mixInput = context.createGain();
@@ -405,18 +416,7 @@ export class SynthEngine {
     if (cached) return cached;
     const pending = this.sampleLoads.get(data);
     if (pending) return pending;
-    const comma = data.indexOf(","),
-      raw = atob(data.slice(comma + 1)),
-      bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    const load = this.context
-      .decodeAudioData(bytes.buffer)
-      .then((buffer) => {
-        if (buffer.duration > 60)
-          throw new Error("Samples dürfen maximal 60 Sekunden lang sein.");
-        this.sampleCache.set(data, buffer);
-        return buffer;
-      })
+    const load = decodeSample(this.context,data).then((buffer)=>{this.sampleCache.set(data,buffer);return buffer;})
       .finally(() => this.sampleLoads.delete(data));
     this.sampleLoads.set(data, load);
     return load;
@@ -441,8 +441,8 @@ export class SynthEngine {
       );
     if (!this.combAvailable && project.tracks.some((t) => needsAdvancedFilter(t.patch)))
       throw new Error("Diese Filterfunktionen benötigen AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
-    if (!this.combAvailable && project.tracks.some((t) => t.patch.engine === "fm"))
-      throw new Error("FM benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
+    if (!this.combAvailable && project.tracks.some((t) => t.patch.engine === "fm" || needsEngineWorklet(t.patch)))
+      throw new Error("Diese Synthese benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if (!this.combAvailable && project.tracks.some((t) => requiresModulationWorklet(t.patch)))
       throw new Error("Laufende Spektral- und Drive-Modulation benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if (!this.filtersReady) {
@@ -516,7 +516,7 @@ export class SynthEngine {
     const filterVelocityScale = 1 - p.filterVelocity * (1 - velocity);
     const envelopePatch = { ...p, filterAmount: p.filterAmount * filterVelocityScale };
     if (!this.combAvailable && needsAdvancedFilter(p)) throw new Error("Diese Filterfunktionen benötigen AudioWorklet über HTTPS oder localhost.");
-    if (!this.combAvailable && p.engine === "fm") throw new Error("FM benötigt AudioWorklet über HTTPS oder localhost.");
+    if (!this.combAvailable && (p.engine === "fm" || needsEngineWorklet(p))) throw new Error("Diese Synthese benötigt AudioWorklet über HTTPS oder localhost.");
     if (!this.combAvailable && requiresModulationWorklet(p))
       throw new Error("Diese Modulationsziele benötigen AudioWorklet über HTTPS oder localhost.");
     // Background tabs may delay cleanup timers beyond the next note.
@@ -748,6 +748,9 @@ export class SynthEngine {
     };
     const layers = Math.round(p.unison);
     let fmSource: FmSource | undefined;
+    const engineSources: EngineSource[] = [];
+    const enhanced = needsEngineWorklet(p);
+    let oneShotDuration: number | undefined;
     if (p.engine === "fm") {
       const fm = new FmSource(c, p);
       fmSource = fm;
@@ -782,10 +785,10 @@ export class SynthEngine {
         bind("unisonDetune", param, position);
       };
       const makeSpectral = (engine: string, freq = frequency, detune = 0) => {
-        const osc = new SpectralSource(c, p, engine, Math.max(8, Math.floor(96 / layers)));
+        const osc = new SpectralSource(c, p, engine, Math.max(8, Math.floor(96 / layers)), position);
         osc.frequency.value = freq;
         applyLayerPitch(osc.detune, detune);
-        for (const key of SPECTRAL_KEYS) bind(key, osc.param(key));
+        for (const key of SPECTRAL_KEYS) if (!MOD_TARGETS[key].trigger) bind(key, osc.param(key));
         sources.push(osc);
         osc.start(start);
         return osc;
@@ -825,7 +828,23 @@ export class SynthEngine {
         osc.start(start);
         return osc;
       };
-      if (p.engine === "subtractive") {
+      const makeEngine = (sample?: AudioBuffer) => {
+        const source = new EngineSource(c, p, sample, velocity);
+        source.frequency.value = frequency;
+        applyLayerPitch(source.detune);
+        // Ratio references glide; fixed-Hz modulators retain their independent pitch.
+        source.detune.cancelScheduledValues(start);
+        source.detune.setValueAtTime(layerDetune + this.bends[track], start);
+        if (p.voiceMode === "mono" && held.length > 0 && p.glide > .001) {
+          source.frequency.setValueAtTime(midiHz(previousNote + p.tune), start);
+          source.frequency.exponentialRampToValueAtTime(frequency, start + p.glide);
+        }
+        for (const key of source.keys) if (!(key in MOD_TARGETS) || !MOD_TARGETS[key as keyof typeof MOD_TARGETS].trigger) bind(key, source.param(key));
+        source.connect(layerSink); source.start(start); sources.push(source); engineSources.push(source);
+        return source;
+      };
+      if (enhanced && ["subtractive", "ring", "physical"].includes(p.engine)) makeEngine();
+      if (p.engine === "subtractive" && !enhanced) {
         const add = (wave: Patch["wave"], second: boolean) => {
           const gain = second ? p.mix * .7 : 1 - p.mix * .5;
           const detune = (second ? .5 : -.5) * p.detune + (second ? p.osc2Tune * 100 : 0);
@@ -846,7 +865,7 @@ export class SynthEngine {
         add(p.wave2, true);
       }
       if (p.engine === "wavetable") {
-        if (this.combAvailable && SPECTRAL_KEYS.some(routed)) {
+        if (this.combAvailable && (enhanced || SPECTRAL_KEYS.some(routed))) {
           const first = addSpectral(.8, -p.detune / 2);
           bind("detune", first.osc.detune, -.5);
           if (p.detune > .05 || routed("detune")) {
@@ -873,7 +892,7 @@ export class SynthEngine {
         }
       }
       if (p.engine === "additive") {
-        if (this.combAvailable && SPECTRAL_KEYS.some(routed)) addSpectral(.85);
+        if (this.combAvailable && (enhanced || SPECTRAL_KEYS.some(routed))) addSpectral(.85);
         else {
         const real = new Float32Array(65),
           imag = new Float32Array(65);
@@ -904,7 +923,7 @@ export class SynthEngine {
         }
         }
       }
-      if (p.engine === "ring") {
+      if (p.engine === "ring" && !enhanced) {
         const carrier = c.createOscillator(),
           mod = c.createOscillator();
         const ringGain = c.createGain(), depth = c.createGain(),
@@ -920,16 +939,16 @@ export class SynthEngine {
         bind("fmRatio", mod.frequency, frequency);
         bind("ringOffset", mod.frequency);
         applyLayerPitch(mod.detune);
-        ringGain.gain.value = (1 - p.shape) * .5;
+        ringGain.gain.value = (1 - p.shape) * .5 + (p.ringBiasMode >= .5 ? p.ringBias : 0);
         depth.gain.value = .5 + p.shape * .5;
         wet.gain.value = p.ringDepth;
-        dry.gain.value = 1 - p.ringDepth + p.ringDry + p.ringBias;
+        dry.gain.value = 1 - p.ringDepth + p.ringDry + (p.ringBiasMode < .5 ? p.ringBias : 0);
         bind("shape", ringGain.gain, -.5);
         bind("shape", depth.gain, .5);
         bind("ringDepth", wet.gain);
         bind("ringDepth", dry.gain, -1);
         bind("ringDry", dry.gain);
-        bind("ringBias", dry.gain);
+        bind("ringBias", p.ringBiasMode < .5 ? dry.gain : ringGain.gain);
         carrier.connect(dry).connect(layerSink);
         mod.connect(depth);
         depth.connect(ringGain.gain);
@@ -940,7 +959,7 @@ export class SynthEngine {
         carrier.start(start);
         mod.start(start);
       }
-      if (p.engine === "physical") {
+      if (p.engine === "physical" && !enhanced) {
         if (!physicalBuffer) {
           const count = Math.ceil(
               c.sampleRate * Math.min(12, p.stringDecay * 1.5),
@@ -1022,7 +1041,13 @@ export class SynthEngine {
             Math.min(p.sampleStart, p.sampleEnd - 0.01) * sample.duration,
           sampleEnd =
             Math.max(p.sampleEnd, p.sampleStart + 0.01) * sample.duration;
-        if (p.engine === "sampler") {
+        if (p.engine === "sampler" && enhanced) {
+          makeEngine(p.sampleReverse >= .5 ? this.reverse(sample) : sample);
+          if (p.samplePlayback === 1) {
+            const region = sampleRegion(p, sample.duration, velocity);
+            oneShotDuration = Math.max(oneShotDuration ?? 0, (region.end-region.start) * (p.sampleStretchMode >= .5 ? p.sampleStretch : 1 / (rate * 2 ** ((p.sampleFine+layerDetune+this.bends[track])/1200))));
+          }
+        } else if (p.engine === "sampler") {
           const source = c.createBufferSource();
           source.buffer =
             p.sampleReverse >= 0.5 ? this.reverse(sample) : sample;
@@ -1065,6 +1090,9 @@ export class SynthEngine {
         } else {
           // Live clouds are replenished with a short lookahead, without accumulating ended grains.
           let cursor = start, scanOffset = 0, scanAt = start;
+          type GrainPlan = { offset: number; length: number; rate: number; reverse: boolean; pan: number; shape: number; attack: number; release: number; window: number; amplitude: number; end: number };
+          let recent: GrainPlan[] = [], frozen: GrainPlan[] = [], freezeIndex = 0, wasFrozen = false;
+          const motionPhase = Math.random() * Math.PI * 2;
           const scheduleGrains = (until: number) => {
             if (c instanceof AudioContext && cursor < c.currentTime - 0.1)
               cursor = c.currentTime;
@@ -1072,41 +1100,41 @@ export class SynthEngine {
               const at = cursor,
                 source = c.createBufferSource(),
                 window = c.createGain();
-              const density = numberAt("grainDensity", at);
-              scanOffset += (at - scanAt) * numberAt("grainScan", at) * .15;
+              const sync = numberAt("grainSync", at) >= .5;
+              const density = sync ? Math.min(128, this.tempo / 60 / GRAIN_BEATS[Math.round(numberAt("grainSyncDivision", at))]) : numberAt("grainDensity", at);
+              const freeze = numberAt("grainFreeze", at) >= .5;
+              if (freeze && !wasFrozen) { frozen = recent.filter((g) => g.end > at); if (!frozen.length) frozen = recent.slice(-1); freezeIndex = 0; }
+              if (!freeze) frozen = [];
+              wasFrozen = freeze;
+              if (!freeze) scanOffset += (at - scanAt) * numberAt("grainScan", at) * .15;
               scanAt = at;
               cursor += 1 / density;
-              source.buffer =
-                Math.random() < numberAt("grainReverse", at) ? this.reverse(sample) : sample;
-              source.playbackRate.value =
-                rate * 2 ** (((Math.random() - 0.5) * numberAt("grainPitch", at)) / 12);
+              const scatter = (Math.random() - .5) * numberAt("grainPitch", at);
+              const quantized = quantizeGrain(note + p.tune + scatter, numberAt("grainQuantize", at), numberAt("grainScaleRoot", at));
+              const pitchRate = 2 ** ((quantized - p.sampleRoot - pitchShift / 100) / 12);
+              const actualRate = pitchRate * 2 ** ((layerDetune + this.bends[track]) / 1200);
+              const proposedLength = Math.min(numberAt("grainSize", at), sample.duration / actualRate);
+              const proposedOffset = clamp(((((numberAt("position", at) + scanOffset) % 1) + 1) % 1) * sample.duration + (Math.random() - .5) * numberAt("spread", at) * sample.duration, 0, Math.max(0, sample.duration - proposedLength * actualRate));
+              const plan: GrainPlan = frozen.length ? { ...frozen[freezeIndex++ % frozen.length], end: at + frozen[(freezeIndex-1)%frozen.length].length } : {
+                offset: proposedOffset, length: proposedLength, rate: pitchRate, reverse: Math.random() < numberAt("grainReverse", at),
+                pan: clamp((Math.random() * 2 - 1) * numberAt("grainPan", at) + Math.sin((at-start)*Math.PI*2*numberAt("grainMotionRate",at)+motionPhase)*numberAt("grainStereoMotion",at) + Math.sin((at-start)*.37+motionPhase*1.7)*numberAt("grainDrift",at), -1, 1),
+                shape: Math.round(numberAt("grainWindowShape",at)), attack: numberAt("grainAttack",at), release: numberAt("grainRelease",at), window: numberAt("grainWindow",at),
+                amplitude: .75 / Math.sqrt(Math.max(1, density * proposedLength)), end: at + proposedLength,
+              };
+              if (!freeze || !frozen.length) { recent = recent.filter((g) => g.end > at); recent.push(plan); if (freeze) frozen = [plan]; }
+              const { length, offset } = plan;
+              source.buffer = plan.reverse ? this.reverse(sample) : sample;
+              source.playbackRate.value = plan.rate;
               applyLayerPitch(source.detune);
               bind("sampleRoot", source.detune, -100);
-              const actualRate =
-                source.playbackRate.value *
-                2 ** ((layerDetune + this.bends[track]) / 1200);
-              const length = Math.min(
-                  numberAt("grainSize", at),
-                  sample.duration / actualRate,
-                ),
-                offset = clamp(
-                  ((((numberAt("position", at) + scanOffset) % 1) +
-                    1) %
-                    1) *
-                    sample.duration +
-                    (Math.random() - 0.5) * numberAt("spread", at) * sample.duration,
-                  0,
-                  Math.max(0, sample.duration - length * actualRate),
-                );
-              window.gain.setValueAtTime(0, at);
-              window.gain.linearRampToValueAtTime(
-                0.75 / Math.sqrt(Math.max(1, density * length)),
-                at + length * numberAt("grainWindow", at),
-              );
-              window.gain.linearRampToValueAtTime(0, at + length);
+              if (plan.shape === 0 && plan.attack === 0 && plan.release === 0) {
+                window.gain.setValueAtTime(0, at);
+                window.gain.linearRampToValueAtTime(plan.amplitude, at + length * plan.window);
+                window.gain.linearRampToValueAtTime(0, at + length);
+              } else window.gain.setValueCurveAtTime(grainEnvelope(plan.shape, length, plan.attack, plan.release, plan.window, plan.amplitude), at, Math.max(1/c.sampleRate,length));
               source.connect(window);
               const grainPan = c.createStereoPanner();
-              grainPan.pan.value = (Math.random() * 2 - 1) * numberAt("grainPan", at);
+              grainPan.pan.value = plan.pan;
               window.connect(grainPan).connect(layerSink);
               nodes.push(grainPan);
               sources.push(source);
@@ -1158,7 +1186,7 @@ export class SynthEngine {
       p.engine !== "sampler" &&
       p.engine !== "physical"
     )
-      addOsc("sine", frequency / 2, p.sub, 0, "sub");
+      addOsc((["sine", "triangle", "sawtooth", "square"] as const)[Math.round(p.subWave)], frequency * 2 ** p.subOctave, p.sub, 0, "sub");
     if (p.noise > 0.001 || routed("noise")) {
       const source = c.createBufferSource(),
         gain = c.createGain();
@@ -1167,7 +1195,10 @@ export class SynthEngine {
       gain.gain.value = p.noise * NOISE_GAIN;
       bind("noise", gain.gain, NOISE_GAIN);
       source.connect(gain);
-      gain.connect(drive);
+      if (p.noiseColor !== 0 || routed("noiseColor")) {
+        const color = c.createBiquadFilter(); color.type = "lowshelf"; color.frequency.value = 1000; color.gain.value = -p.noiseColor * 24;
+        bind("noiseColor", color.gain, -24); gain.connect(color).connect(drive); nodes.push(color);
+      } else gain.connect(drive);
       sources.push(source);
       nodes.push(gain);
       source.start(start);
@@ -1332,6 +1363,29 @@ export class SynthEngine {
         }
       },
       updateFm: (next, previous, time) => {
+        if (next.engine !== p.engine) return;
+        const changed = new Set<Param>();
+        for (const source of sources) {
+          if (!(source instanceof EngineSource || source instanceof SpectralSource)) continue;
+          const keys = source instanceof EngineSource ? source.keys : SPECTRAL_KEYS;
+          for (const key of keys) {
+            if (previous?.[key] === next[key] || (key in MOD_TARGETS && MOD_TARGETS[key as keyof typeof MOD_TARGETS].trigger)) continue;
+            const param = source.param(key); param.cancelScheduledValues(time); param.setTargetAtTime(next[key], time, .015); changed.add(key);
+          }
+        }
+        if (p.engine === "granular") for (const key of [...ENGINE_KEYS.filter((key) => engineOwner(key) === "granular"), "grainSize", "grainDensity", "grainScan", "grainReverse", "grainPitch", "position", "spread", "grainWindow", "grainPan", "tune", "sampleRoot"] as Param[]) {
+          if (previous?.[key] !== next[key]) { p[key] = next[key]; changed.add(key); }
+        }
+        if (engineSources.length && previous?.tune !== next.tune) {
+          for (const source of engineSources) { source.frequency.setTargetAtTime(midiHz(note+next.tune),time,.015); source.param("transpose").setTargetAtTime(next.tune,time,.015); }
+          p.tune=next.tune; changed.add("tune");
+        }
+        for (const key of changed) {
+          const control=controls.get(key); if(!control) continue;
+          const [min,max]=PARAMS[key],half=(max-min)/2;
+          control.input.cancelScheduledValues(time);control.bias.cancelScheduledValues(time);
+          control.input.setTargetAtTime((next[key]-min)/half-1,time,.015);control.bias.setTargetAtTime(min+half-next[key],time,.015);
+        }
         if (!fmSource || next.engine !== "fm") return;
         if (previous?.tune !== next.tune) {
           fmSource.frequency.cancelScheduledValues(time);
@@ -1374,8 +1428,12 @@ export class SynthEngine {
           holdParameter(fmSource.frequency, at, fmSource.frequency.value, true);
           fmSource.frequency.exponentialRampToValueAtTime(midiHz(next + p.tune), at + Math.max(.003, p.glide));
         }
+        for (const source of engineSources) {
+          holdParameter(source.frequency, at, source.frequency.value, true);
+          source.frequency.exponentialRampToValueAtTime(midiHz(next+p.tune),at+Math.max(.003,p.glide));
+        }
         for (const param of pitch) {
-          if (param === fmSource?.detune) continue;
+          if (param === fmSource?.detune || engineSources.some((source) => source.detune === param)) continue;
           const offset = (pitchOffsets.get(param) ?? 0) + delta;
           pitchOffsets.set(param, offset);
           holdParameter(param, at, param.value);
@@ -1406,7 +1464,7 @@ export class SynthEngine {
           0.24;
       voice.releaseAt = releaseAt;
       modulationRelease = releaseAt;
-      for (const source of sources) if (source instanceof FmSource) source.release(releaseAt);
+      for (const source of sources) if (source instanceof FmSource || source instanceof EngineSource) source.release(releaseAt);
       for (const timer of grainTimers) window.clearInterval(timer);
       grainTimers.length = 0;
       for (const schedule of grainSchedulers) schedule(releaseAt + p.release);
@@ -1499,7 +1557,8 @@ export class SynthEngine {
       this.queueCleanup(voice);
     };
     this.voices.push(voice);
-    if (duration !== undefined) voice.release(start + Math.max(1 / c.sampleRate, duration));
+    const releaseAfter = oneShotDuration ?? duration;
+    if (releaseAfter !== undefined) voice.release(start + Math.max(1 / c.sampleRate, releaseAfter));
     return voice;
   }
   noteOff(track: number, note: number, when = this.context.currentTime) {
@@ -1758,6 +1817,7 @@ export function lockedPatch(patch: Patch, locks: Partial<Numbers>): Patch {
   for (const key of Object.keys(migrated) as Param[])
     if (LOCK_PARAMS.includes(key))
       p[key] = clamp(migrated[key]!, PARAMS[key][0], PARAMS[key][1]);
+  if (patch.engineVersion === 1 && locks.pulseWidth !== undefined && locks.pulseWidth2 === undefined) p.pulseWidth2 = p.pulseWidth;
   return p;
 }
 function delayTail(time: number, feedback: number) {
@@ -1781,6 +1841,12 @@ export async function renderProject(
   bars = 4,
   fill = false,
 ): Promise<AudioBuffer> {
+  const samples = new Map<string,AudioBuffer>();
+  const imported = [...new Set(project.tracks.map((t)=>t.patch.sample).filter((data): data is string => Boolean(data)))];
+  if(imported.length){
+    const decoder=new OfflineAudioContext(1,1,44100);
+    await Promise.all(imported.map(async(data)=>samples.set(data,await decodeSample(decoder,data))));
+  }
   const quarter = 60 / project.tempo,
     seconds = bars * 4 * quarter,
     ticks = bars * 32;
@@ -1800,7 +1866,16 @@ export async function renderProject(
         const patch = lockedPatch(track.patch, n.locks), at = Math.max(0, baseTime + n.offset * unit), gate = n.duration * unit;
         events.push({ at, track: track.id, patch,
           note: { track: track.id, note: n.note, velocity: n.velocity, patch, at, gate } });
-        end = Math.max(end, at + Math.max(0.01, gate) +
+        const articulation = triggerPatch(patch, at, n.note, n.velocity, 0, project.tempo, true);
+        let audibleGate = gate;
+        if(articulation.engine === "sampler" && articulation.samplePlayback === 1){
+          const sampleSeconds=articulation.sample ? samples.get(articulation.sample)?.duration ?? 1 : SAMPLE_LIBRARY.find((s)=>s.id===articulation.sampleId)?.duration ?? 1;
+          const region=sampleRegion(articulation,sampleSeconds,n.velocity);
+          // Reserve the slowest unison layer, including analog drift.
+          const slowest=articulation.unison>1?-articulation.unisonDetune:0;
+          audibleGate=(region.end-region.start)*(articulation.sampleStretchMode>=.5?articulation.sampleStretch:1/(2**((n.note+articulation.tune-articulation.sampleRoot)/12)*2**((articulation.sampleFine+slowest-articulation.drift*.5)/1200)));
+        }
+        end = Math.max(end, at + Math.max(0.01, audibleGate) +
           (patch.mods.some((m) => m.target === "release" && m.amount !== 0) ? PARAMS.release[1] : patch.release) + effectTail(patch));
       }
     }
@@ -1813,7 +1888,7 @@ export async function renderProject(
       end += master.reverbSize + 0.02;
   }
   const ctx = new OfflineAudioContext(2, Math.ceil((end + 0.1) * 44100), 44100),
-    engine = new SynthEngine(ctx);
+    engine = new SynthEngine(ctx, samples);
   try {
     engine.update(project);
     await engine.prepare(project);

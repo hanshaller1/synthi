@@ -1,3 +1,4 @@
+import { enginePatchEdits, needsEngineWorklet } from "./engine-config";
 import { filterPatchEdits, needsAdvancedFilter } from "./filter-config";
 import { FM_ALGORITHMS, randomizeFmPatch, fmPatchEdits } from "./fm-config";
 import MasterFX from "./MasterFX";
@@ -224,9 +225,9 @@ export default function App() {
   );
   const changePatch = useCallback(
     (partial: Partial<Patch>, which = trackRef.current) => {
-      const edits = filterPatchEdits(partial);
-      if (engineRef.current && !engineRef.current.combAvailable && needsAdvancedFilter({ ...projectRef.current.tracks[which].patch, ...edits })) {
-        notify("Diese Filterfunktionen benötigen AudioWorklet über HTTPS oder localhost."); return;
+      const edits = enginePatchEdits(filterPatchEdits(partial));
+      if (engineRef.current && !engineRef.current.combAvailable && (needsAdvancedFilter({ ...projectRef.current.tracks[which].patch, ...edits }) || needsEngineWorklet({ ...projectRef.current.tracks[which].patch, ...edits }))) {
+        notify("Diese Klangfunktionen benötigen AudioWorklet über HTTPS oder localhost."); return;
       }
       updateProject((p) => ({
         ...p,
@@ -825,7 +826,7 @@ export default function App() {
   };
   const loadPreset = (preset: Patch) => {
     if (
-      (preset.filterType === "comb" || needsAdvancedFilter(preset)) &&
+      (preset.filterType === "comb" || needsAdvancedFilter(preset) || needsEngineWorklet(preset)) &&
       engineRef.current &&
       !engineRef.current.combAvailable
     ) {
@@ -2190,6 +2191,13 @@ export default function App() {
               <p><b>Comb:</b> Feedback oder Feedforward, ±-Polarität, Wet gain, Keytrack, Fine und Stereo spread. Feedback HP und Saturation bearbeiten nur den Feedback-Pfad. HD verwendet Lagrange-Interpolation; Legacy bewahrt alte Klänge. Wet gain verstärkt den gesamten Wet-Pfad, auch ohne Feedback; seine Umbenennung ändert keine gespeicherten Werte.</p>
               <p><b>ENV DEPTH:</b> ±6 Oktaven, separate Attack-/Decay-/Release-Kurven. Kurve 0 erhält den bisherigen Verlauf. Velocity → depth skaliert die Tiefe mit dem Anschlag. Keytrack 100 % verschiebt die Frequenz pro zwölf Halbtönen um eine Oktave, Referenz C4.</p>
               <p>Die normierte Filter-ADSR zeigt 0–100 %, ihre Kurven und proportionalen Zeitverhältnisse, unabhängig von Cutoff, Env depth und Velocity. Auch bei Tiefe 0 oder negativer Tiefe bleibt die Form sichtbar. Die vier ADSR-Regler stehen in einer Reihe. Die Response zeigt Base, Peak und Sustain für die ausgewählte Vorschau-Note und Velocity, einschließlich Base-Width und Filter-Mix. Bei Sättigung ist sie eine Kleinsignalantwort. Ohne laufende Matrix/LFOs. Neue Parameter unterstützen Locks und MIDI Learn; mit „Anschlag“ markierte Matrixziele gelten ab dem nächsten Anschlag.</p>
+            </section>
+            <section>
+              <h3>Erweiterte Klangquellen</h3>
+              <p>Character / Unison enthält die neuen Einstellungen im gemeinsamen Moduldesign. Subtractive: Hard Sync, zwei Pulsbreiten, Phase, Sub-Wellenform/Oktave und Noise Color. Wavetable: Bend/Fold/Sync/Mirror, Unison-Positionen, Morph Skew, Phase und Blur. Additive: acht Bänder für alle 32 Partials, Spectral Decay, Detune/Drift, Blur und Random Phase.</p>
+              <p>Ring/AM: Ratio oder Fixed Hz, Modulatorphase, eigene Pitch- und Depth-ADSR, Sideband Tilt/LP und echter DC-Modulator-Bias. Granular: vier Fensterformen mit Attack/Release, Skalenquantisierung, Tempo Sync, Freeze und Stereo Motion/Drift. Freeze hält die aktuelle Cloud; Änderungen greifen bei neuen Grains innerhalb des 150-ms-Vorlaufs.</p>
+              <p>Sampler: One-shot, Gate oder Loop; bis zu 32 gleiche Slices, Velocity → Start, Loop Crossfade und Ping-pong. Time Stretch trennt Dauer von Tonhöhe; Duration wirkt in diesem Modus, starke Dehnungen können körnig klingen. One-shot ignoriert das Loslassen und plant sein Ende aus Slice-Länge und Anschlagstonhöhe. Physical: Pick Hardness, Pickup, Anregungsdauer, Body-Frequenz/Q, Steifigkeit, kontinuierlicher Bogen und drei gekoppelte Saiten.</p>
+              <p>Rechtsklick startet MIDI Learn. Neue Parameter sind in Presets, Projekten, Undo/Redo, Locks, Matrix und WAV integriert. Mit „Anschlag“ markierte Ziele greifen ab der nächsten Note. Alte Sounds behalten ihren Legacy-Pfad; neue Klangfunktionen benötigen AudioWorklet. Sieben zusätzliche Expansion-Sounds stehen im Soundbrowser.</p>
             </section>
             <section>
               <h3>Make it yours</h3>

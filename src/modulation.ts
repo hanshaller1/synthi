@@ -1,3 +1,4 @@
+import { ENGINE_DISCRETE } from "./engine-config";
 import { FILTER_DISCRETE, LEGACY_MULTIMODE_TYPES, filterAdsrAt, filterAdsrReleaseAt } from "./filter-config";
 import { FM_ALGORITHMS } from "./fm-config";
 import { lfoSnapshot } from "./lfo";
@@ -57,7 +58,7 @@ export function triggerPatch(
     if (Object.hasOwn(PARAMS, target)) {
       const key = target as Param;
       p[key] = modulatedNumber(patch, key, start, start, note, velocity, wheel, tempo);
-      if (key === "unison" || (FILTER_DISCRETE as readonly string[]).includes(key)) p[key] = Math.round(p[key]);
+      if (key === "unison" || (FILTER_DISCRETE as readonly string[]).includes(key) || (ENGINE_DISCRETE as readonly string[]).includes(key)) p[key] = Math.round(p[key]);
     } else {
       const key = target as keyof typeof choices;
       const options: readonly (string | boolean)[] = key === "filterType" && !combAvailable

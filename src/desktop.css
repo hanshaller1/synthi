@@ -241,3 +241,22 @@ body, #root { overflow: hidden; }
 .studio-viewport .adsr-envelope-graph .adsr-envelope-axis { font-size: 7px; opacity: .75; }
 .studio-viewport .synth-grid > .filter-module > .module-title { margin-bottom: 0; }
 .studio-viewport .filter-module > .base-width-section { border-top: 0; padding-top: 0; }
+
+/* Extended engines follow the existing character module and shared knob size. */
+.engine-extensions { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+.engine-section { border-top: 1px solid var(--panel-line); padding-top: 7px; }
+.engine-section summary { cursor: pointer; color: #b6c0ab; font: 9px var(--mono); letter-spacing: .4px; padding: 4px 0; }
+.engine-section[open] summary { margin-bottom: 10px; }
+.engine-control-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 8px; }
+.engine-control-grid > div { justify-self: center; min-width: 0; }
+.engine-choice { display: flex; flex-direction: column; gap: 5px; grid-column: 1 / -1; min-width: 0; }
+.engine-choice > span { color: var(--muted); font: 9px var(--mono); }
+.engine-choice select { width: 100%; min-width: 0; }
+.engine-hint { color: var(--muted); font: 10px/1.6 Inter, sans-serif; margin: 4px 0; }
+.engine-envelope-option { margin: 10px 0; }
+.engine-envelope-option > div { display: flex; justify-content: center; }
+.engine-adsr-controls { display: grid; grid-template-columns: repeat(4, minmax(55px, 1fr)); gap: 4px; overflow-x: auto; padding: 3px 0 7px; scrollbar-width: thin; }
+.studio-viewport .engine-section .knob-label { font-size: 10px; text-align: center; white-space: normal; }
+.engine-section .adsr-envelope-graph { height: 100px; margin: 0; }
+.studio-viewport .lock-chip > .select-wrap { min-width: 0; max-width: 170px; }
+.studio-viewport .lock-chip > .select-wrap select { min-width: 0; width: 100%; font-size: 10px; }

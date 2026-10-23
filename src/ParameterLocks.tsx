@@ -1,12 +1,14 @@
+import { ENGINE_DISCRETE, ENGINE_OPTIONS } from "./engine-config";
 import { FILTER_DISCRETE } from "./filter-config";
 import { FM_KEYS, visibleFmTarget } from "./fm-config";
 import { useEffect, useRef, useState } from "react";
 import { LockKeyhole, X } from "lucide-react";
 import { IconButton, Select } from "./components";
 import { LOCK_PARAMS, PARAMS, PARAM_LABELS, MOD_TARGETS, clamp } from "./model";
+import type { EngineParam } from "./engine-config";
 import type { Numbers, Param, Patch } from "./model";
 
-const integral = new Set<Param>(["tune", "osc2Tune", "sampleRoot", "unison", "harmonics", "wavetable", "sampleReverse", ...FILTER_DISCRETE, ...FM_KEYS.filter((key) => /(?:Wave|Mode)$/.test(key))]);
+const integral = new Set<Param>(["tune", "osc2Tune", "sampleRoot", "unison", "harmonics", "wavetable", "sampleReverse", ...FILTER_DISCRETE, ...ENGINE_DISCRETE, ...FM_KEYS.filter((key) => /(?:Wave|Mode)$/.test(key))]);
 function LockValue({ label, value, min, max, integral, onChange }: {
   label: string; value: number; min: number; max: number; integral: boolean; onChange: (value: number) => void;
 }) {
@@ -44,7 +46,7 @@ export function LockControls({ locks, patch, onSet }: {
       const set = (v: number) => onSet(key, clamp(integral.has(key) ? Math.round(v) : +v.toFixed(4), min, max));
       return <div className="lock-chip" key={key}>
         <label>{PARAM_LABELS[key]}<input aria-label={`${PARAM_LABELS[key]} per Maus ändern`} type="range" min="0" max="1" step=".001" value={normalized} onChange={(e) => set(log ? min * (max / min) ** +e.target.value : min + +e.target.value * (max - min))} /></label>
-        <LockValue label={PARAM_LABELS[key]} value={value!} min={min} max={max} integral={integral.has(key)} onChange={set} />
+        {ENGINE_OPTIONS[key as EngineParam] ? <Select label={`${PARAM_LABELS[key]} Lock-Wert`} value={Math.round(value!)} onChange={(v) => set(+v)}>{ENGINE_OPTIONS[key as EngineParam]!.map((label,i) => <option key={i} value={i}>{label}</option>)}</Select> : <LockValue label={PARAM_LABELS[key]} value={value!} min={min} max={max} integral={integral.has(key)} onChange={set} />}
         <IconButton label={`${PARAM_LABELS[key]} Lock entfernen`} onClick={() => onSet(key, null)}><X size={12} /></IconButton>
       </div>;
     })}
