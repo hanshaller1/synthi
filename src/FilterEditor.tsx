@@ -1,10 +1,10 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { SlidersHorizontal } from "lucide-react";
-import { Select, formatHz, formatTime, percent } from "./components";
+import { EnvelopeGraph, Select, formatHz, formatTime, percent } from "./components";
 import { MULTIMODE_FILTERS } from "./model";
 import type { FilterType, MultimodeFilter, Param, Patch } from "./model";
-import { FILTER_CHARACTERS, filterAdsrAt, filterAdsrReleaseAt } from "./filter-config";
+import { FILTER_CHARACTERS } from "./filter-config";
 import FilterResponse from "./FilterResponse";
 
 type Props = {
@@ -15,29 +15,6 @@ type Props = {
 };
 const signed = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(0)}`;
 const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
-function FilterEnvelope({ patch: p }: { patch: Patch }) {
-  const hold = Math.max(.15, (p.filterAttack + p.filterDecay + p.filterRelease) * .25);
-  const releaseAt = p.filterAttack + p.filterDecay + hold, total = releaseAt + p.filterRelease;
-  const x = (time: number) => 29 + time / total * 265, y = (value: number) => 70 - value * 60;
-  const points = [`M${x(0)},${y(0)}`];
-  let from = 0;
-  for (const duration of [p.filterAttack, p.filterDecay, hold, p.filterRelease]) {
-    for (let i = 1; i <= 48; i++) {
-      const t = from + duration * i / 48;
-      const value = t <= releaseAt ? filterAdsrAt(p, t) : filterAdsrReleaseAt(p, p.filterSustain, t - releaseAt);
-      points.push(`L${x(t).toFixed(3)},${y(value).toFixed(3)}`);
-    }
-    from += duration;
-  }
-  return <div className="envelope-graph filter-envelope-graph">
-    <svg viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label={`Normierte Filter-ADSR 0 bis 100 Prozent: Attack ${formatTime(p.filterAttack)}, Decay ${formatTime(p.filterDecay)}, Sustain ${percent(p.filterSustain)}, Release ${formatTime(p.filterRelease)}. Unabhängig von Cutoff und Env depth.`}>
-      {[0, .5, 1].map((v) => <g key={v}><line x1="29" x2="294" y1={y(v)} y2={y(v)} stroke="currentColor" opacity=".15" strokeDasharray="2 3" /><text className="filter-envelope-axis" x="23" y={y(v) + 3} textAnchor="end">{v * 100}%</text></g>)}
-      {[p.filterAttack, p.filterAttack + p.filterDecay, releaseAt].map((t) => <line key={t} x1={x(t)} x2={x(t)} y1="10" y2="70" stroke="currentColor" opacity=".15" />)}
-      <path d={points.join(" ")} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-    </svg>
-    <div className="filter-envelope-values"><span>A {formatTime(p.filterAttack)}</span><span>D {formatTime(p.filterDecay)}</span><span>S {percent(p.filterSustain)}</span><span>R {formatTime(p.filterRelease)}</span></div>
-  </div>;
-}
 export default function FilterEditor({ patch, locks, sampleRate, onPatch, onParam, onCheckpoint, onLearn, knob }: Props) {
   const p = { ...patch, ...locks }, comb = p.filterType === "comb", peak = p.filterType === "multimode" && p.multimodeType === "peak";
   const [previewNote, setPreviewNote] = useState(60), [previewVelocity, setPreviewVelocity] = useState(1);
@@ -84,7 +61,8 @@ export default function FilterEditor({ patch, locks, sampleRate, onPatch, onPara
       <p className="filter-hint">Keytrack: 100 % = eine Oktave je 12 Halbtöne, Referenz C4.{comb ? " Feedback HP und Saturation wirken nur im Feedback-Modus. Wet gain verstärkt den gesamten Comb-Wet-Pfad, auch bei Feedback 0." : " Classic erhält die bisherige Abstimmung. 2× reduziert Ladder-/Acid-Aliasing mit zusätzlicher CPU-Last und 31 Samples Latenz. Notch / Peak verwenden resonante Biquads."}</p>
     </details>
     <div className="filter-envelope-title"><label onContextMenu={(e) => { e.preventDefault(); onLearn("filterAmount"); }} title="Filter-Hüllkurventiefe in Oktaven · Rechtsklick: MIDI Learn">ENV DEPTH<input aria-label="Filter Env depth" type="range" min="-6" max="6" step=".01" value={p.filterAmount} onPointerDown={onCheckpoint} onKeyDown={(e) => { if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) onCheckpoint(); }} onChange={(e) => onParam("filterAmount", +e.target.value)} /><output>{p.filterAmount > 0 ? "+" : ""}{p.filterAmount.toFixed(2)} oct</output></label></div>
-    <FilterEnvelope patch={p} />
+    <EnvelopeGraph kind="filter" env={{ attack: p.filterAttack, decay: p.filterDecay, sustain: p.filterSustain, release: p.filterRelease }}
+      curves={{ attack: p.filterAttackCurve, decay: p.filterDecayCurve, release: p.filterReleaseCurve }} />
     <div className="filter-knob-grid filter-adsr-grid">{(["filterAttack", "filterDecay", "filterSustain", "filterRelease"] as const).map((key, i) => knob(key, ["Attack", "Decay", "Sustain", "Release"][i], i === 2 ? percent : formatTime, i !== 2))}</div>
     <details className="filter-section"><summary onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") e.stopPropagation(); }}>ENVELOPE CHARACTER</summary><div className="filter-knob-grid">{knob("filterAttackCurve", "Attack curve", signed)}{knob("filterDecayCurve", "Decay curve", signed)}{knob("filterReleaseCurve", "Release curve", signed)}{knob("filterVelocity", "Velocity → depth")}</div><p className="filter-hint">Curves 0: bisheriger Verlauf. Negative Werte: schneller Anfang; positive: langsamer Anfang. Velocity 0: konstante Tiefe, 100 %: anschlagsabhängig. Grafik: normierte Steuerhüllkurve, unabhängig von Cutoff und Env depth. Die Cutoff-Bewegung zeigt der Frequenzgang.</p></details>
   </section>;

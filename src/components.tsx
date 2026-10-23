@@ -1,3 +1,4 @@
+import { filterCurve } from "./filter-config";
 import { FM_ALGORITHMS } from "./fm-config";
 import { wavetableSpectrum } from "./catalog";
 import { useEffect, useRef, useState } from "react";
@@ -265,76 +266,44 @@ export function Knob({
     </div>
   );
 }
+/** Shared geometry keeps the filter and amplifier envelope views identical. */
 export function EnvelopeGraph({
   env,
   kind,
+  curves = { attack: 0, decay: 0, release: 0 },
 }: {
   env: Envelope;
   kind: "amp" | "filter";
+  curves?: { attack: number; decay: number; release: number };
 }) {
-  const total = env.attack + env.decay + 1 + env.release,
-    a = 18 + (env.attack / total) * 235,
-    d = a + (env.decay / total) * 235,
-    r = 253 - (env.release / total) * 235,
-    y = 70 - env.sustain * 50;
-  return (
-    <div className={`envelope-graph ${kind}`}>
-      <svg
-        viewBox="0 0 272 90"
-        preserveAspectRatio="none"
-        aria-label={`${kind === "amp" ? "Amp" : "Filter"} ADSR-Hüllkurve`}
-      >
-        <defs>
-          <linearGradient id={`env-${kind}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="currentColor" stopOpacity=".19" />
-            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[20, 45, 70].map((v) => (
-          <line
-            key={v}
-            x1="10"
-            x2="262"
-            y1={v}
-            y2={v}
-            stroke="currentColor"
-            opacity=".1"
-          />
-        ))}
-        <g transform="translate(13.6 0) scale(0.9 1)">
-          <path
-            d={`M18,70 L${a},20 L${d},${y} L${r},${y} L253,70 Z`}
-            fill={`url(#env-${kind})`}
-          />
-          <path
-            d={`M18,70 L${a},20 L${d},${y} L${r},${y} L253,70`}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          {[
-            [a, 20],
-            [d, y],
-            [r, y],
-          ].map(([x, y], i) => (
-            <circle key={i} cx={x} cy={y} r="2.5" fill="currentColor" />
-          ))}
-          <text x="18" y="85">
-            A
-          </text>
-          <text x="87" y="85">
-            D
-          </text>
-          <text x="163" y="85">
-            S
-          </text>
-          <text x="245" y="85">
-            R
-          </text>
-        </g>
-      </svg>
+  const hold = Math.max(.15, (env.attack + env.decay + env.release) * .25);
+  const releaseAt = env.attack + env.decay + hold, total = releaseAt + env.release;
+  const x = (time: number) => 29 + time / total * 265, y = (value: number) => 70 - value * 60;
+  const points = [`M${x(0)},${y(0)}`];
+  let from = 0;
+  [env.attack, env.decay, hold, env.release].forEach((duration, phase) => {
+    for (let i = 1; i <= 48; i++) {
+      const t = i / 48;
+      const value = phase === 0 ? filterCurve(t, curves.attack)
+        : phase === 1 ? 1 + (env.sustain - 1) * filterCurve(t, curves.decay)
+        : phase === 2 ? env.sustain : env.sustain * (1 - filterCurve(t, curves.release));
+      points.push(`L${x(from + duration * t).toFixed(3)},${y(value).toFixed(3)}`);
+    }
+    from += duration;
+  });
+  return <div className={`envelope-graph adsr-envelope-graph ${kind}`}>
+    <svg viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label={`Normierte ${kind === "amp" ? "Amplifier" : "Filter"}-ADSR 0 bis 100 Prozent: Attack ${formatTime(env.attack)}, Decay ${formatTime(env.decay)}, Sustain ${percent(env.sustain)}, Release ${formatTime(env.release)}.`}>
+      {[0, .5, 1].map((v) => <g key={v}>
+        <line x1="29" x2="294" y1={y(v)} y2={y(v)} stroke="currentColor" opacity=".15" strokeDasharray="2 3" />
+        <text className="adsr-envelope-axis" x="23" y={y(v) + 3} textAnchor="end">{v * 100}%</text>
+      </g>)}
+      {[env.attack, env.attack + env.decay, releaseAt].map((t) => <line key={t} x1={x(t)} x2={x(t)} y1="10" y2="70" stroke="currentColor" opacity=".15" />)}
+      <path d={points.join(" ")} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
+    <div className="adsr-envelope-values">
+      <span>A {formatTime(env.attack)}</span><span>D {formatTime(env.decay)}</span><span>S {percent(env.sustain)}</span><span>R {formatTime(env.release)}</span>
     </div>
-  );
+  </div>;
 }
 export function Waveform({
   patch,
