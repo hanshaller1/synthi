@@ -1,3 +1,4 @@
+import { FILTER_PARAMS, FILTER_KEYS, FILTER_TARGETS, FILTER_DISCRETE } from "./filter-config";
 import { FM_PARAMS, FM_KEYS, FM_TARGETS, FM_ALGORITHMS, LEGACY_FM_KEYS, migrateFmPatch, migrateFmLocks } from "./fm-config";
 import type { FmAlgorithm } from "./fm-config";
 import { FX_CONTROLS, defaultFxSettings } from "./fx-spec";
@@ -25,8 +26,13 @@ export type FilterType =
 export const MULTIMODE_FILTERS = [
   { id: "lp2", label: "LP 12 dB" },
   { id: "lp4", label: "LP 24 dB" },
+  { id: "lp6", label: "LP 36 dB" },
+  { id: "lp8", label: "LP 48 dB" },
   { id: "hp2", label: "HP 12 dB" },
   { id: "hp4", label: "HP 24 dB" },
+  { id: "hp6", label: "HP 36 dB" },
+  { id: "hp8", label: "HP 48 dB" },
+  { id: "morph", label: "Morph LP ↔ BP ↔ HP · 24 dB" },
   { id: "bp", label: "Bandpass" },
   { id: "notch", label: "Notch / Bandstop" },
   { id: "peak", label: "Peak" },
@@ -65,6 +71,7 @@ export type Modulation = {
 };
 export const PARAMS = {
   ...FM_PARAMS,
+  ...FILTER_PARAMS,
   tune: [-24, 24, 0],
   unison: [1, 8, 1],
   unisonDetune: [0, 50, 12],
@@ -149,6 +156,7 @@ export type Param = keyof typeof PARAMS;
 const destination = (label: string, group: string, trigger = false) => ({ label, group, trigger });
 export const MOD_TARGETS = {
   ...FM_TARGETS,
+  ...FILTER_TARGETS,
   pitch: destination("Pitch", "Global"),
   tune: destination("Transpose", "Global"),
   unison: destination("Unison voices", "Global", true),
@@ -216,7 +224,7 @@ export const MOD_TARGETS = {
   multimodeType: destination("Multimode type", "Filter", true),
   combPolarity: destination("Comb polarity", "Filter", true),
   cutoff: destination("Cutoff / Comb frequency", "Filter"),
-  resonance: destination("Resonance / Peak gain", "Filter"),
+  resonance: destination("Resonance", "Filter"),
   combFeedback: destination("Comb feedback", "Filter"),
   combDamping: destination("Comb damping", "Filter"),
   combMix: destination("Comb dry / wet", "Filter"),
@@ -350,6 +358,8 @@ export type Patch = Numbers &
     wave: Wave;
     wave2: Wave;
     filterType: FilterType;
+    filterVersion: 1 | 2;
+    legacyPeakModulation: boolean;
     multimodeType: MultimodeFilter;
     combPolarity: "positive" | "negative";
     voiceMode: "mono" | "para" | "poly";
@@ -694,6 +704,8 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     wave: "sawtooth",
     wave2: "triangle",
     filterType: "lowpass",
+    filterVersion: 2,
+    legacyPeakModulation: false,
     multimodeType: "lp4",
     combPolarity: "positive",
     voiceMode: "poly",
@@ -751,6 +763,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     ...overrides,
   };
   if (overrides.fmVersion !== 2 && !FM_KEYS.some((key) => key in overrides) && (overrides.engine === "fm" || LEGACY_FM_KEYS.some((key) => key in overrides))) migrateFmPatch(patch);
+  if (overrides.filterPeakGain === undefined && patch.filterType === "multimode" && patch.multimodeType === "peak") patch.filterPeakGain = patch.resonance;
   return patch;
 }
 export const PRESETS: Patch[] = [
@@ -1036,6 +1049,8 @@ export function sanitizePatch(value: unknown): Patch {
   const p = makePatch();
   for (const key of Object.keys(PARAMS) as Param[])
     p[key] = num(value[key], PARAMS[key][0], PARAMS[key][1], p[key]);
+  p.filterVersion = value.filterVersion === 1 ? 1 : value.filterVersion === 2 || FILTER_KEYS.some((key) => key in value) ? 2 : 1;
+  p.legacyPeakModulation = value.legacyPeakModulation === true;
   p.name =
     typeof value.name === "string" ? value.name.slice(0, 80) : "Imported patch";
   if (ENGINES.some((e) => e.id === value.engine))
@@ -1154,11 +1169,17 @@ export function sanitizePatch(value: unknown): Patch {
       }));
   if (value.fmVersion !== 2 && !FM_KEYS.some((key) => key in value)) migrateFmPatch(p);
   for (const key of Object.keys(FM_PARAMS) as (keyof typeof FM_PARAMS)[]) if (/(?:Wave|Mode)$/.test(key)) p[key] = Math.round(p[key]);
+  for (const key of FILTER_DISCRETE) p[key] = Math.round(p[key]);
+  if (value.filterPeakGain === undefined && p.filterType === "multimode" && p.multimodeType === "peak") {
+    p.filterPeakGain = p.resonance;
+    p.legacyPeakModulation = true;
+    p.mods = p.mods.map((m) => m.target === "resonance" ? { ...m, target: "filterPeakGain", amount: m.amount * 20 / 48 } : m);
+  }
   return p;
 }
 function sanitizeLockNumber(key: Param, value: unknown) {
   const result = num(value, PARAMS[key][0], PARAMS[key][1], PARAMS[key][2]);
-  return /^fm[123](Wave|Mode)$/.test(key) ? Math.round(result) : result;
+  return /^fm[123](Wave|Mode)$/.test(key) || (FILTER_DISCRETE as readonly string[]).includes(key) ? Math.round(result) : result;
 }
 function sanitizeSteps(value: unknown): Step[] {
   if (!Array.isArray(value)) return Array.from({ length: MAX_STEPS }, makeStep);
@@ -1327,6 +1348,15 @@ export function sanitizeProject(value: unknown): Project {
           const migrateNotes = (notes: PianoNote[]) => notes.map((n) => ({ ...n, locks: migrateFmLocks(n.locks, base.patch) }));
           pat.steps = migrateSteps(pat.steps); pat.notes = migrateNotes(pat.notes);
           if (pat.pianoBackup) { pat.pianoBackup.steps = migrateSteps(pat.pianoBackup.steps); pat.pianoBackup.notes = migrateNotes(pat.pianoBackup.notes); }
+        }
+        if (isRecord(v.patch) && v.patch.filterPeakGain === undefined && base.patch.filterType === "multimode" && base.patch.multimodeType === "peak") {
+          const migrate = <T extends { locks: Partial<Numbers> }>(items: T[]) => items.map((item) => {
+            const locks = { ...item.locks };
+            if (locks.resonance !== undefined) { locks.filterPeakGain = locks.resonance; delete locks.resonance; }
+            return { ...item, locks };
+          });
+          pat.steps = migrate(pat.steps); pat.notes = migrate(pat.notes);
+          if (pat.pianoBackup) { pat.pianoBackup.steps = migrate(pat.pianoBackup.steps); pat.pianoBackup.notes = migrate(pat.pianoBackup.notes); }
         }
         return pat;
       });

@@ -1,3 +1,4 @@
+import { filterPatchEdits, needsAdvancedFilter } from "./filter-config";
 import { fmPatchEdits } from "./fm-config";
 import MasterFX from "./MasterFX";
 import { TrackPlayback } from "./track-playback";
@@ -84,7 +85,7 @@ type ModalName =
   | "settings"
   | "preset"
   | null;
-type Binding = { cc: number; track: number; param: Param };
+type Binding = { cc: number; track: number; param: Param; legacyPeak?: boolean };
 const KEYBOARD_KEYS = [
   "a",
   "w",
@@ -223,14 +224,18 @@ export default function App() {
   );
   const changePatch = useCallback(
     (partial: Partial<Patch>, which = trackRef.current) => {
+      const edits = filterPatchEdits(partial);
+      if (engineRef.current && !engineRef.current.combAvailable && needsAdvancedFilter({ ...projectRef.current.tracks[which].patch, ...edits })) {
+        notify("Diese Filterfunktionen benötigen AudioWorklet über HTTPS oder localhost."); return;
+      }
       updateProject((p) => ({
         ...p,
         tracks: p.tracks.map((t, i) =>
-          i === which ? { ...t, patch: { ...t.patch, ...fmPatchEdits(t.patch, partial) } } : t,
+          i === which ? { ...t, patch: { ...t.patch, ...fmPatchEdits(t.patch, edits) } } : t,
         ),
       }));
     },
-    [updateProject],
+    [updateProject, notify],
   );
   const changeStep = useCallback(
     (which: number, index: number, partial: Partial<Step>) => {
@@ -570,11 +575,12 @@ export default function App() {
     ])
       .then(([p, presets, mapping]) => {
         if (cancelled) return;
-        if (p) setProject(sanitizeProject(p));
+        const restored = p ? sanitizeProject(p) : null;
+        if (restored) setProject(restored);
         if (Array.isArray(presets)) setUserPresets(presets.map(sanitizePatch));
         if (Array.isArray(mapping))
           setBindings(
-            mapping.filter(
+            mapping.map((m) => m && m.param === "resonance" && restored?.tracks[m.track]?.patch.legacyPeakModulation ? { ...m, param: "filterPeakGain" as const, legacyPeak: true } : m).filter(
               (m) =>
                 m &&
                 Object.hasOwn(PARAMS, m.param) &&
@@ -659,7 +665,7 @@ export default function App() {
       }
       const binding = bindingsRef.current.find((b) => b.cc === cc);
       if (binding) {
-        const range = PARAMS[binding.param];
+        const range = binding.legacyPeak ? [0, 20] : PARAMS[binding.param];
         changePatch(
           { [binding.param]: range[0] + value * (range[1] - range[0]) },
           binding.track,
@@ -673,7 +679,7 @@ export default function App() {
           projectRef.current.tracks[trackRef.current].patch.filterType ===
             "comb"
             ? { combFeedback: value * 0.98 }
-            : { resonance: value * 20 },
+            : projectRef.current.tracks[trackRef.current].patch.filterType === "multimode" && projectRef.current.tracks[trackRef.current].patch.multimodeType === "peak" ? { filterPeakGain: value * 20 } : { resonance: value * 20 },
         );
       if (cc === 7) changePatch({ level: value });
       if (cc === 123 || cc === 120) {
@@ -812,12 +818,12 @@ export default function App() {
   };
   const loadPreset = (preset: Patch) => {
     if (
-      preset.filterType === "comb" &&
+      (preset.filterType === "comb" || needsAdvancedFilter(preset)) &&
       engineRef.current &&
       !engineRef.current.combAvailable
     ) {
       notify(
-        "Comb ist in diesem Audiokontext nicht verfügbar. Bitte AudioWorklet über HTTPS oder localhost verwenden.",
+        "Dieses Filtermodell benötigt AudioWorklet über HTTPS oder localhost.",
       );
       return;
     }
@@ -2170,6 +2176,14 @@ export default function App() {
               <p>Character / Unison bietet Serial, Parallel, Branched, Dual Carrier, Hybrid und Triple Carrier samt Schaltbild. Die separate OP-Auswahl darunter wechselt zwischen drei vollständigen ADSRs mit Attack-/Decay-/Release-Kurven. Kurve 0 ist linear; positive Werte beginnen langsamer, negative schneller. Globale Amp-ADSR und Filter bleiben zusätzlich aktiv.</p>
               <p>Fixed Hz folgt nicht der gespielten Note; globale Transposition, Fine und Pitch Bend wirken weiterhin. Routing, Waveform, Frequenzmodus und Operator-ADSR werden beim nächsten Anschlag übernommen. Laufende Ratio-/Hz-/Level-/Fine-/Feedback-/Index-Änderungen sind geglättet. Rechtsklick auf Operator-Waveform oder Frequenzmodus: MIDI Learn.</p>
               <p>Alte FM-Presets und Locks werden automatisch migriert. Feedback und Release können durch den neuen Signalweg anders klingen. FM benötigt AudioWorklet über HTTPS/localhost. Maximal 32 FM-Noten beziehungsweise insgesamt 128 Unison-Layer; bei acht Layern sind dies bis zu 16 Noten einschließlich Release-Phasen.</p>
+            </section>
+            <section>
+              <h3>Filter & envelope</h3>
+              <p><b>Base-Width:</b> 6-dB-Hochpass und Tiefpass vor dem Main Filter, für alle acht Engines. Base = untere Grenze, Width = Bandbreite in Oktaven. Base und Width auf Open: neutral, auch bei eingeschaltetem Filter.</p>
+              <p><b>Main:</b> Classic behält die bisherige Abstimmung. Butterworth, Ladder, State Variable und Acid bieten neue Resonanzverläufe; Multimode ergänzt 36/48 dB und Morph LP ↔ BP ↔ HP. Peak gain erlaubt Absenkung und Anhebung. Main Character enthält Keytrack, Resonance compensation, Mix und Drive Pre/Post.</p>
+              <p><b>Comb:</b> Feedback oder Feedforward, ±-Polarität, Resonance gain, Keytrack, Fine und Stereo spread. Feedback HP und Saturation bearbeiten nur den Feedback-Pfad. HD verwendet Lagrange-Interpolation; Legacy bewahrt alte Klänge.</p>
+              <p><b>ENV DEPTH:</b> ±6 Oktaven, separate Attack-/Decay-/Release-Kurven. Kurve 0 erhält den bisherigen Verlauf. Velocity → depth skaliert die Tiefe mit dem Anschlag. Keytrack 100 % verschiebt die Frequenz pro zwölf Halbtönen um eine Oktave, Referenz C4.</p>
+              <p>Die Response zeigt Base, Peak und Sustain für die ausgewählte Vorschau-Note und Velocity, einschließlich Base-Width und Filter-Mix. Bei Sättigung ist sie eine Kleinsignalantwort. Ohne laufende Matrix/LFOs. Neue Parameter unterstützen Locks und MIDI Learn; mit „Anschlag“ markierte Matrixziele gelten ab dem nächsten Anschlag.</p>
             </section>
             <section>
               <h3>Make it yours</h3>

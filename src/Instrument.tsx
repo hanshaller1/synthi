@@ -1,7 +1,7 @@
 import { visibleFmTarget } from "./fm-config";
 import SourceEditor from "./SourceEditor";
 import FxRack from "./FxRack";
-import FilterResponse from "./FilterResponse";
+import FilterEditor from "./FilterEditor";
 import { lfoValue } from "./lfo";
 import {
   AudioLines,
@@ -24,11 +24,10 @@ import {
   Knob,
   Select,
   PanelHeader,
-  formatHz,
   formatTime,
   percent,
 } from "./components";
-import { ENGINES, MULTIMODE_FILTERS, MOD_TARGETS, PARAMS } from "./model";
+import { ENGINES, MOD_TARGETS, PARAMS } from "./model";
 import type {
   Lfo,
   LfoShape,
@@ -37,8 +36,6 @@ import type {
   ModTarget,
   Param,
   Patch,
-  FilterType,
-  MultimodeFilter,
 } from "./model";
 
 type Props = {
@@ -307,129 +304,7 @@ export default function Instrument(props: Props) {
               onSample={props.onSample}
               knob={knob}
             />
-            <section
-              className="module filter-module"
-              data-filter={p.filterType}
-            >
-              <div className="module-title">
-                <h3>
-                  <SlidersHorizontal size={14} /> Filter
-                </h3>
-                <Select
-                  label="Filter-Typ"
-                  value={p.filterType}
-                  onChange={(v) => onPatch({ filterType: v as FilterType })}
-                >
-                  <option value="lowpass">LP 12 dB</option>
-                  <option value="highpass">HP 12 dB</option>
-                  <option value="bandpass">Bandpass</option>
-                  <option value="notch">Notch</option>
-                  <option value="multimode">Multimode</option>
-                  <option
-                    value="comb"
-                    disabled={typeof AudioWorkletNode === "undefined"}
-                  >
-                    Comb
-                  </option>
-                </Select>
-              </div>
-              {(p.filterType === "comb" || p.filterType === "multimode") && (
-                <div className="filter-model-options">
-                  <span>
-                    {p.filterType === "comb"
-                      ? "FEEDBACK POLARITY"
-                      : "MULTIMODE TYPE"}
-                  </span>
-                  {p.filterType === "multimode" && (
-                    <Select
-                      label="Multimode-Charakteristik"
-                      value={p.multimodeType}
-                      onChange={(v) =>
-                        onPatch({ multimodeType: v as MultimodeFilter })
-                      }
-                    >
-                      {MULTIMODE_FILTERS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </Select>
-                  )}
-                  {p.filterType === "comb" && (
-                    <Select
-                      label="Comb-Polarität"
-                      value={p.combPolarity}
-                      onChange={(v) =>
-                        onPatch({ combPolarity: v as Patch["combPolarity"] })
-                      }
-                    >
-                      <option value="positive">Comb + · positive</option>
-                      <option value="negative">Comb − · negative</option>
-                    </Select>
-                  )}
-                </div>
-              )}
-              <FilterResponse
-                patch={p}
-                locks={props.locks}
-                sampleRate={props.sampleRate}
-              />
-              <div className="knob-row filter-knobs">
-                {knob(
-                  "cutoff",
-                  p.filterType === "comb" ? "Frequency" : "Cutoff",
-                  formatHz,
-                  true,
-                )}
-                {p.filterType === "comb" ? (
-                  <>
-                    {knob("combFeedback", "Feedback")}
-                    {knob("combDamping", "Damping", formatHz, true)}
-                    {knob("combMix", "Dry / Wet")}
-                  </>
-                ) : (
-                  knob(
-                    "resonance",
-                    p.filterType === "multimode" && p.multimodeType === "peak"
-                      ? "Peak gain"
-                      : "Resonance",
-                    (v) =>
-                      p.filterType === "multimode" && p.multimodeType === "peak"
-                        ? `${v.toFixed(1)} dB`
-                        : `${Math.round((v / 20) * 100)}%`,
-                  )
-                )}
-                {knob("drive", "Drive")}
-              </div>
-              <div className="filter-envelope-title">
-                <label>
-                  ENV DEPTH
-                  <input
-                    aria-label="Filter Env depth"
-                    type="range"
-                    min="-6"
-                    max="6"
-                    step=".01"
-                    value={props.locks.filterAmount ?? p.filterAmount}
-                    onChange={(e) => onParam("filterAmount", +e.target.value)}
-                  />
-                  <output>
-                    {(props.locks.filterAmount ?? p.filterAmount) > 0 ? "+" : ""}
-                    {(props.locks.filterAmount ?? p.filterAmount).toFixed(2)}
-                  </output>
-                </label>
-              </div>
-              <EnvelopeGraph
-                kind="filter"
-                env={{
-                  attack: props.locks.filterAttack ?? p.filterAttack,
-                  decay: props.locks.filterDecay ?? p.filterDecay,
-                  sustain: props.locks.filterSustain ?? p.filterSustain,
-                  release: props.locks.filterRelease ?? p.filterRelease,
-                }}
-              />
-              {adsr(true)}
-            </section>
+            <FilterEditor patch={p} locks={props.locks} sampleRate={props.sampleRate} onPatch={onPatch} onParam={onParam} onCheckpoint={props.onCheckpoint} onLearn={props.onLearn} knob={knob} />
             <section className="module amp-module">
               <div className="module-title">
                 <h3>

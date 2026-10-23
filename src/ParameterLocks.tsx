@@ -1,3 +1,4 @@
+import { FILTER_DISCRETE } from "./filter-config";
 import { FM_KEYS, visibleFmTarget } from "./fm-config";
 import { useEffect, useRef, useState } from "react";
 import { LockKeyhole, X } from "lucide-react";
@@ -5,7 +6,7 @@ import { IconButton, Select } from "./components";
 import { LOCK_PARAMS, PARAMS, PARAM_LABELS, MOD_TARGETS, clamp } from "./model";
 import type { Numbers, Param, Patch } from "./model";
 
-const integral = new Set<Param>(["tune", "osc2Tune", "sampleRoot", "unison", "harmonics", "wavetable", "sampleReverse", ...FM_KEYS.filter((key) => /(?:Wave|Mode)$/.test(key))]);
+const integral = new Set<Param>(["tune", "osc2Tune", "sampleRoot", "unison", "harmonics", "wavetable", "sampleReverse", ...FILTER_DISCRETE, ...FM_KEYS.filter((key) => /(?:Wave|Mode)$/.test(key))]);
 function LockValue({ label, value, min, max, integral, onChange }: {
   label: string; value: number; min: number; max: number; integral: boolean; onChange: (value: number) => void;
 }) {

@@ -1,3 +1,4 @@
+import { FILTER_DISCRETE, LEGACY_MULTIMODE_TYPES, filterAdsrAt, filterCurve } from "./filter-config";
 import { FM_ALGORITHMS } from "./fm-config";
 import { lfoSnapshot } from "./lfo";
 import { MOD_TARGETS, PARAMS, MULTIMODE_FILTERS, clamp } from "./model";
@@ -26,10 +27,8 @@ export function sourceValue(
   if (source === "modwheel") return wheel;
   const elapsed = Math.max(0, Math.min(time, releaseAt) - start);
   if (source === "filterEnv") {
-    const value = elapsed < p.filterAttack ? elapsed / p.filterAttack
-      : elapsed < p.filterAttack + p.filterDecay
-        ? 1 + (p.filterSustain - 1) * (elapsed - p.filterAttack) / p.filterDecay : p.filterSustain;
-    return time > releaseAt ? value * Math.max(0, 1 - (time - releaseAt) / p.filterRelease) : value;
+    const value = filterAdsrAt(p, elapsed);
+    return time > releaseAt ? value * (1 - filterCurve((time - releaseAt) / p.filterRelease, p.filterReleaseCurve)) : value;
   }
   const index = Number(source.slice(-1)) - 1, lfo = p.lfos[index];
   return lfo.depth * lfoSnapshot(lfo, tempo, start, time, index);
@@ -44,7 +43,7 @@ export function modulatedNumber(
   for (const route of p.mods)
     if (route.target === key)
       value += sourceValue(p, route.source, time, start, note, velocity, wheel, tempo, releaseAt) * route.amount * (max - min) / 2;
-  return clamp(value, min, max);
+  return p.legacyPeakModulation && key === "filterPeakGain" ? clamp(value, 0, 20) : clamp(value, min, max);
 }
 /** Topology, trim and articulation are sampled on the note's own audio timeline. */
 export function triggerPatch(
@@ -58,11 +57,11 @@ export function triggerPatch(
     if (Object.hasOwn(PARAMS, target)) {
       const key = target as Param;
       p[key] = modulatedNumber(patch, key, start, start, note, velocity, wheel, tempo);
-      if (key === "unison") p[key] = Math.round(p[key]);
+      if (key === "unison" || (FILTER_DISCRETE as readonly string[]).includes(key)) p[key] = Math.round(p[key]);
     } else {
       const key = target as keyof typeof choices;
       const options: readonly (string | boolean)[] = key === "filterType" && !combAvailable
-        ? choices.filterType.filter((type) => type !== "comb") : choices[key];
+        ? choices.filterType.filter((type) => type !== "comb") : key === "multimodeType" && patch.filterVersion === 1 ? LEGACY_MULTIMODE_TYPES : choices[key];
       let index = options.indexOf(patch[key]);
       for (const route of patch.mods)
         if (route.target === target)

@@ -1,3 +1,4 @@
+import { FILTER_KEYS, FILTER_TARGETS, filterAdsrAt, filterCurve, filterFrequencyAt, filterReleaseFrequencyAt, filterLevels, needsAdvancedFilter } from "./filter-config";
 import { FmSource } from "./fm-worklet";
 import { FM_KEYS, FM_TARGETS, migrateFmLocks } from "./fm-config";
 import { sequenceFrame } from "./sequence";
@@ -32,6 +33,7 @@ type Voice = {
   amp: GainNode;
   volume: GainNode;
   updateLevel: (value: number, time: number) => void;
+  updateFilter: (patch: Patch, previous: Patch | undefined, time: number) => void;
   updateFm: (patch: Patch, previous: Patch | undefined, time: number) => void;
   filter: VoiceFilter;
   panner: StereoPannerNode;
@@ -75,20 +77,35 @@ function envelopeAt(e: Envelope, elapsed: number) {
     return 1 + ((e.sustain - 1) * (elapsed - e.attack)) / e.decay;
   return Math.max(EPS, e.sustain);
 }
-function filterEnvelopeAt(p: Patch, elapsed: number) {
-  const peak = clamp(p.cutoff * 2 ** p.filterAmount, 20, 20000),
-    sustain = clamp(
-      p.cutoff * 2 ** (p.filterAmount * p.filterSustain),
-      20,
-      20000,
-    );
-  if (elapsed < p.filterAttack)
-    return (
-      p.cutoff * (peak / p.cutoff) ** (Math.max(0, elapsed) / p.filterAttack)
-    );
-  if (elapsed < p.filterAttack + p.filterDecay)
-    return peak * (sustain / peak) ** ((elapsed - p.filterAttack) / p.filterDecay);
-  return sustain;
+const filterEnvelopeAt = filterFrequencyAt;
+// Curve zero uses the original ramp endpoints exactly. Curved segments use
+// scheduled ramps, which can safely be interrupted by note-off/legato.
+function scheduleFilterAD(param: AudioParam, p: Patch, origin: number, now = origin, hz = true, scale = 1) {
+  const elapsed = Math.max(0, now - origin), levels = filterLevels(p);
+  if (now === origin) param.setValueAtTime(hz ? p.cutoff : EPS, now);
+  const segment = (from: number, duration: number, curve: number, a: number, b: number) => {
+    if (elapsed >= from + duration) return;
+    const begin = Math.max(0, (elapsed - from) / duration), count = curve === 0 ? 1 : 48;
+    for (let i = 1; i <= count; i++) {
+      const x = begin + (1 - begin) * i / count, v = filterCurve(x, curve);
+      const value = hz ? a * (b / a) ** v : Math.max(EPS, (a + (b - a) * v) * scale);
+      if (hz) param.exponentialRampToValueAtTime(value, origin + from + x * duration);
+      else param.linearRampToValueAtTime(value, origin + from + x * duration);
+    }
+  };
+  segment(0, p.filterAttack, p.filterAttackCurve, hz ? levels.base : 0, hz ? levels.peak : 1);
+  segment(p.filterAttack, p.filterDecay, p.filterDecayCurve, hz ? levels.peak : 1, hz ? levels.sustain : p.filterSustain);
+}
+function scheduleFilterRelease(param: AudioParam, p: Patch, at: number, held: number, hz = true) {
+  holdParameter(param, at, held, hz);
+  if (hz && p.filterReleaseCurve === 0) { param.setTargetAtTime(p.cutoff, at, Math.max(.005, p.filterRelease / 4)); return; }
+  if (!hz && p.filterReleaseCurve === 0) { param.linearRampToValueAtTime(0, at + p.filterRelease); return; }
+  for (let i = 1; i <= 64; i++) {
+    const x = i / 64, curve = filterCurve(x, p.filterReleaseCurve);
+    const value = hz ? filterReleaseFrequencyAt(p, held, p.filterRelease * x) : held * (1 - curve);
+    param.linearRampToValueAtTime(value, at + p.filterRelease * x);
+  }
+  if (hz) param.setTargetAtTime(p.cutoff, at + p.filterRelease, Math.max(.005, p.filterRelease / 4));
 }
 // Removing a future ramp endpoint also removes the ramp before that endpoint.
 // Hold it first so releasing during attack/decay does not rewrite the attack.
@@ -285,11 +302,10 @@ export class SynthEngine {
       (v) =>
         v.track === track.id &&
         v.time <= t &&
-        v.releaseAt > t &&
-        v.patch.voiceMode !== "para",
+        v.releaseAt > t,
     )) {
-      voice.filter.update(p, previous, t);
-      if (previous?.cutoff !== p.cutoff) {
+      voice.updateFilter(p, previous, t);
+      if (voice.patch.voiceMode !== "para" && previous?.cutoff !== p.cutoff) {
         voice.filter.frequency.cancelScheduledValues(t);
         voice.filter.frequency.setTargetAtTime(p.cutoff, t, 0.025);
       }
@@ -423,6 +439,8 @@ export class SynthEngine {
         "Der Combfilter konnte nicht geladen werden. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden oder einen anderen Filter wählen.",
         { cause: workletError },
       );
+    if (!this.combAvailable && project.tracks.some((t) => needsAdvancedFilter(t.patch)))
+      throw new Error("Diese Filterfunktionen benötigen AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if (!this.combAvailable && project.tracks.some((t) => t.patch.engine === "fm"))
       throw new Error("FM benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if (!this.combAvailable && project.tracks.some((t) => requiresModulationWorklet(t.patch)))
@@ -495,6 +513,9 @@ export class SynthEngine {
       start = Math.max(when, c.currentTime),
       p = triggerPatch(patch, start, note, velocity, this.modwheel, this.tempo, this.combAvailable),
       frequency = midiHz(note + p.tune);
+    const filterVelocityScale = 1 - p.filterVelocity * (1 - velocity);
+    const envelopePatch = { ...p, filterAmount: p.filterAmount * filterVelocityScale };
+    if (!this.combAvailable && needsAdvancedFilter(p)) throw new Error("Diese Filterfunktionen benötigen AudioWorklet über HTTPS oder localhost.");
     if (!this.combAvailable && p.engine === "fm") throw new Error("FM benötigt AudioWorklet über HTTPS oder localhost.");
     if (!this.combAvailable && requiresModulationWorklet(p))
       throw new Error("Diese Modulationsziele benötigen AudioWorklet über HTTPS oder localhost.");
@@ -523,7 +544,8 @@ export class SynthEngine {
       volume = c.createGain(),
       tremolo = c.createGain(),
       panner = c.createStereoPanner(),
-      drive = this.combAvailable && p.mods.some((m) => m.target === "drive" && m.amount !== 0)
+      drive = c.createGain(), preDriveGain = c.createGain(), driveBypass = c.createGain(),
+      driveProcessor = this.combAvailable && p.mods.some((m) => m.target === "drive" && m.amount !== 0)
         ? new AudioWorkletNode(c, "phase-voice-drive", { outputChannelCount: [2] })
         : c.createWaveShaper();
     if (p.voiceMode === "mono")
@@ -568,16 +590,20 @@ export class SynthEngine {
     }
     filter.schedule(p, start);
     filter.Q.value = p.resonance;
-    if (drive instanceof WaveShaperNode) {
-      drive.curve = distortionCurve(p.drive * 0.2);
-      drive.oversample = "2x";
-    } else drive.parameters.forEach((param, key) => {
+    if (driveProcessor instanceof WaveShaperNode) {
+      driveProcessor.curve = distortionCurve(p.drive * 0.2);
+      driveProcessor.oversample = "2x";
+    } else driveProcessor.parameters.forEach((param, key) => {
       if (key === "amount") param.value = p.drive;
       else if (key === "active") param.setValueAtTime(1, start);
     });
     const bus = this.buses[track],
       isPara = p.voiceMode === "para";
-    drive.connect(filter.input);
+    preDriveGain.gain.value = p.drivePosition >= .5 ? 0 : 1;
+    driveBypass.gain.value = p.drivePosition >= .5 ? 1 : 0;
+    drive.connect(driveProcessor).connect(preDriveGain).connect(filter.input);
+    drive.connect(driveBypass).connect(filter.input);
+    filter.setNote(note, start);
     filter.connect(amp);
     volume.gain.value = p.level;
     // Modulation multiplies the envelope: it cannot reopen a silent/released note.
@@ -596,37 +622,18 @@ export class SynthEngine {
         start,
       );
     else scheduleEnvelope(amp.gain, env, start, velocity * 0.24);
-    const base = p.cutoff,
-      peak = clamp(base * 2 ** p.filterAmount, 20, 20000),
-      sustain = clamp(
-        base * 2 ** (p.filterAmount * p.filterSustain),
-        20,
-        20000,
-      );
-    filter.frequency.setValueAtTime(base, start);
-    filter.frequency.exponentialRampToValueAtTime(peak, start + p.filterAttack);
-    filter.frequency.exponentialRampToValueAtTime(
-      sustain,
-      start + p.filterAttack + p.filterDecay,
-    );
+    scheduleFilterAD(filter.frequency, envelopePatch, start);
     if (isPara) {
       bus.paraFilter.schedule(p, start);
+      bus.paraFilter.setNote(note, start);
       bus.paraFilter.Q.setValueAtTime(p.resonance, start);
       if (!held.length) {
         bus.paraStart = start;
-        bus.paraPatch = p;
+        bus.paraPatch = envelopePatch;
         bus.paraAmp.gain.cancelScheduledValues(start);
         scheduleEnvelope(bus.paraAmp.gain, env, start, 1);
         bus.paraFilter.frequency.cancelScheduledValues(start);
-        bus.paraFilter.frequency.setValueAtTime(base, start);
-        bus.paraFilter.frequency.exponentialRampToValueAtTime(
-          peak,
-          start + p.filterAttack,
-        );
-        bus.paraFilter.frequency.exponentialRampToValueAtTime(
-          sustain,
-          start + p.filterAttack + p.filterDecay,
-        );
+        scheduleFilterAD(bus.paraFilter.frequency, envelopePatch, start);
       } else {
         // A newly held key extends the common articulation, including a release
         // previously scheduled by an earlier sequencer voice.
@@ -647,32 +654,8 @@ export class SynthEngine {
             Math.max(EPS, shared.sustain),
             origin + shared.attack + shared.decay,
           );
-        const sharedPeak = clamp(
-            shared.cutoff * 2 ** shared.filterAmount,
-            20,
-            20000,
-          ),
-          sharedSustain = clamp(
-            shared.cutoff * 2 ** (shared.filterAmount * shared.filterSustain),
-            20,
-            20000,
-          );
-        holdParameter(
-          bus.paraFilter.frequency,
-          start,
-          filterEnvelopeAt(shared, elapsed),
-          true,
-        );
-        if (start < origin + shared.filterAttack)
-          bus.paraFilter.frequency.exponentialRampToValueAtTime(
-            sharedPeak,
-            origin + shared.filterAttack,
-          );
-        if (start < origin + shared.filterAttack + shared.filterDecay)
-          bus.paraFilter.frequency.exponentialRampToValueAtTime(
-            sharedSustain,
-            origin + shared.filterAttack + shared.filterDecay,
-          );
+        holdParameter(bus.paraFilter.frequency, start, filterEnvelopeAt(shared, elapsed), true);
+        scheduleFilterAD(bus.paraFilter.frequency, shared, origin, start);
         if (duration === undefined)
           for (const old of held)
             if (Number.isFinite(old.releaseAt)) {
@@ -683,10 +666,10 @@ export class SynthEngine {
       }
     }
     const gates: AudioParam[] = [];
-    if (!(drive instanceof WaveShaperNode))
-      drive.parameters.forEach((param, key) => { if (key === "active") gates.push(param); });
+    if (!(driveProcessor instanceof WaveShaperNode))
+      driveProcessor.parameters.forEach((param, key) => { if (key === "active") gates.push(param); });
     const sources: Source[] = [],
-      nodes: AudioNode[] = [drive, amp, tremolo, volume, panner],
+      nodes: AudioNode[] = [drive, driveProcessor, preDriveGain, driveBypass, amp, tremolo, volume, panner],
       pitch: AudioParam[] = [];
     const pitchOffsets = new Map<AudioParam, number>(),
       modwheelParams: AudioParam[] = [],
@@ -721,8 +704,8 @@ export class SynthEngine {
     const numberAt = (key: Param, at: number) => modulatedNumber(
       p, key, at, start, note, velocity, this.modwheel, this.tempo, modulationRelease,
     );
-    if (!(drive instanceof WaveShaperNode))
-      drive.parameters.forEach((param, key) => { if (key === "amount") bind("drive", param); });
+    if (!(driveProcessor instanceof WaveShaperNode))
+      driveProcessor.parameters.forEach((param, key) => { if (key === "amount") bind("drive", param); });
     let physicalBuffer: AudioBuffer | undefined;
     let physicalRate = 1;
     const grainTimers: number[] = [];
@@ -1193,6 +1176,11 @@ export class SynthEngine {
     this.lastNotes[track] = note;
     const activeFilter = isPara ? bus.paraFilter : filter;
     bind("resonance", activeFilter.Q);
+    bind("drive", activeFilter.parameter("drive")!);
+    for (const key of FILTER_KEYS) {
+      if (FILTER_TARGETS[key].trigger) continue;
+      const param = activeFilter.parameter(key); if (param) bind(key, param);
+    }
     bind("combFeedback", activeFilter.combFeedback);
     bind("combDamping", activeFilter.combDamping);
     bind("combMix", activeFilter.combMix);
@@ -1200,15 +1188,12 @@ export class SynthEngine {
     if (routed("filterAmount")) {
       const source = c.createConstantSource(), amount = c.createGain();
       amount.gain.value = 0;
-      scheduleEnvelope(source.offset, {
-        attack: p.filterAttack, decay: p.filterDecay,
-        sustain: p.filterSustain, release: p.filterRelease,
-      }, start, 1200);
+      scheduleFilterAD(source.offset, p, start, start, false, 1200 * filterVelocityScale);
       source.connect(amount).connect(activeFilter.detune);
       source.start(start);
       sources.push(source);
       nodes.push(amount);
-      filterEnvParams.push({ param: source.offset, scale: 1200 });
+      filterEnvParams.push({ param: source.offset, scale: 1200 * filterVelocityScale });
       bind("filterAmount", amount.gain);
     }
     const targets: Record<string, { params: AudioParam[]; scale: number }> = {
@@ -1223,7 +1208,7 @@ export class SynthEngine {
       amplitude: { params: [tremolo.gain], scale: 0.66 },
       pan: { params: [panner.pan], scale: 1 },
     };
-    const controls = new Map<string, { input: AudioParam; bias: AudioParam; output: GainNode }>();
+    const controls = new Map<string, { input: AudioParam; bias: AudioParam; output: GainNode; clamp: WaveShaperNode }>();
     const boundedControl = (key: Param) => {
       const existing = controls.get(key);
       if (existing) return existing;
@@ -1234,14 +1219,16 @@ export class SynthEngine {
       bias.offset.value = min + half - p[key];
       // WaveShaper holds its endpoints outside [-1, 1], clipping the sum of
       // all routes once, before it is mapped back to the parameter's range.
-      clamp.curve = new Float32Array([-1, 1]);
+      clamp.curve = p.legacyPeakModulation && key === "filterPeakGain"
+        ? Float32Array.from({ length: 193 }, (_, i) => Math.max(0, Math.min(5 / 6, i / 96 - 1)))
+        : new Float32Array([-1, 1]);
       range.gain.value = half;
       signal.connect(clamp).connect(range).connect(output);
       bias.connect(output);
       signal.start(start); bias.start(start);
       sources.push(signal, bias);
       nodes.push(clamp, range, output);
-      const control = { input: signal.offset, bias: bias.offset, output };
+      const control = { input: signal.offset, bias: bias.offset, output, clamp };
       controls.set(key, control);
       for (const binding of bindings[key]) connectBinding(output, binding.param, binding.weight);
       routeOutputs[key] = [output];
@@ -1288,16 +1275,7 @@ export class SynthEngine {
         if (mod.source === "keytrack") keytrackParams.push(source.offset);
         if (mod.source === "filterEnv") {
           filterEnvParams.push({ param: source.offset, scale: 1 });
-          scheduleEnvelope(
-            source.offset,
-            {
-              attack: p.filterAttack,
-              decay: p.filterDecay,
-              sustain: p.filterSustain,
-              release: p.filterRelease,
-            },
-            start,
-          );
+          scheduleFilterAD(source.offset, p, start, start, false);
         }
         source.connect(gain);
         sources.push(source);
@@ -1326,6 +1304,31 @@ export class SynthEngine {
           control.bias.cancelScheduledValues(time);
           control.input.setTargetAtTime(value * 2 - 1, time, .015);
           control.bias.setTargetAtTime(.5 - value, time, .015);
+        }
+      },
+      updateFilter: (next, previous, time) => {
+        const peakControl = controls.get("filterPeakGain");
+        if (peakControl && previous?.legacyPeakModulation !== next.legacyPeakModulation)
+          peakControl.clamp.curve = next.legacyPeakModulation
+            ? Float32Array.from({ length: 193 }, (_, i) => Math.max(0, Math.min(5 / 6, i / 96 - 1))) : new Float32Array([-1, 1]);
+        filter.update(next, previous, time);
+        if (previous?.drivePosition !== next.drivePosition) {
+          preDriveGain.gain.cancelScheduledValues(time); driveBypass.gain.cancelScheduledValues(time);
+          preDriveGain.gain.setTargetAtTime(next.drivePosition >= .5 ? 0 : 1, time, .004);
+          driveBypass.gain.setTargetAtTime(next.drivePosition >= .5 ? 1 : 0, time, .004);
+        }
+        if (previous?.drive !== next.drive) {
+          if (driveProcessor instanceof WaveShaperNode) driveProcessor.curve = distortionCurve(next.drive * .2);
+          else driveProcessor.parameters.forEach((param, key) => { if (key === "amount") param.setTargetAtTime(next.drive, time, .015); });
+        }
+        for (const key of [...FILTER_KEYS, "drive"] as Param[]) {
+          if (previous?.[key] === next[key]) continue;
+          const control = controls.get(key);
+          if (!control) continue;
+          const [min, max] = PARAMS[key], half = (max - min) / 2;
+          control.input.cancelScheduledValues(time); control.bias.cancelScheduledValues(time);
+          control.input.setTargetAtTime((next[key] - min) / half - 1, time, .015);
+          control.bias.setTargetAtTime(min + half - next[key], time, .015);
         }
       },
       updateFm: (next, previous, time) => {
@@ -1366,6 +1369,7 @@ export class SynthEngine {
         pitchShift += delta;
         note = next;
         voice.note = next;
+        activeFilter.setNote(next, at);
         if (fmSource) {
           holdParameter(fmSource.frequency, at, fmSource.frequency.value, true);
           fmSource.frequency.exponentialRampToValueAtTime(midiHz(next + p.tune), at + Math.max(.003, p.glide));
@@ -1419,6 +1423,8 @@ export class SynthEngine {
       // Releasing both gains would square the envelope and shorten its decay.
       if (!isPara || others.length) amp.gain.exponentialRampToValueAtTime(EPS, releaseAt + releaseLength);
       if (isPara) {
+        const priority = others.at(-1);
+        if (priority) bus.paraFilter.setNote(priority.note, releaseAt);
         const latest = Math.max(releaseAt, ...others.map((v) => v.releaseAt));
         for (const sibling of this.voices.filter(
           (v) =>
@@ -1461,44 +1467,12 @@ export class SynthEngine {
             EPS,
             latest + shared.release,
           );
-          holdParameter(
-            bus.paraFilter.frequency,
-            latest,
-            filterEnvelopeAt(shared, latest - bus.paraStart),
-            true,
-          );
-          bus.paraFilter.frequency.setTargetAtTime(
-            shared.cutoff,
-            latest,
-            Math.max(0.005, shared.filterRelease / 4),
-          );
+          scheduleFilterRelease(bus.paraFilter.frequency, shared, latest, filterEnvelopeAt(shared, latest - bus.paraStart));
         }
       }
-      holdParameter(
-        filter.frequency,
-        releaseAt,
-        filterEnvelopeAt(p, releaseAt - start),
-        true,
-      );
-      filter.frequency.setTargetAtTime(
-        p.cutoff,
-        releaseAt,
-        Math.max(0.005, p.filterRelease / 4),
-      );
-      const filterEnv: Envelope = {
-        attack: p.filterAttack,
-        decay: p.filterDecay,
-        sustain: p.filterSustain,
-        release: p.filterRelease,
-      };
-      for (const { param, scale } of filterEnvParams) {
-        holdParameter(
-          param,
-          releaseAt,
-          envelopeAt(filterEnv, releaseAt - start) * scale,
-        );
-        param.linearRampToValueAtTime(0, releaseAt + p.filterRelease);
-      }
+      scheduleFilterRelease(filter.frequency, envelopePatch, releaseAt, filterEnvelopeAt(envelopePatch, releaseAt - start));
+      for (const { param, scale } of filterEnvParams)
+        scheduleFilterRelease(param, p, releaseAt, Math.max(EPS, filterAdsrAt(p, releaseAt - start)) * scale, false);
       const end = releaseAt + releaseLength + 0.05;
       voice.end = end;
       for (const gate of gates) {

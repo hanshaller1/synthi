@@ -1,3 +1,19 @@
+# Filter-Ausbau vom 23.10.2026
+
+Basis: GitHub-`main` auf `53d2c6f`. Bereits abgeschlossene FM-, Sequencer-, Hold- und Layout-Arbeiten wurden beibehalten. Keine Tests, Testabhängigkeiten, Browser-/Hörprüfungen oder Benchmarks für diesen Ausbau ausgeführt; ausschließlich statische Durchsicht und Produktionsbuild.
+
+- Base-Width aus zwei TPT-Einpolfiltern vor dem Main Filter, eigener weich modulierbarer Bypass. Open/Open überbrückt beide Stufen. Alle acht Engines durchlaufen dieselbe Stimmen-/Para-Filterabstraktion.
+- Neue Multimode-Endpunkte bis 48 dB, LP/BP/HP-Morph, negative Peak-Gains, Butterworth-Polverteilung, State-Variable-TPT, rückgekoppelte Ladder-/Acid-Kaskaden, Resonanzkompensation, Dry/Wet und umschaltbares Pre-/Post-Drive. Laufende Topologiewechsel überblenden die Signalpfade; Modulations-/Envelope-Steuerquellen bleiben über den Wechsel erhalten.
+- Comb Feedback/Feedforward, Wet-Gain mit Begrenzung, musikalisches Keytracking, Fine, Stereo-Spread, Feedback-HP/Sättigung und wählbare kubische Lagrange-Interpolation. Feedback unter eins, gedämpfte Schleife, begrenzte interne Zustände und endlicher Ausgang. Der Legacy-Comb-DSP bleibt unverändert auswählbar und ist weiterhin der Default.
+- Drei Filter-Envelope-Curves und Velocity-Einfluss. Kurve 0 verwendet die vorherigen AudioParam-Rampen/Release-Konstanten. Kurven werden als unterbrechbare zeitgesteuerte Rampen geplant; Para-Fortsetzung und Release berücksichtigen sie ebenfalls. Keytracking skaliert die Frequenz exakt exponentiell zur MIDI-Distanz von C4.
+- Neue numerische Ziele im gemeinsamen Parameterkatalog: Locks, MIDI Learn, Matrix, Import/Export und Undo/Redo. Shape-/Kurven-Parameter sind als Matrixziele beim Anschlag abgetastet. Classic/neutral erhält die vorherigen nativen Biquads; ein Worklet wird nur bei Bedarf verwendet. Alte Peak-Gains, Lock-Werte einschließlich Backups, Modulationsbeträge/-Begrenzung, MIDI-Bindings und Multimode-Auswahlrouten werden kompatibel migriert.
+- DSP und Anzeige verwenden dieselbe geteilte Koeffizienten-/Transferfunktion. Frequenzgang bei Base/Peak/Sustain, wählbare Vorschau-Note/Velocity, beide Stereo-Comb-Kanäle. Nichtlineare Signalwege zeigen die Kleinsignalantwort; die native Drive-Oversampling-Entzerrung wird nicht modelliert. Filter-Envelope zeigt den Hz-Verlauf vor Keytracking. Frequenzgänge werden außerhalb der Bildschirmschleife vorbereitet und bei unveränderten Filterwerten zwischengespeichert.
+- DSP-Steuerwerte werden nur bei Änderung neu abgeleitet, feste Parameter einmal pro Audioblock eingelesen, Koeffizienten-/Delay-Speicher wiederverwendet. Kein zusätzliches Audio-Autoplay, kein externer Dienst und keine neue Abhängigkeit. Offline-WAV und Live nutzen dieselben Filterklassen und Worklet-Module. Dispose trennt Steuerverbindungen und beendet Worklets/Quellen; fehlende Worklet-Unterstützung führt zu einer verständlichen Fehlermeldung.
+
+Abschluss: TypeScript-/Produktionsbuild und portable App-Dateien mit `npm run build:pages`; `git diff --check`. Die Vite-Warnung zur Bundlegröße über 500 kB besteht fort. Klanggleichheit alter Presets folgt dem unveränderten Default-DSP-Pfad; sie wurde nicht durch eine Hörprüfung oder einen Audiovergleich bestätigt. Keine Aussage über gemessene CPU-Last im Zielbrowser.
+
+---
+
 # FM-Ausbau: sechs Algorithmen und drei Operator-ADSRs
 
 Basis: GitHub-`main` auf `bcae49b`. Die bestehenden vier Synthese-Panels bleiben erhalten; zuvor abgeschlossene Sequencer-/Hold-/Layout-Arbeiten wurden beibehalten.
