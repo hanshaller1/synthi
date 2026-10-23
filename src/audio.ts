@@ -1,15 +1,15 @@
+import { sequenceFrame } from "./sequence";
+import type { ChanceState } from "./sequence";
 import { SAMPLE_LIBRARY, sampleData, wavetableSpectrum } from "./catalog";
 import { makeLfoSource } from "./lfo";
 import type { Lfo } from "./model";
 import { MasterProcessor } from "./master-audio";
 import {
   TRACK_COUNT,
-  CHORDS,
   LOCK_PARAMS,
   clamp,
   midiHz,
-  shouldTrigger,
-  playbackStep,
+  stepIndex,
 } from "./model";
 import { EffectRack } from "./effects";
 import { fxValues } from "./fx-spec";
@@ -36,6 +36,8 @@ type Voice = {
   nodes: AudioNode[];
   gates: AudioParam[];
   patch: Patch;
+  basePatch: Patch;
+  retune: (note: number, time: number) => void;
   released: boolean;
   releaseAt: number;
   end: number;
@@ -146,6 +148,7 @@ export class SynthEngine {
   readonly context: Context;
   readonly analyser: AnalyserNode;
   readonly master: GainNode;
+  private limiter: DynamicsCompressorNode;
   private mixInput: GainNode;
   private masterProcessor: MasterProcessor;
   private builtins = new Map<string, AudioBuffer>();
@@ -188,6 +191,7 @@ export class SynthEngine {
       this.master,
     );
     const limiter = context.createDynamicsCompressor();
+    this.limiter = limiter;
     limiter.threshold.value = -8;
     limiter.knee.value = 6;
     limiter.ratio.value = 16;
@@ -339,7 +343,7 @@ export class SynthEngine {
       [b.level.gain, this.audible[track] ? 1 : 0],
       [b.pan.pan, patch.pan],
     ];
-    for (const [param, value] of values) param.setValueAtTime(value, when);
+    for (const [param, value] of values) param.setTargetAtTime(value, when, .003);
     b.scheduleEffects(patch, when);
   }
   private builtin(id: string) {
@@ -486,13 +490,6 @@ export class SynthEngine {
       frequency = midiHz(note + p.tune);
     if (!this.combAvailable && requiresModulationWorklet(p))
       throw new Error("Diese Modulationsziele benötigen AudioWorklet über HTTPS oder localhost.");
-    const filter = new VoiceFilter(c, p.voiceMode === "para"),
-      amp = c.createGain(),
-      volume = c.createGain(),
-      panner = c.createStereoPanner(),
-      drive = this.combAvailable && p.mods.some((m) => m.target === "drive" && m.amount !== 0)
-        ? new AudioWorkletNode(c, "phase-voice-drive", { outputChannelCount: [2] })
-        : c.createWaveShaper();
     // Background tabs may delay cleanup timers beyond the next note.
     for (const voice of [...this.voices])
       if (voice.end <= c.currentTime) this.cleanupVoice(voice);
@@ -507,6 +504,20 @@ export class SynthEngine {
       this.monoHeld[track].push({ note, velocity, patch });
     }
     const legato = p.voiceMode === "mono" && p.legato && held.length > 0;
+    const previousVoice = held.at(-1);
+    if (legato && duration === undefined && previousVoice?.releaseAt === Infinity && previousVoice.basePatch === patch) {
+      previousVoice.retune(note, start);
+      this.lastNotes[track] = note;
+      return previousVoice;
+    }
+    const filter = new VoiceFilter(c, p.voiceMode === "para"),
+      amp = c.createGain(),
+      volume = c.createGain(),
+      tremolo = c.createGain(),
+      panner = c.createStereoPanner(),
+      drive = this.combAvailable && p.mods.some((m) => m.target === "drive" && m.amount !== 0)
+        ? new AudioWorkletNode(c, "phase-voice-drive", { outputChannelCount: [2] })
+        : c.createWaveShaper();
     if (p.voiceMode === "mono")
       for (const old of held) {
         old.release(start);
@@ -545,7 +556,8 @@ export class SynthEngine {
     drive.connect(filter.input);
     filter.connect(amp);
     volume.gain.value = p.level;
-    amp.connect(volume).connect(panner);
+    // Modulation multiplies the envelope: it cannot reopen a silent/released note.
+    amp.connect(tremolo).connect(volume).connect(panner);
     panner.connect(isPara ? bus.paraFilter.input : bus.input);
     const env: Envelope = {
       attack: p.attack,
@@ -650,10 +662,11 @@ export class SynthEngine {
     if (!(drive instanceof WaveShaperNode))
       drive.parameters.forEach((param, key) => { if (key === "active") gates.push(param); });
     const sources: Source[] = [],
-      nodes: AudioNode[] = [drive, amp, volume, panner],
+      nodes: AudioNode[] = [drive, amp, tremolo, volume, panner],
       pitch: AudioParam[] = [];
     const pitchOffsets = new Map<AudioParam, number>(),
       modwheelParams: AudioParam[] = [],
+      keytrackParams: AudioParam[] = [],
       filterEnvParams: { param: AudioParam; scale: number }[] = [],
       lfoControls: Voice["lfoControls"] = [],
       pitchModNodes: GainNode[] = [];
@@ -687,17 +700,20 @@ export class SynthEngine {
     if (!(drive instanceof WaveShaperNode))
       drive.parameters.forEach((param, key) => { if (key === "amount") bind("drive", param); });
     let physicalBuffer: AudioBuffer | undefined;
+    let physicalRate = 1;
     const grainTimers: number[] = [];
     const grainSchedulers: ((until: number) => void)[] = [];
     const previousNote = this.lastNotes[track];
+    let pitchShift = 0;
     const applyPitch = (param: AudioParam, offset = 0) => {
+      offset += pitchShift;
       pitch.push(param);
       bind("tune", param, 100);
       pitchOffsets.set(param, offset);
       for (const mod of pitchModNodes) mod.connect(param);
       const target = offset + this.bends[track];
       param.setValueAtTime(target, start);
-      if (p.voiceMode === "mono" && p.glide > 0.001) {
+      if (p.voiceMode === "mono" && held.length > 0 && p.glide > 0.001) {
         param.setValueAtTime(target + (previousNote - note) * 100, start);
         param.linearRampToValueAtTime(target, start + p.glide);
       }
@@ -955,7 +971,7 @@ export class SynthEngine {
             ),
             buffer = c.createBuffer(1, count, c.sampleRate),
             d = buffer.getChannelData(0),
-            period = Math.max(2, Math.floor(c.sampleRate / frequency)),
+            period = Math.max(2, Math.round(c.sampleRate / frequency + .5 - p.dispersion * .2)),
             line = new Float32Array(period);
           for (let i = 0; i < period; i++)
             line[i] =
@@ -983,10 +999,19 @@ export class SynthEngine {
             d[i] = line[index];
             line[index] = val;
           }
+          const neighbor = .5 - p.dispersion * .2;
+          let lo = 0, hi = Math.min(Math.PI * 2, Math.PI * 2 / (period - 1));
+          for (let iteration = 0; iteration < 32; iteration++) {
+            const w = (lo + hi) / 2;
+            const phase = Math.atan2(neighbor * Math.sin(w), 1 - neighbor + neighbor * Math.cos(w));
+            if (period * w - phase < Math.PI * 2) lo = w; else hi = w;
+          }
+          physicalRate = frequency / (((lo + hi) / 2) * c.sampleRate / (Math.PI * 2));
           physicalBuffer = buffer;
         }
         const source = c.createBufferSource();
         source.buffer = physicalBuffer;
+        source.playbackRate.value = physicalRate;
         applyLayerPitch(source.detune);
         const body = c.createBiquadFilter();
         body.type = "peaking";
@@ -1202,7 +1227,7 @@ export class SynthEngine {
         scale: Math.min(6000, p.cutoff * 2),
       },
       pitch: { params: pitch, scale: 1200 },
-      amplitude: { params: [amp.gain], scale: 0.16 * velocity },
+      amplitude: { params: [tremolo.gain], scale: 0.66 },
       pan: { params: [panner.pan], scale: 1 },
       fmIndex: { params: fmGains, scale: frequency * 10 },
     };
@@ -1268,6 +1293,7 @@ export class SynthEngine {
                 ? this.modwheel
                 : 0;
         if (mod.source === "modwheel") modwheelParams.push(source.offset);
+        if (mod.source === "keytrack") keytrackParams.push(source.offset);
         if (mod.source === "filterEnv") {
           filterEnvParams.push({ param: source.offset, scale: 1 });
           scheduleEnvelope(
@@ -1316,6 +1342,20 @@ export class SynthEngine {
       nodes,
       gates,
       patch: p,
+      basePatch: patch,
+      retune: (next, at) => {
+        const delta = (next - note) * 100;
+        pitchShift += delta;
+        note = next;
+        voice.note = next;
+        for (const param of pitch) {
+          const offset = (pitchOffsets.get(param) ?? 0) + delta;
+          pitchOffsets.set(param, offset);
+          holdParameter(param, at, param.value);
+          param.linearRampToValueAtTime(offset + this.bends[track], at + Math.max(.003, p.glide));
+        }
+        for (const param of keytrackParams) param.setTargetAtTime((next - 60) / 36, at, .01);
+      },
       released: false,
       releaseAt: Infinity,
       end: Infinity,
@@ -1351,7 +1391,9 @@ export class SynthEngine {
       );
       const releaseLength = isPara && others.length ? 0.025 : p.release;
       holdParameter(amp.gain, releaseAt, Math.max(EPS, value));
-      amp.gain.exponentialRampToValueAtTime(EPS, releaseAt + releaseLength);
+      // The final paraphonic voice is released by the shared bus envelope.
+      // Releasing both gains would square the envelope and shorten its decay.
+      if (!isPara || others.length) amp.gain.exponentialRampToValueAtTime(EPS, releaseAt + releaseLength);
       if (isPara) {
         const latest = Math.max(releaseAt, ...others.map((v) => v.releaseAt));
         for (const sibling of this.voices.filter(
@@ -1459,7 +1501,7 @@ export class SynthEngine {
       this.queueCleanup(voice);
     };
     this.voices.push(voice);
-    if (duration !== undefined) voice.release(start + Math.max(0.01, duration));
+    if (duration !== undefined) voice.release(start + Math.max(1 / c.sampleRate, duration));
     return voice;
   }
   noteOff(track: number, note: number, when = this.context.currentTime) {
@@ -1539,6 +1581,8 @@ export class SynthEngine {
     this.masterProcessor.dispose();
     this.mixInput.disconnect();
     this.master.disconnect();
+    this.limiter.disconnect();
+    this.analyser.disconnect();
   }
 }
 
@@ -1548,149 +1592,164 @@ export type StepEvent = {
   cycle: number;
   time: number;
 };
+type ScheduledNote = {
+  track: number; note: number; velocity: number; patch: Patch;
+  at: number; gate: number;
+};
+type PendingEvent = { at: number; track: number; patch: Patch; configure?: boolean; note?: ScheduledNote; head?: StepEvent };
 export class Transport {
   private timer: number | undefined;
   private tick = 0;
   private next = 0;
+  private clockNext = 0;
   private epoch = 0;
-  private uiTimers = new Set<number>();
+  private pending: PendingEvent[] = [];
+  private uiQueue: StepEvent[] = [];
+  private positions = new Map<number, { step: number; absolute: number; time: number; duration: number; advance: number; reverse: boolean }[]>();
   fill = false;
   external = false;
   private clockPulses = 0;
-  private cursors = Array.from({ length: TRACK_COUNT }, () => ({
-    next: 0,
-    position: 0,
-  }));
+  private cursors = Array.from({ length: TRACK_COUNT }, () => ({ next: 0, position: 0 }));
+  private chances: ChanceState[] = Array.from({ length: TRACK_COUNT }, () => new Map());
   private patternIndex = -1;
   onStep: (event: StepEvent) => void = () => {};
   onClock: (status: number, time: number) => void = () => {};
-  onNote: (
-    track: number,
-    note: number,
-    velocity: number,
-    time: number,
-    duration: number,
-  ) => void = () => {};
-  getProject: () => Project;
-  constructor(
-    readonly engine: SynthEngine,
-    getProject: () => Project,
-  ) {
-    this.getProject = getProject;
-  }
-  get running() {
-    return this.timer !== undefined || this.external;
+  onNote: (track: number, note: number, velocity: number, time: number, duration: number) => void = () => {};
+  constructor(readonly engine: SynthEngine, readonly getProject: () => Project) {}
+  get running() { return this.timer !== undefined || this.external; }
+  position(track: number) {
+    const frames = this.positions.get(track), now = this.engine.context.currentTime;
+    const p = frames ? [...frames].reverse().find((frame) => frame.time <= now) : undefined;
+    if (!p || !this.running) return null;
+    const progress = clamp((now - p.time) / p.duration, 0, p.advance);
+    return { step: Math.max(0, p.reverse ? p.step + 1 - progress : p.step + progress), absolute: p.absolute + progress };
   }
   start(external = false) {
     if (this.running) return;
     this.tick = 0;
-    this.cursors = Array.from({ length: TRACK_COUNT }, () => ({
-      next: 0,
-      position: 0,
-    }));
-    this.patternIndex = -1;
-    this.epoch = this.engine.context.currentTime + 0.07;
-    this.next = this.epoch;
+    this.resetCursors(0);
+    this.patternIndex = this.getProject().activePattern;
+    this.next = this.engine.context.currentTime + 0.07;
+    this.clockNext = this.next;
+    this.epoch = this.next;
     this.external = external;
     this.clockPulses = 0;
-    if (!external) {
-      this.onClock(0xfa, this.epoch);
-      this.timer = window.setInterval(() => this.schedule(), 20);
-      this.schedule();
-    }
+    if (!external) this.onClock(0xfa, this.next);
+    this.timer = window.setInterval(() => {
+      if (!this.external) this.schedule();
+      else this.flush();
+    }, 20);
+    if (!external) this.schedule();
+  }
+  private resetCursors(tick: number) {
+    this.cursors = Array.from({ length: TRACK_COUNT }, () => ({ next: tick, position: 0 }));
+    this.chances = Array.from({ length: TRACK_COUNT }, () => new Map());
+    this.pending = [];
+    this.positions.clear();
+    this.uiQueue = [];
   }
   private schedule() {
-    const c = this.engine.context;
-    while (this.next < c.currentTime + 0.12) {
-      this.scheduleTick(this.tick, this.next);
-      for (let pulse = 0; pulse < 3; pulse++)
-        this.onClock(
-          0xf8,
-          this.next + pulse * (60 / this.getProject().tempo / 24),
-        );
-      this.next += 60 / this.getProject().tempo / 8;
-      this.tick++;
+    const c = this.engine.context, project = this.getProject();
+    if (this.patternIndex !== project.activePattern) {
+      this.patternIndex = project.activePattern;
+      this.engine.panic();
+      this.resetCursors(this.tick);
+      this.next = Math.max(c.currentTime + 0.04, this.clockNext);
+      this.epoch = this.next;
     }
+    // Skip elapsed clock time after a suspended/background tab; never burst old notes.
+    if (this.next < c.currentTime - 0.15) {
+      const skipped = Math.ceil((c.currentTime - this.next) / (60 / project.tempo / 8));
+      this.tick += skipped;
+      this.next = c.currentTime + 0.04;
+      this.clockNext = this.next;
+      this.epoch = this.next;
+      this.resetCursors(this.tick);
+    }
+    const early = Math.max(0, ...project.tracks.map((track) => {
+      const pat = track.patterns[project.activePattern];
+      const units = track.mode === "piano"
+        ? Math.max(0, ...pat.notes.map((n) => -n.micro))
+        : Math.max(0, ...pat.steps.slice(0, pat.length).map((s) => -s.micro * s.span));
+      return units * 240 / project.tempo / pat.division;
+    }));
+    while (this.next < c.currentTime + 0.12 + early) {
+      this.scheduleTick(this.tick++, this.next);
+      this.next += 60 / project.tempo / 8;
+    }
+    while (this.clockNext < c.currentTime + 0.12) {
+      if (this.clockNext >= c.currentTime - 0.03) this.onClock(0xf8, this.clockNext);
+      this.clockNext += 60 / project.tempo / 24;
+    }
+    this.flush();
   }
   clock() {
     if (!this.external) return;
     if (this.clockPulses++ % 3 === 0) {
-      this.scheduleTick(this.tick, this.engine.context.currentTime + 0.025);
-      this.tick++;
+      this.scheduleTick(this.tick++, this.engine.context.currentTime + 0.025);
+      this.flush();
     }
   }
   private scheduleTick(tick: number, time: number) {
-    const project = this.getProject(),
-      quantum = 60 / project.tempo / 8;
+    const project = this.getProject(), quantum = 60 / project.tempo / 8;
     if (this.patternIndex !== project.activePattern) {
       this.patternIndex = project.activePattern;
-      this.cursors = Array.from({ length: TRACK_COUNT }, () => ({
-        next: tick,
-        position: 0,
-      }));
+      this.resetCursors(tick);
     }
-    project.tracks.forEach((track) => {
-      const pattern = track.patterns[project.activePattern],
-        cursor = this.cursors[track.id];
+    for (const track of project.tracks) {
+      const pattern = track.patterns[project.activePattern], cursor = this.cursors[track.id];
       while (cursor.next < tick + 1 - 0.00001) {
         const position = cursor.position;
-        const { index, span, advance, cycle, trigger } = playbackStep(pattern, position);
-        const step = pattern.steps[index],
-          ticks = 32 / pattern.division,
-          duration = quantum * ticks * span;
-        const stepTime = cursor.next;
-        cursor.position += advance;
-        cursor.next += ticks * advance;
-        if (!trigger) continue;
-        const at = Math.max(
-          this.engine.context.currentTime,
-          time +
-            (stepTime - tick) * quantum +
-            (position % 2
-              ? project.swing * Math.min(duration, quantum * 2)
-              : 0) +
-            step.micro * duration,
-        );
-        const id = window.setTimeout(
-          () => {
-            this.uiTimers.delete(id);
-            this.onStep({ track: track.id, step: index, cycle, time: at });
-          },
-          Math.max(0, (at - this.engine.context.currentTime) * 1000),
-        );
-        this.uiTimers.add(id);
-        const audible =
-          !track.mute && (!project.tracks.some((t) => t.solo) || track.solo);
-        if (audible && shouldTrigger(step, cycle, this.fill)) {
-          const patch = lockedPatch(track.patch, step.locks);
-          this.engine.scheduleTrack(track.id, patch, at);
-          for (let r = 0; r < step.retrig; r++)
-            for (const offset of CHORDS[step.chord]) {
-              const note = clamp(step.note + offset, 0, 127),
-                when = at + (r * duration) / step.retrig,
-                gate = (duration * step.gate) / step.retrig;
-              this.engine.noteOn(
-                track.id,
-                note,
-                step.velocity,
-                patch,
-                when,
-                gate,
-              );
-              this.onNote(track.id, note, step.velocity, when, gate);
-            }
+        const frame = sequenceFrame(track, pattern, position, project.swing, this.fill, this.chances[track.id]);
+        const duration = quantum * 32 / pattern.division;
+        const baseTime = time + (cursor.next - tick) * quantum;
+        cursor.position += frame.advance;
+        cursor.next += 32 / pattern.division * frame.advance;
+        // The playhead follows the grid; microtiming belongs to notes, not the clock.
+        this.pending.push({ at: baseTime, track: track.id, patch: track.patch, configure: frame.trigger,
+          head: { track: track.id, step: frame.index, cycle: frame.cycle, time: baseTime } });
+        const frames = this.positions.get(track.id) ?? [];
+        frames.push({ step: track.mode === "piano" && pattern.direction !== "random" ? stepIndex(position, pattern.length, pattern.direction) : frame.index,
+          absolute: position, time: baseTime, duration, advance: frame.advance,
+          reverse: pattern.length > 1 && (pattern.direction === "reverse" || (pattern.direction === "pingpong" && position % Math.max(1, pattern.length * 2 - 2) >= pattern.length - 1)) });
+        while (frames.length > 1 && frames[1].time <= this.engine.context.currentTime) frames.shift();
+        this.positions.set(track.id, frames);
+        for (const n of frame.notes) {
+          const at = Math.max(this.epoch, baseTime + n.offset * duration);
+          const patch = lockedPatch(track.patch, n.locks);
+          this.pending.push({ at, track: track.id, patch,
+            note: { track: track.id, note: n.note, velocity: n.velocity, patch, at, gate: n.duration * duration } });
         }
       }
-    });
+    }
   }
-
+  private flush() {
+    const now = this.engine.context.currentTime;
+    this.pending.sort((a, b) => a.at - b.at || Number(!!a.note) - Number(!!b.note));
+    while (this.pending.length && this.pending[0].at < now + 0.12) {
+      const event = this.pending.shift()!;
+      if (event.at < now - 0.1) continue;
+      const project = this.getProject(), track = project.tracks[event.track];
+      const at = Math.max(now, event.at);
+      if (event.head) {
+        this.uiQueue.push(event.head);
+        if (event.configure) this.engine.scheduleTrack(track.id, track.patch, at);
+      }
+      if (!event.note || track.mute || (project.tracks.some((t) => t.solo) && !track.solo)) continue;
+      const n = event.note;
+      this.engine.scheduleTrack(track.id, n.patch, at);
+      this.engine.noteOn(track.id, n.note, n.velocity, n.patch, at, n.gate);
+      this.onNote(track.id, n.note, n.velocity, at, n.gate);
+    }
+    this.uiQueue.sort((a, b) => a.time - b.time);
+    while (this.uiQueue.length && this.uiQueue[0].time <= now) this.onStep(this.uiQueue.shift()!);
+  }
   stop() {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
     this.external = false;
     this.tick = 0;
-    for (const id of this.uiTimers) window.clearTimeout(id);
-    this.uiTimers.clear();
+    this.resetCursors(0);
     this.onClock(0xfc, this.engine.context.currentTime);
     this.engine.panic();
   }
@@ -1726,57 +1785,24 @@ export async function renderProject(
   const quarter = 60 / project.tempo,
     seconds = bars * 4 * quarter,
     ticks = bars * 32;
-  const events: {
-    track: number;
-    notes: number[];
-    velocity: number;
-    patch: Patch;
-    at: number;
-    gate: number;
-    configure: boolean;
-  }[] = [];
+  const events: PendingEvent[] = [];
   let end = seconds;
   for (const track of project.tracks) {
-    if (track.mute || (project.tracks.some((t) => t.solo) && !track.solo))
-      continue;
-    const pat = track.patterns[project.activePattern];
-    let tick = 0,
-      position = 0;
+    if (track.mute || (project.tracks.some((t) => t.solo) && !track.solo)) continue;
+    const pat = track.patterns[project.activePattern], chance: ChanceState = new Map();
+    let tick = 0, position = 0;
     while (tick < ticks) {
-      const pos = position;
-      const { index, span, advance, cycle, trigger } = playbackStep(pat, pos);
-      const s = pat.steps[index],
-        stepTicks = 32 / pat.division,
-        duration = (quarter / 8) * stepTicks * span;
-      const stepTick = tick;
-      position += advance;
-      tick += stepTicks * advance;
-      if (!trigger) continue;
-      const at = Math.max(
-        0,
-        (stepTick * quarter) / 8 +
-          (pos % 2 ? project.swing * Math.min(duration, quarter / 4) : 0) +
-          s.micro * duration,
-      );
-      if (!shouldTrigger(s, cycle, fill)) continue;
-      const patch = lockedPatch(track.patch, s.locks);
-      for (let r = 0; r < s.retrig; r++) {
-        const when = at + (r * duration) / s.retrig,
-          gate = (duration * s.gate) / s.retrig;
-        events.push({
-          track: track.id,
-          notes: CHORDS[s.chord].map((offset) => clamp(s.note + offset, 0, 127)),
-          velocity: s.velocity,
-          patch,
-          at: when,
-          gate,
-          configure: r === 0,
-        });
-        end = Math.max(
-          end,
-          when + Math.max(0.01, gate) +
-            (patch.mods.some((m) => m.target === "release" && m.amount !== 0) ? PARAMS.release[1] : patch.release) + effectTail(patch),
-        );
+      const frame = sequenceFrame(track, pat, position, project.swing, fill, chance);
+      const unit = quarter * 4 / pat.division, baseTime = tick * quarter / 8;
+      if (frame.trigger) events.push({ at: baseTime, track: track.id, patch: track.patch });
+      position += frame.advance;
+      tick += 32 / pat.division * frame.advance;
+      for (const n of frame.notes) {
+        const patch = lockedPatch(track.patch, n.locks), at = Math.max(0, baseTime + n.offset * unit), gate = n.duration * unit;
+        events.push({ at, track: track.id, patch,
+          note: { track: track.id, note: n.note, velocity: n.velocity, patch, at, gate } });
+        end = Math.max(end, at + Math.max(0.01, gate) +
+          (patch.mods.some((m) => m.target === "release" && m.amount !== 0) ? PARAMS.release[1] : patch.release) + effectTail(patch));
       }
     }
   }
@@ -1794,19 +1820,11 @@ export async function renderProject(
     await engine.prepare(project);
     // Voice limits and shared paraphonic articulation depend on note order.
     // A full track or a long ratchet must not be scheduled ahead of earlier notes.
-    events.sort((a, b) => a.at - b.at);
+    events.sort((a, b) => a.at - b.at || Number(!!a.note) - Number(!!b.note));
     for (const event of events) {
-      if (event.configure)
-        engine.scheduleTrack(event.track, event.patch, event.at);
-      for (const note of event.notes)
-        engine.noteOn(
-          event.track,
-          note,
-          event.velocity,
-          event.patch,
-          event.at,
-          event.gate,
-        );
+      engine.scheduleTrack(event.track, event.patch, event.at);
+      const n = event.note;
+      if (n) engine.noteOn(n.track, n.note, n.velocity, n.patch, n.at, n.gate);
     }
     return await ctx.startRendering();
   } finally {

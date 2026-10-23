@@ -1,3 +1,34 @@
+# Codeprüfung und Piano Roll vom 23.10.2026
+
+Basis: ausdrücklich neu von GitHub geladenes `main`, Commit `a7f202d`. Der ursprünglich bereitgestellte Vier-Track-Checkout wurde vor jeder Änderung verworfen bzw. per Fast-forward aktualisiert. Die acht vorhandenen Tracks bleiben erhalten; vier weitere ergeben zwölf Tracks. Keine Veröffentlichung und kein Push.
+
+## Korrigierte Befunde
+
+- **Amplitudenmodulation:** Direkte Addition zur Amp-Hüllkurve konnte trotz Sustain 0 oder während Release ein Signal erzeugen. Ein separater multiplikativer Gain erhält die Artikulation.
+- **Mono / Legato:** Überlappende Live-Tasten ersetzten zuvor die Stimme und sprangen auf Sustain. Bei unverändertem Patch wird die Stimme nun weitergeführt und ihre Tonhöhe gleitend geändert; Last-Note-Priority, Keytracking und Pitch Bend bleiben erhalten. Ein erster, nicht überlappender Mono-Anschlag gleitet nicht von der letzten alten Note. Der Worklet-Detune-Bereich deckt auch weite Legato-Intervalle ab.
+- **Paraphonic Release:** Gemeinsame Bus-Hüllkurve und letzte Einzelstimme wurden gleichzeitig abgesenkt, wodurch die Release-Kurve quadriert wurde. Die letzte Stimme folgt jetzt ausschließlich dem gemeinsamen Release.
+- **Physical-Tonhöhe:** Ganzzahlige Delay-Länge und die Phasenverschiebung der Saitenglättung verstimmten die erzeugte Saite. Die Wiedergaberate gleicht die aus dem Umlauf berechnete Grundfrequenz aus.
+- **Kurze Noten:** Die pauschale Mindest-Gate-Dauer von 10 ms verfälschte kurze Noten und schnelle Ratchets. Minimum ist jetzt eine Audio-Sampleperiode.
+- **Live-Scheduling:** Lange Ratchets wurden vollständig vor später eintreffenden, aber früher klingenden Noten anderer Tracks angelegt. Eine sortierte Ereigniswarteschlange vereinheitlicht die Reihenfolge mit dem Offline-Pfad. Negative Microtiming-Werte vergrößern den Planungsvorlauf. Überfällige Ereignisse nach stark gedrosselten Tabs werden nicht als Noten-Burst nachgeholt.
+- **Step-Locks / Stop:** Bus-Locks werden an folgenden Trigger-Grenzen auf den Patch zurückgeführt; planbare Bus-/FX-Werte wechseln mit kurzer Glättung. Transport-Warteschlangen werden bei Stop geleert, und beim Dispose werden auch Limiter und Analyser getrennt.
+- **MIDI-Überlappungen:** Das Note-off einer älteren Sequencer-Note konnte eine neuere, gleich hohe Note vorzeitig beenden. Die Ausgabe zählt überlappende Stimmen pro Kanal/Tonhöhe und verschickt das letzte Note-off erst nach deren Freigabe. Panic leert auch diese Warteschlange und sendet All Notes Off / All Sound Off.
+
+## Ergänzungen und Datenbestand
+
+- Zwölf unabhängige Tracks, MIDI-Kanäle 1–12; Import alter Vier-/Acht-Track-Projekte und Projektformat 2.
+- Pro Track Step oder Piano Roll; eigene Register mit passender Track-Auswahl, gemeinsamer Wiedergabe, Mute/Solo, Recording und Export.
+- Piano Roll mit polyphonen Noten, Raster/freier Platzierung, Zoom und Hand-Werkzeug, Mehrfach-/Rechteckauswahl, Verschieben, beidseitiger Längenänderung, Velocity-Spur, präzisem Inspector, Transposition, Quantisierung, Zwischenablage, Undo/Redo, Bedingungen und Noten-Locks.
+- Automatische Step-Übernahme einschließlich Akkord-/Ratchet-Gruppen und ursprünglicher Step-Daten. Die Rückmigration zeigt ihre Auswirkungen auf alle acht Patterns und erfordert die Bestätigung in der App. Das vollständige Original bleibt samt Timing im lokalen Projekt wiederherstellbar.
+- Gehaltene polyphone Live-/MIDI-Noten zeichnen ihre Dauer einschließlich Loop-Grenzen auf; Vorhören ist davon getrennt. Außerhalb eines verkürzten Patterns liegende Noten werden nicht gelöscht.
+
+## Verifikation und Grenzen
+
+Statische Prüfung der Daten-, Synthese-, Modulations-, Effekt-, Transport-, MIDI- und Editorpfade. `npm run build:pages` kompiliert TypeScript, baut das Produktions-Bundle und erzeugt die drei lokalen HTML-Artefakte. `git diff --check` prüft Whitespace. Gemäß `AGENTS.md` wurden keine Tests angelegt oder ausgeführt und keine Test-Abhängigkeiten ergänzt. Hörprüfung, Browser-Bedienung und Hardware-MIDI wurden nicht praktisch geprüft; der erfolgreiche Build allein belegt diese Eigenschaften nicht.
+
+Externe Clock kann negative Zeitverschiebungen nur innerhalb verfügbarer Clock-Informationen planen. Track-Effekte bleiben gemeinsame Busse; widersprüchliche gleichzeitige FX-Locks besitzen keine unabhängige Effektinstanz pro Note. Zufallsquellen und Wahrscheinlichkeiten werden beim WAV-Export neu ausgewertet. Der erweiterte Vorlauf für negative Microtiming-Werte kann Änderungen an bereits geplanten Noten verzögern.
+
+---
+
 # Codeprüfung vom 22.10.2026
 
 Basis ist `main` auf `e5e8175`, einschließlich Backlog-Umsetzung und der neuen Multimode-/Comb-Filter. Die Prüfung erfolgte statisch; die Projektvorgabe untersagt das Schreiben und Ausführen von Tests.

@@ -1,6 +1,6 @@
 # PHASE — Sound in motion
 
-Eine Synthesizer-Webapplikation mit echter Klangerzeugung im Browser, acht Instrument-Tracks und einem Elektron-inspirierten Parameter-Lock-Sequencer. React, TypeScript, Vite und die native Web Audio API. Kein Backend und kein Konto erforderlich.
+Eine Synthesizer-Webapplikation mit echter Klangerzeugung im Browser, zwölf Instrument-Tracks und einem Elektron-inspirierten Parameter-Lock-Sequencer. React, TypeScript, Vite und die native Web Audio API. Kein Backend und kein Konto erforderlich.
 
 Der freigegebene [Backlog](BACKLOG.md) ist umgesetzt. Neue, dort künftig offene Punkte werden erst nach ausdrücklicher Aufforderung umgesetzt.
 
@@ -62,7 +62,7 @@ Browser können lokalen HTML-Dateien Speicher- oder MIDI-Berechtigungen verweige
 
 ## Klangerzeugung
 
-Jeder der acht Tracks besitzt eine eigene Engine, einen Resonanzfilter, zwei ADSR-Hüllkurven, drei LFOs, eine Modulationsmatrix und eine Effektkette.
+Jeder der zwölf Tracks besitzt eine eigene Engine, einen Resonanzfilter, zwei ADSR-Hüllkurven, drei LFOs, eine Modulationsmatrix und eine Effektkette.
 
 | Engine      | Klanggestaltung                                                                                                                            |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -85,7 +85,7 @@ Sampler und Granular akzeptieren außerdem eigene Audiodateien (maximal 15 MB un
 
 Der **VOICE**-Schalter gilt pro Track:
 
-- **Monophonic:** eine Tonhöhe, Last-Note-Priority, Legato und Portamento.
+- **Monophonic:** eine Tonhöhe, Last-Note-Priority, Legato und Portamento. Überlappende Live-Tasten im unveränderten Patch führen die vorhandene Stimme samt Hüllkurven weiter; ein frischer erster Anschlag beginnt ohne Glide von einer früheren Note.
 - **Paraphonic:** mehrere Tonhöhen durch einen gemeinsamen Filter und eine gemeinsame Filter-/Amp-Artikulation.
 - **Polyphonic:** getrennte Filter und Hüllkurven pro Stimme.
 
@@ -122,11 +122,11 @@ Alle drei Panels verwenden denselben kompakten Header mit Titel, Kontext und Akt
 
 **Synthesizer**, **Sequencer** und **Master FX** sind getrennte Hauptregister; nur der ausgewählte Editor ist sichtbar. Die Wiedergabe läuft beim Umschalten weiter. Swing, Pattern-Duplizieren und Keyboard ein-/ausblenden stehen gemeinsam in der Hauptleiste. Das Layout nutzt die Browserhöhe ohne Seiten-Scrollleiste. Texte und Bedienelemente sind bei normalem Browserzoom größer ausgelegt. Hilfe, Einstellungen und Speicherstatus stehen in der Topbar; eine zusätzliche Workspace-Bar entfällt. Auf schmalen Displays haben Klangquelle, Character / Unison, Filter, Amp, LFOs/Matrix und FX-Slots eigene Unterregister; die Modulationsmatrix zeigt dort vier Routen pro Seite. Das Keyboard zeigt auf Smartphones zwei Oktaven mit 25 Tasten, auch im Touch-Querformat; auf größeren Bildschirmen vier Oktaven mit 49 Tasten, jeweils einschließlich des abschließenden C. Die Anzeige passt sich beim Drehen oder Ändern der Fenstergröße automatisch an. Über −/+ oder Z/X lässt sich der angezeigte Bereich verschieben.
 
-Bestehende Projekte mit vier Tracks werden beim Laden um vier leere Tracks erweitert. Bestehende Presets erhalten fehlende LFO-Modi, Klangparameter und FX-Einstellungen. Ältere Steps erhalten die bisherige Standardlänge; ältere Projekte starten mit neutralen Master-FX. Die nun serielle Track-FX-Kette kann den Klang bestehender Patches gegenüber der früheren parallelen Anordnung verändern.
+Bestehende Projekte mit vier oder acht Tracks werden beim Laden auf zwölf Tracks mit zusätzlichen leeren Patterns erweitert. Neue Projektdateien verwenden Version 2 und speichern auch Editortyp, Piano-Roll-Noten und gegebenenfalls das Original einer Migration; Version-1-Projekte bleiben importierbar. Bestehende Presets erhalten fehlende LFO-Modi, Klangparameter und FX-Einstellungen. Ältere Steps erhalten die bisherige Standardlänge; ältere Projekte starten mit neutralen Master-FX. Die nun serielle Track-FX-Kette kann den Klang bestehender Patches gegenüber der früheren parallelen Anordnung verändern.
 
 ## Sequencer
 
-Acht Pattern-Speicher **A01–A08**, jeder mit acht Tracks. Pro Track unabhängig:
+Acht Pattern-Speicher **A01–A08**, jeder mit zwölf Tracks. Pro Track unabhängig:
 
 - 1–64 Steps; vier Seiten mit jeweils 16 Steps.
 - Auflösung 1/8, 1/16 oder 1/32; Forward, Reverse, Ping-pong oder Random.
@@ -142,9 +142,27 @@ Acht Pattern-Speicher **A01–A08**, jeder mit acht Tracks. Pro Track unabhängi
 
 **P-LOCK im Sequencer aktivieren**, ins Hauptregister **Synthesizer** wechseln und einen Instrument-Regler bewegen: Der Wert wird nur für den ausgewählten Step gespeichert. Locks können auch direkt im Lock-Editor ergänzt, editiert und entfernt werden. Drive-Kennlinie, Hallraum-Größe, Unison-Anzahl, Wavetable-Auswahl, Sampler-Reverse/-Fade sowie additive Topologieparameter sind keine Step-Lock-Ziele. Effekt-spezifische Zusatzparameter werden im Patch gespeichert. Die globalen Pattern- und FX-Regler bleiben separat verfügbar.
 
-**Live Rec:** Keyboard-/MIDI-Noten werden am aktuellen Step aufgenommen. Im Stillstand werden Noten schrittweise eingetragen. Ein Step speichert eine Root Note und den gewählten Akkordtyp; Live Rec ist keine zeitlich freie Mehrspuraufnahme.
+**Live Rec im Step-Modus:** Keyboard-/MIDI-Noten werden am aktuellen Step aufgenommen. Im Stillstand werden Noten schrittweise eingetragen. Ein Step speichert eine Root Note und den gewählten Akkordtyp. In der Piano Roll werden Startzeit, Anschlagstärke und tatsächliche Notendauer polyphon aufgenommen, einschließlich gehaltener Noten über Loop-Grenzen. Aufgenommen wird der ausgewählte Track; im Stillstand rückt die Einfügeposition nach dem Loslassen des Akkords weiter.
 
 Die Wiedergabe verwendet einen Lookahead-Scheduler auf der AudioContext-Zeitachse. Sehr stark gedrosselte Hintergrund-Tabs können browserbedingt dennoch Aussetzer verursachen.
+
+### Piano Roll und Editorwechsel
+
+Im Sequencer gibt es die Register **Step-Sequencer** und **Piano Roll**. Jedes zeigt ausschließlich Tracks mit diesem Editortyp; beide Gruppen laufen gemeinsam im Transport. Track im Rack auswählen und den Editor über die Auswahl im Sequencer umstellen. Jeder der zwölf Tracks besitzt weiterhin acht eigene Patterns, Instrument, Mute/Solo und Effekte.
+
+- Polyphone Noten im gesamten MIDI-Bereich 0–127; unabhängige Startzeit, Dauer und Velocity. Bis zu 4096 Noten pro Pattern.
+- Zeichnen, Verschieben, linke/rechte Notenkante skalieren, Radieren, Rechteck- und Shift-Mehrfachauswahl. **Hand** verschiebt den Ausschnitt mit Maus oder Touch; Zoom, Scrollen, Playhead und optionales Follow sind verfügbar.
+- Frei oder gerastert bearbeiten, ausgewählte Noten quantisieren, transponieren und duplizieren. Start und Dauer werden im Inspector in Track-Rastereinheiten angezeigt; Start zählt ab 1.
+- Velocity-Spuren und numerischer Inspector; Wahrscheinlichkeit, Microtiming, Bedingungen und Parameter-Locks pro Note. Track-FX bleiben für alle Stimmen gemeinsam: Gleichzeitige widersprüchliche FX-Locks werden in Notenreihenfolge angewendet.
+- **Ctrl/Cmd+A/C/X/V/D:** alles auswählen, kopieren, ausschneiden, am Lineal-Cursor einfügen und duplizieren. **Entf/Backspace** löscht die Auswahl. **Ctrl/Cmd+Z / Shift+Z** oder die Toolbar bieten Undo/Redo. Pfeile verschieben die Auswahl; **Shift+↑/↓** transponiert um eine Oktave.
+- Pattern-Länge bestimmt den Loop. Außerhalb liegende Noten bleiben sichtbar und gespeichert, lösen aber nicht aus. Noten dürfen über die Loop-Grenze hinaus klingen. Eine verkürzte Ansicht löscht keine Noten.
+- Projekt-JSON, Autosave, Pattern-Kopieren/Generieren/Duplizieren, Live Rec, MIDI-Ausgabe und WAV-Export berücksichtigen den jeweiligen Editor. Vorhören zeichnet keine Noten auf.
+
+**Step → Piano Roll** übernimmt automatisch alle acht Patterns einschließlich Akkorden, Ratchets, Microtiming, Bedingungen, gemeinsamer Wahrscheinlichkeit und Locks. Nicht aktive bzw. durch lange Steps verdeckte Step-Daten bleiben im Projekt. Unveränderte Übertragungen behalten auch spezielle Step-Belegung und Abspielrichtungen.
+
+**Piano Roll → Step-Sequencer** öffnet immer eine Migrationsvorschau. Wenn möglich, wird verlustfrei übertragen. Andernfalls ordnet die Anwendung Noten der nächstgelegenen Step-Position zu, erhält passende Akkord-Untergruppen, nutzt vorhandene Step-Längen und Microtiming zur möglichst genauen Abbildung und begrenzt erst danach auf den darstellbaren Bereich und bevorzugt bei Konflikten stärkere Noten. Fehlende Akkordtöne werden nicht hinzugefügt. Die Vorschau nennt entfallende Noten und geänderte Zeitpunkte, Längen bzw. Ausdruckswerte je Pattern. Erst **Jetzt migrieren** führt den Wechsel aus; **Abbrechen** behält die Piano Roll. Das Original einschließlich Timing und ursprünglicher Step-Daten bleibt im Projekt gespeichert und kann über **Original-Piano-Roll wiederherstellen** zurückgeholt werden.
+
+Die Live-Wiedergabe und der WAV-Export verwenden dieselben musikalischen Ereignisse und planen sie zeitlich sortiert. Negative Microtiming-Werte erweitern intern den Vorlauf; Änderungen an bereits vorgemerkten Ereignissen können daher verzögert hörbar werden. Bei externer MIDI-Clock lassen sich unvorhersehbare zukünftige Clock-Impulse nicht vorwegnehmen; zu frühe Trigs werden auf den verfügbaren Audiotermin begrenzt. Überlappende gleich hohe Sequencer-Noten am MIDI-Ausgang erhalten erst nach der letzten Freigabe ein Note-off.
 
 ## Master FX
 
@@ -162,7 +180,7 @@ Signalweg: Track-Summe → Drive → EQ → Kompressor → Stereo-Breite → Del
 Web MIDI in **Chrome oder Edge** über **HTTPS oder localhost** verwenden. In den MIDI-Einstellungen Zugriff erteilen und Geräte auswählen. Ein- und Ausgänge werden bei Gerätewechsel aktualisiert.
 
 - Eingehende Noten spielen den ausgewählten Track; Omni oder ein bestimmter Eingangskanal.
-- Keyboard- und Sequencer-Noten gehen optional an den ausgewählten MIDI-Ausgang, Tracks 1–8 auf Kanälen 1–8.
+- Keyboard- und Sequencer-Noten gehen optional an den ausgewählten MIDI-Ausgang, Tracks 1–12 auf Kanälen 1–12.
 - Pitch Bend ±2 Halbtöne; Sustain CC64; Modwheel CC1; Level CC7; Resonanz CC71; Cutoff CC74.
 - MIDI Learn pro Drehregler, lokal gespeicherte CC-Zuordnungen.
 - Interne oder externe Clock; ausgehende Clock mit 24 PPQN und Start/Stop.
@@ -195,6 +213,8 @@ Die Anwendung wurde als Produktions-Bundle kompiliert; es wurden keine Tests aus
 ## Dateien
 
 - `src/model.ts`: Datenmodell, Factory-Presets, Importvalidierung und WAV-Codierung.
+- `src/sequence.ts`: gemeinsame musikalische Ereignisse, verlustfreie Übernahme und bestätigte Rückmigration.
+- `src/PianoRoll.tsx`, `src/piano.css`: Piano-Roll-Bearbeitung, Auswahl, Zwischenablage und Inspector.
 - `src/audio.ts`: Stimmen, Synthese, Filter/Envelopes/FX, Transport und Offline-Rendering.
 - `src/midi.ts`: Web-MIDI-Verbindungen, Nachrichten und Ausgabe.
 - `src/storage.ts`: IndexedDB sowie Dateiimport/-export.

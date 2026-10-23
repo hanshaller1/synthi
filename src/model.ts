@@ -1,6 +1,6 @@
 import { FX_CONTROLS, defaultFxSettings } from "./fx-spec";
 import type { FxSettings } from "./fx-spec";
-export const TRACK_COUNT = 8;
+export const TRACK_COUNT = 12;
 export const KEYBOARD_OCTAVES = 4;
 
 export type Engine =
@@ -386,11 +386,27 @@ export const CHORDS: Record<Step["chord"], number[]> = {
   fifth: [0, 7],
   seventh: [0, 3, 7, 10],
 };
+export type EditorMode = "step" | "piano";
+export type PianoNote = {
+  id: string;
+  start: number;
+  duration: number;
+  note: number;
+  velocity: number;
+  probability: number;
+  condition: Condition;
+  micro: number;
+  locks: Partial<Numbers>;
+  // Converted chords and ratchets share one probability decision per cycle.
+  group?: string;
+};
 export type Pattern = {
   length: number;
   division: number;
   direction: "forward" | "reverse" | "pingpong" | "random";
   steps: Step[];
+  notes: PianoNote[];
+  pianoBackup?: { notes: PianoNote[]; steps: Step[]; length: number; division: number; direction: Pattern["direction"] };
 };
 export type Track = {
   id: number;
@@ -399,6 +415,7 @@ export type Track = {
   patch: Patch;
   mute: boolean;
   solo: boolean;
+  mode: EditorMode;
   patterns: Pattern[];
 };
 export const HEAT_MODES = [
@@ -529,7 +546,7 @@ export function playbackStep(pattern: Pattern, position: number, random = Math.r
   };
 }
 export type Project = {
-  version: 1;
+  version: 2;
   name: string;
   tempo: number;
   swing: number;
@@ -637,6 +654,7 @@ export const makePattern = (): Pattern => ({
   division: 16,
   direction: "forward",
   steps: Array.from({ length: 64 }, makeStep),
+  notes: [],
 });
 export function makePatch(overrides: Partial<Patch> = {}): Patch {
   const numbers = Object.fromEntries(
@@ -874,6 +892,10 @@ export function makeProject(): Project {
     PRESETS[2],
     PRESETS[4],
     PRESETS[5],
+    PRESETS[6],
+    PRESETS[7],
+    PRESETS[8],
+    PRESETS[11],
   ];
   const tracks = patches.map(
     (patch, i): Track => ({
@@ -887,6 +909,10 @@ export function makeProject(): Project {
         PRESETS[2].name,
         PRESETS[4].name,
         PRESETS[5].name,
+        PRESETS[6].name,
+        PRESETS[7].name,
+        PRESETS[8].name,
+        PRESETS[11].name,
       ][i],
       color: [
         "#e5ac86",
@@ -897,10 +923,15 @@ export function makeProject(): Project {
         "#d58d9a",
         "#89afd9",
         "#b9c782",
+        "#bb9fd5",
+        "#83c4b0",
+        "#d6a26f",
+        "#99a1e0",
       ][i],
       patch: clone(patch),
       mute: false,
       solo: false,
+      mode: "step",
       patterns: Array.from({ length: 8 }, makePattern),
     }),
   );
@@ -928,7 +959,7 @@ export function makeProject(): Project {
     }),
   );
   return {
-    version: 1,
+    version: 2,
     name: "Midnight circuit",
     tempo: 118,
     swing: 0.12,
@@ -1093,15 +1124,73 @@ export function sanitizePatch(value: unknown): Patch {
       }));
   return p;
 }
+function sanitizeSteps(value: unknown): Step[] {
+  if (!Array.isArray(value)) return Array.from({ length: 64 }, makeStep);
+  return Array.from({ length: 64 }, makeStep).map((s, k) => {
+    const q = value[k];
+    if (!isRecord(q)) return s;
+    s.on = q.on === true;
+    s.note = Math.round(num(q.note, 0, 127, 48));
+    s.velocity = num(q.velocity, 0.01, 1, 0.8);
+    s.gate = num(q.gate, 0.05, 4, 0.65);
+    s.span = STEP_SPANS.includes(Number(q.span)) ? Number(q.span) : 1;
+    s.probability = num(q.probability, 0, 1, 1);
+    s.micro = num(q.micro, -0.45, 0.45, 0);
+    s.retrig = Math.round(num(q.retrig, 1, 8, 1));
+    if (typeof q.chord === "string" && Object.hasOwn(CHORDS, q.chord))
+      s.chord = q.chord as Step["chord"];
+    if (
+      ["always", "1:2", "2:2", "1:4", "fill", "!fill"].includes(
+        String(q.condition),
+      )
+    )
+      s.condition = q.condition as Condition;
+    if (isRecord(q.locks))
+      for (const key of Object.keys(q.locks) as Param[])
+        if (LOCK_PARAMS.includes(key))
+          s.locks[key] = num(
+            q.locks[key],
+            PARAMS[key][0],
+            PARAMS[key][1],
+            PARAMS[key][2],
+          );
+    return s;
+  });
+}
+function sanitizeNotes(value: unknown): PianoNote[] {
+  if (!Array.isArray(value)) return [];
+  if (value.length > 4096) throw new Error("Maximal 4096 Piano-Roll-Noten pro Pattern.");
+  const ids = new Set<string>();
+  return value.filter(isRecord).map((n, k) => {
+    let id = typeof n.id === "string" ? n.id.slice(0, 100) : `import-${k}`;
+    while (ids.has(id)) id += `-${k}`;
+    ids.add(id);
+    const locks: Partial<Numbers> = {};
+    if (isRecord(n.locks)) for (const key of LOCK_PARAMS)
+      if (key in n.locks) locks[key] = num(n.locks[key], PARAMS[key][0], PARAMS[key][1], PARAMS[key][2]);
+    return {
+      id,
+      start: num(n.start, 0, 63.999, 0),
+      duration: num(n.duration, 0.001, 256, 1),
+      note: Math.round(num(n.note, 0, 127, 60)),
+      velocity: num(n.velocity, 0.01, 1, 0.8),
+      probability: num(n.probability, 0, 1, 1),
+      condition: ["always", "1:2", "2:2", "1:4", "fill", "!fill"].includes(String(n.condition)) ? n.condition as Condition : "always",
+      micro: num(n.micro, -3.6, 3.6, 0),
+      locks,
+      ...(typeof n.group === "string" ? { group: n.group.slice(0, 100) } : {}),
+    };
+  });
+}
 export function sanitizeProject(value: unknown): Project {
   if (
     !isRecord(value) ||
-    value.version !== 1 ||
+    ![1, 2].includes(Number(value.version)) ||
     !Array.isArray(value.tracks) ||
-    ![4, TRACK_COUNT].includes(value.tracks.length)
+    ![4, 8, TRACK_COUNT].includes(value.tracks.length)
   )
     throw new Error(
-      "Keine gültige PHASE-Projektdatei (Version 1, vier oder acht Tracks).",
+      "Keine gültige PHASE-Projektdatei (Version 1/2, vier, acht oder zwölf Tracks).",
     );
   const p = makeProject();
   p.name = typeof value.name === "string" ? value.name.slice(0, 80) : p.name;
@@ -1167,6 +1256,7 @@ export function sanitizeProject(value: unknown): Project {
       typeof v.name === "string" ? v.name.slice(0, 80) : base.patch.name;
     base.mute = v.mute === true;
     base.solo = v.solo === true;
+    base.mode = v.mode === "piano" ? "piano" : "step";
     if (Array.isArray(v.patterns))
       base.patterns = base.patterns.map((pat, j) => {
         const item = (v.patterns as unknown[])[j];
@@ -1181,37 +1271,17 @@ export function sanitizeProject(value: unknown): Project {
           )
         )
           pat.direction = item.direction as Pattern["direction"];
-        if (Array.isArray(item.steps))
-          pat.steps = pat.steps.map((s, k) => {
-            const q = (item.steps as unknown[])[k];
-            if (!isRecord(q)) return s;
-            s.on = q.on === true;
-            s.note = Math.round(num(q.note, 0, 127, 48));
-            s.velocity = num(q.velocity, 0.01, 1, 0.8);
-            s.gate = num(q.gate, 0.05, 4, 0.65);
-            s.span = STEP_SPANS.includes(Number(q.span)) ? Number(q.span) : 1;
-            s.probability = num(q.probability, 0, 1, 1);
-            s.micro = num(q.micro, -0.45, 0.45, 0);
-            s.retrig = Math.round(num(q.retrig, 1, 8, 1));
-            if (typeof q.chord === "string" && Object.hasOwn(CHORDS, q.chord))
-              s.chord = q.chord as Step["chord"];
-            if (
-              ["always", "1:2", "2:2", "1:4", "fill", "!fill"].includes(
-                String(q.condition),
-              )
-            )
-              s.condition = q.condition as Condition;
-            if (isRecord(q.locks))
-              for (const key of Object.keys(q.locks) as Param[])
-                if (LOCK_PARAMS.includes(key))
-                  s.locks[key] = num(
-                    q.locks[key],
-                    PARAMS[key][0],
-                    PARAMS[key][1],
-                    PARAMS[key][2],
-                  );
-            return s;
-          });
+        pat.steps = sanitizeSteps(item.steps);
+        pat.notes = sanitizeNotes(item.notes);
+        if (isRecord(item.pianoBackup)) {
+          const saved = item.pianoBackup;
+          pat.pianoBackup = {
+            notes: sanitizeNotes(saved.notes), steps: sanitizeSteps(saved.steps),
+            length: Math.round(num(saved.length, 1, 64, pat.length)),
+            division: [8, 16, 32].includes(Number(saved.division)) ? Number(saved.division) : pat.division,
+            direction: ["forward", "reverse", "pingpong", "random"].includes(String(saved.direction)) ? saved.direction as Pattern["direction"] : pat.direction,
+          };
+        }
         return pat;
       });
     return base;

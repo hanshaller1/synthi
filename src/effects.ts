@@ -125,7 +125,7 @@ class FxStage {
     }
     const v = fxValues(p, mode);
     const set = (param: AudioParam, value: number) => {
-      if (scheduled) param.setValueAtTime(value, at);
+      if (scheduled) param.setTargetAtTime(value, at, .003);
       else if (this.previous.get(param) !== value) {
         param.cancelScheduledValues(at);
         param.setTargetAtTime(value, at, 0.015);

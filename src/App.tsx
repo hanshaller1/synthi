@@ -45,6 +45,8 @@ import {
 } from "./components";
 import Instrument from "./Instrument";
 import Sequencer from "./Sequencer";
+import { makeNote, migrateToSteps, stepsToNotes } from "./sequence";
+import type { MigrationReport } from "./sequence";
 import { SynthEngine, Transport, renderProject } from "./audio";
 import { MidiController } from "./midi";
 import {
@@ -63,7 +65,7 @@ import {
   sanitizePatch,
   sanitizeProject,
 } from "./model";
-import type { Param, Patch, Pattern, Project, Step, Track } from "./model";
+import type { EditorMode, Param, Patch, Pattern, PianoNote, Project, Step, Track } from "./model";
 import { download, fileData, readStored, writeStored } from "./storage";
 
 type ModalName =
@@ -130,7 +132,7 @@ export default function App() {
   const [userPresets, setUserPresets] = useState<Patch[]>([]),
     [search, setSearch] = useState(""),
     [engineFilter, setEngineFilter] = useState("all"),
-    [clipboard, setClipboard] = useState<Pattern[] | null>(null),
+    [clipboard, setClipboard] = useState<{ pattern: Pattern; mode: EditorMode }[] | null>(null),
     [undoAvailable, setUndoAvailable] = useState(false);
   const [midiConnected, setMidiConnected] = useState(false),
     [midiError, setMidiError] = useState(""),
@@ -145,6 +147,14 @@ export default function App() {
     [rendering, setRendering] = useState(false),
     [audioInfo, setAudioInfo] = useState({ sampleRate: 0, latency: 0 });
   const [presetName, setPresetName] = useState("");
+  const [redoAvailable, setRedoAvailable] = useState(false);
+  const [noteClipboard, setNoteClipboard] = useState<PianoNote[]>([]);
+  const [migration, setMigration] = useState<{ track: number; patterns: Pattern[]; reports: MigrationReport[] } | null>(null);
+  const migrationRef = useRef(migration);
+  migrationRef.current = migration;
+  const closeMigration = useCallback(() => setMigration(null), []);
+  const redoRef = useRef<Project[]>([]);
+  const recordedNotes = useRef(new Map<string, { id: string; track: number; pattern: number; absolute: number; time: number; unit: number; live: boolean }>());
   const pendingNotes = useRef(new Map<string, symbol>());
   const playRequest = useRef(0);
   const audioInit = useRef<Promise<SynthEngine> | null>(null);
@@ -183,12 +193,20 @@ export default function App() {
     toastTimer.current = window.setTimeout(() => setToast(""), 4200);
   }, []);
   const checkpoint = useCallback(() => {
+    redoRef.current = [];
+    setRedoAvailable(false);
     undoRef.current.push(clone(projectRef.current));
     if (undoRef.current.length > 20) undoRef.current.shift();
     setUndoAvailable(true);
   }, []);
   const updateProject = useCallback(
-    (fn: (p: Project) => Project) => setProject((p) => fn(p)),
+    (fn: (p: Project) => Project) => {
+      const next = fn(projectRef.current);
+      projectRef.current = next;
+      setProject(next);
+      redoRef.current = [];
+      setRedoAvailable(false);
+    },
     [],
   );
   const changePatch = useCallback(
@@ -247,7 +265,7 @@ export default function App() {
       ),
     }));
   const setParam = (key: Param, value: number) => {
-    if (lockMode) {
+    if (lockMode && project.tracks[track].mode === "step") {
       if (!LOCK_PARAMS.includes(key)) {
         notify(
           "Dieser Effekt verändert den Audiographen. Bitte außerhalb des P-Lock-Modus einstellen.",
@@ -264,7 +282,25 @@ export default function App() {
       });
     } else changePatch({ [key]: value });
   };
+  const finishRecording = useCallback((key: string) => {
+    const take = recordedNotes.current.get(key);
+    if (!take) return;
+    recordedNotes.current.delete(key);
+    const position = transportRef.current?.position(take.track);
+    const elapsed = take.live && position && projectRef.current.activePattern === take.pattern
+      ? position.absolute - take.absolute
+      : ((engineRef.current?.context.currentTime ?? take.time) - take.time) / take.unit;
+    const duration = clamp(elapsed, .01, 256);
+    updateProject((p) => ({ ...p, tracks: p.tracks.map((t) => t.id === take.track ? { ...t, patterns: t.patterns.map((pat, i) => i === take.pattern ? { ...pat,
+      notes: pat.notes.map((n) => n.id === take.id ? { ...n, duration } : n),
+    } : pat) } : t) }));
+    if (!take.live && ![...recordedNotes.current.values()].some((n) => n.track === take.track))
+      setSelectedStep((selectedPosition + 1) % projectRef.current.tracks[take.track].patterns[take.pattern].length);
+  }, [updateProject, selectedPosition]);
+  const finishRecordingRef = useRef(finishRecording);
+  finishRecordingRef.current = finishRecording;
   const stop = useCallback(() => {
+    for (const key of [...recordedNotes.current.keys()]) finishRecordingRef.current(key);
     playRequest.current++;
     midiRef.current.panic();
     transportRef.current?.stop();
@@ -311,8 +347,7 @@ export default function App() {
             at =
               performance.now() +
               Math.max(0, time - context.currentTime) * 1000;
-          midi.send([0x90 + track, note, Math.round(velocity * 127)], at);
-          midi.send([0x80 + track, note, 0], at + duration * 1000);
+          midi.scheduleNote(track, note, velocity, at, duration);
         };
         context.onstatechange = () =>
           setAudioReady(context.state === "running");
@@ -390,18 +425,28 @@ export default function App() {
         if (sendMidi)
           midi.send([0x90 + which, note, Math.round(velocity * 127)]);
         if (recordRef.current) {
-          const pat = t.patterns[p.activePattern],
-            head = headsRef.current[which],
-            entry = stepAtPosition(pat, (head < 0 ? selectedStep : head) % pat.length);
-          changeStep(which, entry.index, { on: true, note, velocity });
-          if (head < 0)
-            setSelectedStep((entry.index + entry.slots) % pat.length);
+          const pat = t.patterns[p.activePattern];
+          if (t.mode === "piano") {
+            if (pat.notes.length >= 4096) { notify("Maximal 4096 Noten pro Pattern."); return; }
+            if (!recordedNotes.current.size) checkpoint();
+            const position = transportRef.current?.position(which);
+            const start = clamp(position ? position.step % pat.length : selectedStep, 0, pat.length - .001);
+            const n = { ...makeNote(start, note), velocity };
+            recordedNotes.current.set(key, { id: n.id, track: which, pattern: p.activePattern,
+              absolute: position?.absolute ?? start, time: engine.context.currentTime,
+              unit: 240 / p.tempo / pat.division, live: !!position });
+            updateProject((q) => ({ ...q, tracks: q.tracks.map((x) => x.id === which ? { ...x, patterns: x.patterns.map((pattern, i) => i === p.activePattern ? { ...pattern, notes: [...pattern.notes, n] } : pattern) } : x) }));
+          } else {
+            const head = headsRef.current[which], entry = stepAtPosition(pat, (head < 0 ? selectedStep : head) % pat.length);
+            changeStep(which, entry.index, { on: true, note, velocity });
+            if (head < 0) setSelectedStep((entry.index + entry.slots) % pat.length);
+          }
         }
       } catch (error) {
         notify(`Audio: ${errorMessage(error)}`);
       }
     },
-    [ensureAudio, changeStep, selectedStep, notify],
+    [ensureAudio, changeStep, selectedStep, notify, checkpoint, updateProject],
   );
   const noteOff = useCallback(
     (
@@ -409,6 +454,7 @@ export default function App() {
       which = liveVoices.current.get(note) ?? trackRef.current,
       sendMidi = true,
     ) => {
+      finishRecordingRef.current(`${which}:${note}`);
       pendingNotes.current.delete(`${which}:${note}`);
       engineRef.current?.noteOff(which, note);
       if (sendMidi) midiRef.current.send([0x80 + which, note, 0]);
@@ -427,11 +473,24 @@ export default function App() {
     const p = undoRef.current.pop();
     if (p) {
       stop();
+      redoRef.current.push(clone(projectRef.current));
+      setRedoAvailable(true);
+      projectRef.current = p;
       setProject(p);
       setUndoAvailable(undoRef.current.length > 0);
       notify("Letzte Aktion rückgängig gemacht.");
     }
   }, [stop, notify]);
+
+  const redo = useCallback(() => {
+    const next = redoRef.current.pop(); if (!next) return;
+    stop(); undoRef.current.push(clone(projectRef.current));
+    projectRef.current = next; setProject(next);
+    setUndoAvailable(true); setRedoAvailable(redoRef.current.length > 0);
+  }, [stop]);
+  useEffect(() => {
+    if (!recording) for (const key of [...recordedNotes.current.keys()]) finishRecordingRef.current(key);
+  }, [recording]);
 
   useEffect(() => {
     let cancelled = false;
@@ -600,6 +659,7 @@ export default function App() {
           'input,select,textarea,[role="slider"],[role="dialog"],[contenteditable="true"]',
         ) ||
         modalRef.current ||
+        migrationRef.current ||
         document.querySelector('[role="dialog"]') ||
         e.ctrlKey ||
         e.metaKey ||
@@ -607,6 +667,7 @@ export default function App() {
       )
         return;
       const key = e.key.toLowerCase();
+      if (el.closest("[data-piano-roll]") && e.code !== "Space" && e.key !== "Escape") return;
       if (e.code === "Space") {
         e.preventDefault();
         if (e.repeat) return;
@@ -802,7 +863,7 @@ export default function App() {
     }
     try {
       const raw = JSON.parse(await file.text());
-      if (raw.version === 1 && raw.tracks) {
+      if ([1, 2].includes(raw.version) && raw.tracks) {
         const imported = sanitizeProject(raw);
         if (engineRef.current) await engineRef.current.prepare(imported);
         checkpoint();
@@ -852,12 +913,37 @@ export default function App() {
     }));
     notify(`Pattern nach A0${target + 1} dupliziert.`);
   };
+  const changeMode = (which: number, mode: EditorMode) => {
+    if (projectRef.current.tracks[which].mode === mode) return;
+    stop(); setLockMode(false); setRecording(false); recordRef.current = false;
+    const source = projectRef.current.tracks[which];
+    if (mode === "piano") {
+      checkpoint();
+      changeTrack(which, { mode, patterns: source.patterns.map((pat) => ({ ...pat, notes: stepsToNotes(pat) })) });
+      notify(`Track ${which + 1}: alle Patterns als Piano Roll übernommen.`);
+    } else {
+      const result = source.patterns.map((pat) => migrateToSteps(pat, projectRef.current.swing));
+      setMigration({ track: which, patterns: source.patterns.map((pat, i) => ({ ...pat, steps: result[i].steps, pianoBackup: clone({ notes: pat.notes, steps: pat.steps, length: pat.length, division: pat.division, direction: pat.direction }) })), reports: result.map((r) => r.report) });
+    }
+  };
+  const confirmMigration = () => {
+    if (!migration) return;
+    checkpoint();
+    changeTrack(migration.track, { mode: "step", patterns: migration.patterns });
+    setLockMode(false); setMigration(null);
+    notify("Track migriert. Die ursprüngliche Piano Roll bleibt wiederherstellbar.");
+  };
+  const restorePiano = (which: number) => {
+    stop(); checkpoint(); setLockMode(false);
+    const t = projectRef.current.tracks[which];
+    changeTrack(which, { mode: "piano", patterns: t.patterns.map((pat) => ({ ...pat, ...(pat.pianoBackup ? clone(pat.pianoBackup) : {}) })) });
+    notify("Ursprüngliche Piano Roll wiederhergestellt.");
+  };
   const randomPattern = () => {
     checkpoint();
     const scale = [0, 3, 5, 7, 10],
       root = track === 1 ? 36 : track === 2 ? 72 : 48;
-    changePattern(track, {
-      steps: Array.from({ length: 64 }, (_, i) => ({
+    const generated = Array.from({ length: 64 }, (_, i) => ({
         ...makeStep(),
         on:
           i < currentPattern.length &&
@@ -870,8 +956,8 @@ export default function App() {
               (Math.random() > 0.85 ? 12 : 0),
         velocity: 0.45 + Math.random() * 0.5,
         probability: Math.random() > 0.8 ? 0.7 : 1,
-      })),
-    });
+      }));
+    changePattern(track, current.mode === "piano" ? { notes: stepsToNotes({ ...currentPattern, steps: generated }) } : { steps: generated });
     notify("Pattern generiert · C-Moll-Pentatonik.");
   };
   const allPresets = [...PRESETS, ...userPresets].filter(
@@ -885,6 +971,15 @@ export default function App() {
 
   return (
     <div className="app-shell studio-viewport">
+      {migration && <Modal title={`Track ${migration.track + 1} in Step-Sequencer migrieren?`} subtitle="Vorschau für alle acht Patterns dieses Tracks" onClose={closeMigration}>
+        <div className="migration-details">
+          <p>Die Step-Ansicht unterstützt pro Position eine Note oder einen festen Akkord mit gemeinsamer Länge, Velocity und Trigger-Einstellungen. Nicht darstellbare Teile können beim Migrieren verloren gehen.</p>
+          <ul>{migration.reports.map((r, i) => <li key={i}><b>A0{i + 1}:</b> {r.dropped + r.timing + r.lengths + r.expression === 0 ? "Verlustfrei übertragbar." : `${r.dropped} Noten entfallen · ${r.timing} Zeitpunkte/Richtungsabläufe angepasst · ${r.lengths} Längen angepasst · ${r.expression} Ausdrucks-/Trigger-Einstellungen vereinheitlicht.`}</li>)}</ul>
+          <p>Die Zuordnung behält möglichst viele passende Akkordtöne. Bei Konflikten bestimmen die stärksten Noten die gemeinsamen Werte. Es werden keine zusätzlichen Akkordtöne erzeugt.</p>
+          <p>Deine ursprünglichen Piano-Roll-Noten bleiben im Projekt gespeichert und lassen sich über „Original-Piano-Roll wiederherstellen“ zurückholen.</p>
+        </div>
+        <div className="migration-actions"><button className="small-button" onClick={closeMigration}>Abbrechen</button><button className="primary-button" onClick={confirmMigration}>Jetzt migrieren</button></div>
+      </Modal>}
       <header className="topbar">
         <a
           className="brand"
@@ -976,7 +1071,7 @@ export default function App() {
                 setRecording(!recording);
                 notify(
                   !recording
-                    ? "Live Rec: Gespielte Noten werden in Steps aufgenommen."
+                    ? "Live Rec: Noten werden im gewählten Track-Editor aufgenommen."
                     : "Live-Aufnahme beendet.",
                 );
               }}
@@ -1081,7 +1176,7 @@ export default function App() {
         <aside className="rack-sidebar">
           <div className="rack-heading">
             <span className="eyebrow">INSTRUMENT RACK</span>
-            <span>08</span>
+            <span>{String(TRACK_COUNT).padStart(2, "0")}</span>
           </div>
           <div className="rack-tracks">
             {project.tracks.map((t, i) => (
@@ -1092,15 +1187,14 @@ export default function App() {
                 style={{ "--track-color": t.color } as CSSProperties}
               >
                 <div className="rack-track-top">
-                  <span className="rack-number">0{i + 1}</span>
+                  <span className="rack-number">{String(i + 1).padStart(2, "0")}</span>
                   <span>
                     {ENGINES.find((e) => e.id === t.patch.engine)?.short}
                   </span>
                   <i
                     className={
                       playing &&
-                      t.patterns[project.activePattern].steps[playheads[i]]
-                        ?.on &&
+                      (t.mode === "piano" ? t.patterns[project.activePattern].notes.some((n) => n.start <= playheads[i] && n.start + n.duration > playheads[i]) : t.patterns[project.activePattern].steps[playheads[i]]?.on) &&
                       !t.mute
                         ? "lit"
                         : ""
@@ -1111,7 +1205,7 @@ export default function App() {
                 <Waveform patch={t.patch} compact />
                 <div className="rack-track-bottom">
                   <span>
-                    {t.patch.voiceMode.toUpperCase()} <b>·</b>{" "}
+                    {t.mode === "piano" ? "PIANO" : "STEP"} <b>·</b>{" "}
                     {t.mute ? "MUTED" : t.solo ? "SOLO" : "ACTIVE"}
                   </span>
                   <ArrowRight size={12} />
@@ -1281,7 +1375,7 @@ export default function App() {
                 changePatch(partial);
               }}
               onParam={setParam}
-              locks={lockMode ? currentStep.locks : {}}
+              locks={lockMode && current.mode === "step" ? currentStep.locks : {}}
               onLearn={(param) => {
                 setMidiLearn({ track, param });
                 notify(
@@ -1307,6 +1401,13 @@ export default function App() {
           {view === "sequencer" && (
             <Sequencer
               project={project}
+              onMode={changeMode}
+              onRestorePiano={restorePiano}
+              onNotes={(which, notes) => { checkpoint(); changePattern(which, { notes }); }}
+              onAudition={(which, note, velocity) => { const request = playRequest.current; void ensureAudio().then((engine) => { if (request === playRequest.current) engine.noteOn(which, note, velocity, projectRef.current.tracks[which].patch, engine.context.currentTime, .2); }).catch((e) => notify(errorMessage(e))); }}
+              onUndo={undo} onRedo={redo} canUndo={undoAvailable} canRedo={redoAvailable}
+              noteClipboard={noteClipboard} onNoteClipboard={setNoteClipboard}
+              getPosition={(which) => transportRef.current?.position(which)?.step ?? null}
               track={track}
               selectTrack={selectTrack}
               selectedStep={selectedStep}
@@ -1330,20 +1431,23 @@ export default function App() {
               onCopy={() => {
                 setClipboard(
                   project.tracks.map((t) =>
-                    clone(t.patterns[project.activePattern]),
+                    ({ pattern: clone(t.patterns[project.activePattern]), mode: t.mode }),
                   ),
                 );
-                notify("Pattern aller acht Tracks kopiert.");
+                notify("Pattern aller zwölf Tracks kopiert.");
               }}
               onPaste={() => {
                 if (!clipboard) return;
+                if (project.tracks.some((t, i) => t.mode === "step" && clipboard[i].mode === "piano")) {
+                  notify("Einfügen würde Piano-Roll-Noten auf einen Step-Track übertragen. Diese Tracks zuerst auf Piano Roll umstellen."); return;
+                }
                 checkpoint();
                 updateProject((p) => ({
                   ...p,
                   tracks: p.tracks.map((t, i) => ({
                     ...t,
                     patterns: t.patterns.map((pat, j) =>
-                      j === p.activePattern ? clone(clipboard[i]) : pat,
+                      j === p.activePattern ? (t.mode === clipboard[i].mode ? clone(clipboard[i].pattern) : t.mode === "piano" ? { ...clone(clipboard[i].pattern), notes: stepsToNotes(clipboard[i].pattern) } : pat) : pat,
                     ),
                   })),
                 }));
@@ -1351,9 +1455,7 @@ export default function App() {
               }}
               onClear={() => {
                 checkpoint();
-                changePattern(track, {
-                  steps: Array.from({ length: 64 }, makeStep),
-                });
+                changePattern(track, current.mode === "piano" ? { notes: [] } : { steps: Array.from({ length: 64 }, makeStep) });
                 notify(
                   `Pattern von Track ${track + 1} geleert. Undo ist verfügbar.`,
                 );
@@ -1571,6 +1673,7 @@ export default function App() {
                 label="MIDI Output"
                 value={midi.output}
                 onChange={(v) => {
+                  midi.panic();
                   midi.output = v;
                   setMidiVersion((n) => n + 1);
                 }}
@@ -1614,7 +1717,7 @@ export default function App() {
           </label>
           <p className="info-note">
             Eingehende Noten spielen den ausgewählten Track. Ausgehende
-            Keyboard- und Sequencer-Noten: Track 1–8 auf Kanal 1–8. Pitch Bend:
+            Keyboard- und Sequencer-Noten: Track 1–12 auf Kanal 1–12. Pitch Bend:
             ±2 Halbtöne. Sustain: CC64. CC1: Modwheel, CC7: Level, CC71:
             Resonanz, CC74: Cutoff.
           </p>
@@ -1755,7 +1858,7 @@ export default function App() {
             >
               <FilePlus2 size={20} />
               <strong>New project</strong>
-              <span>Acht Tracks, ein leeres Blatt</span>
+              <span>Zwölf Tracks, ein leeres Blatt</span>
             </button>
           </div>
           <p className="info-note">
@@ -1985,14 +2088,21 @@ export default function App() {
               </p>
               <p>
                 Jeder Track hat eigene Länge (1–64), Geschwindigkeit und
-                Richtung. Acht Pattern-Speicher enthalten jeweils alle acht
+                Richtung. Acht Pattern-Speicher enthalten jeweils alle zwölf
                 Tracks.
               </p>
               <p>
-                <b>Live Rec:</b> Keyboard-/MIDI-Noten werden am aktuellen Step
-                eingetragen. Ohne Wiedergabe rückt der Editor nach jeder Note
-                weiter.
+                <b>Live Rec:</b> Im Step-Modus werden Trigs eingetragen. In der
+                Piano Roll werden polyphone Noten mit Anschlagstärke und gemessener
+                Dauer aufgenommen, auch über Loop-Grenzen hinweg.
               </p>
+            </section>
+            <section>
+              <h3>Piano Roll</h3>
+              <p>Den Editortyp pro Track im Sequencer wählen. Die zwei Unterregister zeigen jeweils die passenden Tracks.</p>
+              <p>Zeichnen: Note setzen und Länge ziehen. Noten verschieben, an beiden Rändern skalieren, mit Shift mehrfach auswählen. Das Hand-Werkzeug verschiebt den Ausschnitt auch per Touch.</p>
+              <p>Velocity unten ziehen; genaue Werte, Chance, Microtiming, Bedingungen und Noten-Locks im Inspector bearbeiten. Ctrl/Cmd+C/V/D kopiert, fügt am Cursor ein und dupliziert; Ctrl/Cmd+Z macht rückgängig. Shift+Pfeile oben/unten transponieren um eine Oktave.</p>
+              <p>Step → Piano Roll übernimmt alle Patterns. Piano Roll → Step zeigt vorab mögliche Verluste und verlangt eine Bestätigung. Die ursprünglichen Patterns bleiben wiederherstellbar.</p>
             </section>
             <section>
               <h3>Make it yours</h3>

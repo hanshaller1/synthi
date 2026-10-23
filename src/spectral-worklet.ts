@@ -21,7 +21,7 @@ class PhaseSpectralOscillator extends AudioWorkletProcessor {
   static get parameterDescriptors() {
     return [
       { name: 'frequency', defaultValue: 440, minValue: 0, maxValue: 24000, automationRate: 'a-rate' },
-      { name: 'detune', defaultValue: 0, minValue: -4800, maxValue: 4800, automationRate: 'a-rate' },
+      { name: 'detune', defaultValue: 0, minValue: -19200, maxValue: 19200, automationRate: 'a-rate' },
       { name: 'active', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'a-rate' },
       ...${JSON.stringify(descriptors)}
     ];
