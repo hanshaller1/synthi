@@ -1,4 +1,6 @@
 import MasterFX from "./MasterFX";
+import { TrackPlayback } from "./track-playback";
+import type { TrackPlaybackState } from "./track-playback";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
@@ -118,6 +120,11 @@ export default function App() {
   const selectedStep = stepAtPosition(
     project.tracks[track].patterns[project.activePattern], selectedPosition,
   ).index;
+  const [hold, setHold] = useState(false);
+  const holdRef = useRef(false);
+  const latchedNotes = useRef(new Map<string, { note: number; track: number; sendMidi: boolean }>());
+  const previewRef = useRef<TrackPlayback | null>(null);
+  const [preview, setPreview] = useState<TrackPlaybackState>({ track: -1, state: "stopped" });
   const [playing, setPlaying] = useState(false),
     [audioReady, setAudioReady] = useState(false),
     [audioBusy, setAudioBusy] = useState(false),
@@ -290,7 +297,7 @@ export default function App() {
     const take = recordedNotes.current.get(key);
     if (!take) return;
     recordedNotes.current.delete(key);
-    const position = transportRef.current?.position(take.track);
+    const position = (previewRef.current?.state === "playing" ? previewRef.current.position(take.track) : null) ?? transportRef.current?.position(take.track);
     const elapsed = take.live && position && projectRef.current.activePattern === take.pattern
       ? position.absolute - take.absolute
       : ((engineRef.current?.context.currentTime ?? take.time) - take.time) / take.unit;
@@ -303,23 +310,32 @@ export default function App() {
   }, [updateProject, selectedPosition]);
   const finishRecordingRef = useRef(finishRecording);
   finishRecordingRef.current = finishRecording;
-  const stop = useCallback(() => {
+  const releaseLiveNotes = useCallback(() => {
     for (const key of [...recordedNotes.current.keys()]) finishRecordingRef.current(key);
-    playRequest.current++;
+    for (const key of pendingNotes.current.keys()) {
+      const [which, note] = key.split(":").map(Number);
+      engineRef.current?.noteOff(which, note);
+    }
     midiRef.current.panic();
-    transportRef.current?.stop();
-    engineRef.current?.panic();
-    engineRef.current?.restore(projectRef.current);
-    setPlaying(false);
-    setPlayheads(Array(TRACK_COUNT).fill(-1));
-    setActiveNotes(new Set());
+    latchedNotes.current.clear();
+    pendingNotes.current.clear();
     keyboardHeld.current.clear();
     midiHeld.current.clear();
     deferredNotes.current.clear();
     liveVoices.current.clear();
-    pendingNotes.current.clear();
     sustainRef.current.clear();
+    setActiveNotes(new Set());
   }, []);
+  const stop = useCallback(() => {
+    releaseLiveNotes();
+    playRequest.current++;
+    transportRef.current?.stop();
+    previewRef.current?.stop();
+    engineRef.current?.panic();
+    engineRef.current?.restore(projectRef.current);
+    setPlaying(false);
+    setPlayheads(Array(TRACK_COUNT).fill(-1));
+  }, [releaseLiveNotes]);
   const ensureAudio = useCallback(() => {
     if (audioInit.current) return audioInit.current;
     if (!engineRef.current || engineRef.current.context.state !== "running")
@@ -331,6 +347,14 @@ export default function App() {
           transport = new Transport(engine, () => projectRef.current);
         engineRef.current = engine;
         transportRef.current = transport;
+        const preview = new TrackPlayback(engine, () => projectRef.current);
+        previewRef.current = preview;
+        preview.onState = (state) => {
+          setPreview(state);
+          if (state.state === "stopped") setPlayheads((prev) => prev.map((head, i) => i === state.track ? -1 : head));
+        };
+        preview.onSilence = releaseLiveNotes;
+        preview.onPosition = (track, step) => setPlayheads((prev) => prev[track] === step ? prev : prev.map((head, i) => i === track ? step : head));
         engine.update(projectRef.current);
         transport.onStep = (e) => {
           setPlayheads((prev) =>
@@ -353,6 +377,7 @@ export default function App() {
               Math.max(0, time - context.currentTime) * 1000;
           midi.scheduleNote(track, note, velocity, at, duration);
         };
+        preview.onNote = transport.onNote;
         context.onstatechange = () =>
           setAudioReady(context.state === "running");
         setAudioInfo({
@@ -377,10 +402,14 @@ export default function App() {
     const pending = initialize()
       .catch((error: unknown) => {
         const context = engineRef.current?.context;
+        transportRef.current?.stop();
+        previewRef.current?.stop(false);
+        releaseLiveNotes();
         engineRef.current?.dispose();
         if (context instanceof AudioContext) void context.close();
         engineRef.current = null;
         transportRef.current = null;
+        previewRef.current = null;
         notify(`Audio: ${errorMessage(error)}`);
         throw error;
       })
@@ -390,8 +419,9 @@ export default function App() {
       });
     audioInit.current = pending;
     return pending;
-  }, [notify]);
+  }, [notify, releaseLiveNotes]);
   const play = useCallback(async () => {
+    if (previewRef.current && previewRef.current.state !== "stopped") stop();
     const request = ++playRequest.current;
     try {
       await ensureAudio();
@@ -403,7 +433,19 @@ export default function App() {
     } catch {
       /* Audio error is displayed at its source. */
     }
-  }, [ensureAudio, fill, notify]);
+  }, [ensureAudio, fill, notify, stop]);
+  const playTrack = async (which: number) => {
+    const resume = previewRef.current?.state === "paused" && previewRef.current.track === which;
+    if (!resume) stop();
+    const request = ++playRequest.current;
+    try {
+      await ensureAudio();
+      if (request !== playRequest.current) return;
+      previewRef.current!.fill = fill;
+      previewRef.current!.start(which);
+      setPlaying(false);
+    } catch { /* ensureAudio displays the error. */ }
+  };
   const playRef = useRef(play);
   playRef.current = play;
   const togglePlay = () => (playing ? stop() : void play());
@@ -414,8 +456,14 @@ export default function App() {
       which = trackRef.current,
       sendMidi = true,
     ) => {
-      const key = `${which}:${note}`,
-        token = Symbol();
+      const key = `${which}:${note}`, token = Symbol();
+      const latched = latchedNotes.current.get(key);
+      if (latched) {
+        latchedNotes.current.delete(key);
+        finishRecordingRef.current(key);
+        engineRef.current?.noteOff(which, note);
+        if (latched.sendMidi) midiRef.current.send([0x80 + which, note, 0]);
+      }
       pendingNotes.current.set(key, token);
       try {
         const engine = await ensureAudio();
@@ -433,7 +481,7 @@ export default function App() {
           if (t.mode === "piano") {
             if (pat.notes.length >= 4096) { notify("Maximal 4096 Noten pro Pattern."); return; }
             if (!recordedNotes.current.size) checkpoint();
-            const position = transportRef.current?.position(which);
+            const position = (previewRef.current?.state === "playing" ? previewRef.current.position(which) : null) ?? transportRef.current?.position(which);
             const start = clamp(position ? position.step % pat.length : selectedStep, 0, pat.length - .001);
             const n = { ...makeNote(start, note), velocity };
             recordedNotes.current.set(key, { id: n.id, track: which, pattern: p.activePattern,
@@ -447,6 +495,10 @@ export default function App() {
           }
         }
       } catch (error) {
+        if (pendingNotes.current.get(key) === token) {
+          pendingNotes.current.delete(key);
+          latchedNotes.current.delete(key);
+        }
         notify(`Audio: ${errorMessage(error)}`);
       }
     },
@@ -457,20 +509,32 @@ export default function App() {
       note: number,
       which = liveVoices.current.get(note) ?? trackRef.current,
       sendMidi = true,
+      force = false,
     ) => {
+      const key = `${which}:${note}`;
+      if (!pendingNotes.current.has(key) && !latchedNotes.current.has(key) && liveVoices.current.get(note) !== which) return;
+      if (holdRef.current && !force) {
+        latchedNotes.current.set(key, { note, track: which, sendMidi });
+        return;
+      }
+      latchedNotes.current.delete(`${which}:${note}`);
       finishRecordingRef.current(`${which}:${note}`);
       pendingNotes.current.delete(`${which}:${note}`);
       engineRef.current?.noteOff(which, note);
       if (sendMidi) midiRef.current.send([0x80 + which, note, 0]);
-      setActiveNotes((prev) => {
-        const s = new Set(prev);
-        s.delete(note);
-        return s;
-      });
-      liveVoices.current.delete(note);
+      if (![...pendingNotes.current.keys()].some((key) => key.endsWith(`:${note}`))) {
+        setActiveNotes((prev) => {
+          const s = new Set(prev); s.delete(note); return s;
+        });
+      }
+      if (liveVoices.current.get(note) === which) liveVoices.current.delete(note);
     },
     [],
   );
+  const toggleHold = () => {
+    const enabled = !holdRef.current; holdRef.current = enabled; setHold(enabled);
+    if (!enabled) for (const held of [...latchedNotes.current.values()]) noteOff(held.note, held.track, held.sendMidi, true);
+  };
   const noteOnRef = useRef(noteOn);
   noteOnRef.current = noteOn;
   const undo = useCallback(() => {
@@ -555,6 +619,7 @@ export default function App() {
   }, [project, notify]);
   useEffect(() => {
     if (transportRef.current) transportRef.current.fill = fill;
+    if (previewRef.current) previewRef.current.fill = fill;
   }, [fill]);
   useEffect(() => {
     const midi = midiRef.current;
@@ -611,8 +676,8 @@ export default function App() {
         );
       if (cc === 7) changePatch({ level: value });
       if (cc === 123 || cc === 120) {
+        releaseLiveNotes();
         engineRef.current?.panic();
-        setActiveNotes(new Set());
       }
       if (cc === 64) {
         if (value >= 0.5) sustainRef.current.add(ch);
@@ -631,6 +696,7 @@ export default function App() {
     midi.onClock = (status) => {
       if (!externalRef.current) return;
       if (status === 0xfa || status === 0xfb) {
+        previewRef.current?.stop();
         transportRef.current?.stop();
         transportRef.current?.start(true);
         setPlaying(true);
@@ -654,7 +720,7 @@ export default function App() {
       }
     };
     return () => midi.dispose();
-  }, [changePatch, noteOff, notify, stop]);
+  }, [changePatch, noteOff, notify, stop, releaseLiveNotes]);
   useEffect(() => {
     const keydown = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
@@ -726,6 +792,7 @@ export default function App() {
   useEffect(
     () => () => {
       transportRef.current?.stop();
+      previewRef.current?.stop(false);
       const ctx = engineRef.current?.context;
       engineRef.current?.dispose();
       if (ctx instanceof AudioContext) void ctx.close();
@@ -1391,7 +1458,8 @@ export default function App() {
               onAudition={(which, note, velocity) => { const request = playRequest.current; void ensureAudio().then((engine) => { if (request === playRequest.current) engine.noteOn(which, note, velocity, projectRef.current.tracks[which].patch, engine.context.currentTime, .2); }).catch((e) => notify(errorMessage(e))); }}
               onUndo={undo} onRedo={redo} canUndo={undoAvailable} canRedo={redoAvailable}
               noteClipboard={noteClipboard} onNoteClipboard={setNoteClipboard}
-              getPosition={(which) => transportRef.current?.position(which)?.step ?? null}
+              getPosition={(which) => previewRef.current?.position(which)?.step ?? transportRef.current?.position(which)?.step ?? null}
+              preview={preview} onPlayTrack={(which) => void playTrack(which)} onPauseTrack={() => previewRef.current?.pause()} onStopTrack={stop}
               track={track}
               selectTrack={selectTrack}
               selectedStep={selectedStep}
@@ -1399,7 +1467,7 @@ export default function App() {
               page={page}
               setPage={setPage}
               playheads={playheads}
-              playing={playing}
+              playing={playing || preview.state === "playing"}
               recording={recording}
               lockMode={lockMode}
               setLockMode={setLockMode}
@@ -1420,22 +1488,22 @@ export default function App() {
                 );
                 notify("Pattern aller zwölf Tracks kopiert.");
               }}
-              onPaste={() => {
+              onPaste={(editor) => {
                 if (!clipboard) return;
-                if (project.tracks.some((t, i) => t.mode === "step" && clipboard[i].mode === "piano")) {
+                if (project.tracks.some((t, i) => t.mode === editor && t.mode === "step" && clipboard[i].mode === "piano")) {
                   notify("Einfügen würde Piano-Roll-Noten auf einen Step-Track übertragen. Diese Tracks zuerst auf Piano Roll umstellen."); return;
                 }
                 checkpoint();
                 updateProject((p) => ({
                   ...p,
-                  tracks: p.tracks.map((t, i) => ({
+                  tracks: p.tracks.map((t, i) => t.mode !== editor ? t : ({
                     ...t,
                     patterns: t.patterns.map((pat, j) =>
                       j === p.activePattern ? (t.mode === clipboard[i].mode ? clone(clipboard[i].pattern) : t.mode === "piano" ? { ...clone(clipboard[i].pattern), notes: stepsToNotes(clipboard[i].pattern) } : pat) : pat,
                     ),
                   })),
                 }));
-                notify("Pattern eingefügt.");
+                notify(`Pattern der ${editor === "step" ? "Step" : "Piano-Roll"}-Tracks eingefügt.`);
               }}
               onClear={() => {
                 checkpoint();
@@ -1451,6 +1519,8 @@ export default function App() {
           {keyboardVisible && (
             <Keyboard
               active={activeNotes}
+              hold={hold}
+              onHold={toggleHold}
               onDown={(note) => void noteOn(note)}
               onUp={noteOff}
               octave={octave}
@@ -2048,13 +2118,15 @@ export default function App() {
               <p>Doppelklick auf Regler: Standardwert</p>
               <p>BPM ziehen: Tempo ändern; Shift für feine Schritte. Den Wert anklicken, löschen und neu eingeben; Enter übernimmt, Esc verwirft.</p>
               <p>Der Button im Keyboard halbiert seine Höhe und gibt dem Editor mehr Platz.</p>
+              <p><b>Hold:</b> Hält Keyboard- und MIDI-Noten nach dem Loslassen. Hold ausschalten lässt diese Noten los; Stop oder Esc stoppt alle Noten.</p>
+              <p>Auswahlfelder geben nach einer Auswahl den Fokus frei, damit das Computer-Keyboard wieder spielt.</p>
               <p>Rechtsklick auf Regler: MIDI Learn</p>
             </section>
             <section>
               <h3>Sequence & lock</h3>
-              <p>Step klicken: Trig aktivieren/deaktivieren.</p>
+              <p>Leeren Step klicken: aktivieren. Belegten Step klicken: auswählen. Den bereits ausgewählten Step erneut klicken: deaktivieren.</p>
               <p>
-                <kbd>Shift</kbd> + Klick oder Rechtsklick: Step bearbeiten.
+                <kbd>Shift</kbd> + Klick oder Rechtsklick: Step und Parameter-Locks direkt bearbeiten. Lock-Werte mit dem Maus-Slider oder als Zahl einstellen.
               </p>
               <p>
                 <b>P-LOCK aktivieren</b>, zu <b>Synthesizer</b> wechseln und
@@ -2064,6 +2136,7 @@ export default function App() {
                 Wahrscheinlichkeit, Gate, Microtiming, Retrig und Bedingungen im
                 Trig-Editor bearbeiten.
               </p>
+              <p><b>Fill:</b> Schaltet Noten mit Bedingung <code>fill</code> frei und unterdrückt <code>!fill</code>. Always-Noten spielen weiter. FILL ON zeigt den aktiven Zustand.</p>
               <p>
                 Jeder Track hat eigene Länge (1–128), Geschwindigkeit und
                 Richtung. Acht Pattern-Speicher enthalten jeweils alle zwölf
@@ -2077,7 +2150,10 @@ export default function App() {
             </section>
             <section>
               <h3>Piano Roll</h3>
-              <p>Den Editortyp pro Track im Sequencer wählen. Die zwei Unterregister zeigen jeweils die passenden Tracks.</p>
+              <p>Den Editortyp pro Track im Sequencer wählen. Das Step-Register zeigt Piano-Tracks als schreibgeschützte Notenübersicht; Mute und Solo bleiben bedienbar.</p>
+              <p><b>Track-Wiedergabe:</b> Play spielt nur diesen Track ab der Startmarkierung, Pause hält die Position, Stop beendet die Wiedergabe. Die Solo-Einstellungen bleiben erhalten; Mute wird berücksichtigt. Der Bereich spielt vorwärts, unabhängig von der Richtung des gemeinsamen Transports.</p>
+              <p><b>Bereich:</b> Die beiden Marker oben im Lineal ziehen. Shift+Klick setzt den Anfang, Alt+Klick das Ende. Fokussierte Marker mit Links/Rechts verschieben (Shift: vier Steps); Home/End setzt an die jeweilige Grenze. Loop wiederholt den Bereich; ausgeschaltet endet die Wiedergabe am Endmarker.</p>
+              <p><b>Follow:</b> Die Ansicht scrollt während der Wiedergabe automatisch mit dem Abspielkopf.</p>
               <p>Zeichnen: Note setzen und Länge ziehen. Noten verschieben, an beiden Rändern skalieren, mit Shift mehrfach auswählen. Das Hand-Werkzeug verschiebt den Ausschnitt.</p>
               <p>Velocity unten ziehen; genaue Werte, Chance, Microtiming, Bedingungen und Noten-Locks im Inspector bearbeiten. Ctrl/Cmd+C/V/D kopiert, fügt am Cursor ein und dupliziert; Ctrl/Cmd+Z macht rückgängig. Shift+Pfeile oben/unten transponieren um eine Oktave.</p>
               <p><b>Scale:</b> Grundton und Skala wählen; neue und vertikal verschobene Noten rasten in der Skala ein. Fold zeigt verwendete Noten und bei aktiver Skala deren Töne. Bestehende Noten bleiben erhalten.</p>

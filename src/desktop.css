@@ -99,7 +99,80 @@ body, #root { overflow: hidden; }
 .studio-viewport .master-grid .master-space > section { flex: 1; min-height: 210px; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .studio-viewport .master-grid .master-space > section + section { padding-top: 12px; border-top: 1px solid var(--panel-line); }
 .studio-viewport .master-grid .master-space .master-section-title { gap: 5px; }
-.studio-viewport .master-grid .master-space h3 { font-size: 12px; }
+
 .studio-viewport .master-grid .master-space svg.space-echo-art,
 .studio-viewport .master-grid .master-space svg.space-hall-art { height: 45px; min-height: 45px; flex: 0 0 45px; margin: 8px 0; background: var(--surface-low); border: 1px solid var(--panel-line); border-radius: 3px; }
 .studio-viewport .master-grid .master-space .master-knobs { margin-top: auto; }
+
+/* A single oscillator-sized control across every synthesis / modulation / FX module.
+   This invariant also overrides the older compact-height knob variants. */
+.studio-viewport { --studio-knob-size: 55px; }
+.studio-viewport :is(.instrument, .master-panel) .knob {
+  width: var(--studio-knob-size) !important;
+  height: var(--studio-knob-size) !important;
+  aspect-ratio: 1;
+}
+.studio-viewport :is(.instrument, .master-panel) .knob-cap { inset: 19%; }
+.studio-viewport :is(.instrument, .master-panel) .knob-cap i::before { height: 7px; top: 4px; }
+.studio-viewport :is(.instrument, .master-panel) .knob-ring {
+  width: 100%; height: 100%; min-height: 0; max-height: none; margin: 0; flex: none;
+}
+.studio-viewport .synth-grid .filter-envelope-title { justify-content: stretch; padding-top: 9px; }
+.studio-viewport .synth-grid .filter-envelope-title > label { flex: 1; width: 100%; gap: 9px; font-size: 9px; }
+.studio-viewport .synth-grid .filter-envelope-title input { flex: 1; width: auto; min-width: 90px; }
+.studio-viewport .synth-grid .filter-envelope-title output { flex: 0 0 42px; font-size: 10px; }
+
+/* Space uses the same title and power-control geometry as Dynamics / Stereo. */
+.studio-viewport .master-grid .master-section-title { min-height: 32px; gap: 8px; }
+.studio-viewport .master-grid .master-section-title h3 { font-size: 13px; line-height: 1.3; }
+.studio-viewport .master-grid .master-toggle {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  height: 26px; min-width: 76px; padding: 4px 6px; gap: 4px; font: 9px var(--mono); white-space: nowrap;
+}
+.studio-viewport .master-grid .master-toggle svg {
+  flex: 0 0 12px; width: 12px; height: 12px; min-height: 0; margin: 0;
+}
+.studio-viewport .master-grid .module-title > h3 > svg { flex: 0 0 14px; width: 14px; height: 14px; margin: 0; min-height: 0; }
+
+.studio-viewport .keyboard-options { display: flex; align-items: center; gap: 4px; width: 100%; }
+.studio-viewport .keyboard-options .small-button { flex: 1; min-width: 0; padding: 3px 4px; font: 9px var(--mono); }
+.studio-viewport .keyboard-compact .keyboard-controls { padding: 3px 6px; gap: 3px; }
+.studio-viewport .keyboard-compact .octave-buttons button { height: 20px; }
+.studio-viewport .keyboard-hold.on, .studio-viewport .fill-button.on {
+  color: var(--accent); background: #e5ac8628; border-color: #b68c63;
+  box-shadow: inset 0 0 0 1px #e5ac8620, 0 0 8px #e5ac8618;
+}
+.studio-viewport .fill-button { min-width: 58px; }
+
+/* Piano rows expose their notes but accept no edits in the step register. */
+.studio-viewport .pattern-settings { border: 0; padding: 0; min-width: 0; margin-block: 0; }
+.studio-viewport .pattern-settings:disabled { opacity: .5; }
+.studio-viewport .step-pages { gap: 5px; font: 9px var(--mono); }
+.studio-viewport .step-pages .icon-button { width: 25px; height: 25px; }
+.studio-viewport .sequence-track-label:disabled { opacity: .75; cursor: default; }
+.piano-step-preview { position: relative; height: 100%; min-height: 30px; max-height: 64px; overflow: hidden; border: 1px solid var(--panel-line); border-radius: 3px; background: var(--surface-low); }
+.piano-step-preview > span { position: absolute; right: 6px; top: 3px; z-index: 2; font: 7px var(--mono); letter-spacing: 1px; color: var(--muted); opacity: .65; pointer-events: none; }
+.piano-step-preview > i { position: absolute; height: 3px; min-width: 2px; background: var(--step-color); border-radius: 1px; }
+.piano-step-preview > i.outside { opacity: .2 !important; }
+.piano-step-preview > b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); box-shadow: 0 0 5px #e5ac8660; }
+
+/* Lock controls remain full size in the editor, inspector and context dialog. */
+.studio-viewport .lock-editor { min-height: 68px; max-height: 180px; padding: 10px 12px; gap: 10px; align-items: center; font: 9px var(--mono); background: var(--surface-low); border-color: var(--panel-line); }
+.lock-heading { display: inline-flex; gap: 6px; align-items: center; color: var(--accent); font: 9px var(--mono); }
+.studio-viewport .lock-chip { flex: 0 0 auto; gap: 7px; padding: 6px 7px; border-color: var(--panel-line); background: var(--surface); }
+.studio-viewport .lock-chip > label { display: flex; flex-direction: column; align-items: stretch; gap: 7px; min-width: 120px; font: 9px var(--mono); color: var(--muted); }
+.studio-viewport .lock-chip input[type=range] { width: 100%; min-width: 120px; height: 4px; padding: 0; border: 0; background: transparent; cursor: ew-resize; }
+.studio-viewport .lock-chip input[type=number] { width: 68px; padding: 5px; font: 10px var(--mono); color: var(--text); background: var(--surface-low); border-color: var(--panel-line); }
+.studio-viewport .lock-chip .icon-button { width: 24px; height: 26px; justify-content: center; }
+.studio-viewport .lock-add { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.studio-viewport .lock-add .select-wrap select { max-width: 230px; height: 28px; padding: 5px 22px 5px 7px; font-size: 10px; }
+.studio-viewport .lock-add .small-button { height: 28px; padding: 5px 8px; font-size: 10px; }
+.studio-viewport .roll-inspector .lock-chip { padding-block: 3px; }
+.studio-viewport .roll-inspector .lock-chip > label { gap: 5px; }
+.modal .lock-editor { display: flex; flex-wrap: wrap; gap: 12px; max-height: 260px; overflow: auto; padding: 14px 0; margin-top: 16px; background: transparent; font-size: 10px; }
+.modal .lock-chip { gap: 8px; padding: 8px; border-color: var(--panel-line); }
+.modal .lock-chip label { display: flex; flex-direction: column; gap: 8px; min-width: 145px; font: 10px var(--mono); color: var(--muted); }
+.modal .lock-chip input[type=range] { width: 145px; height: 4px; padding: 0; border: 0; }
+.modal .lock-chip input[type=number] { width: 75px; font-size: 11px; padding: 6px; }
+.modal .lock-add { display: flex; gap: 8px; align-items: center; }
+.modal .lock-add select, .modal .lock-add .small-button { font-size: 11px; }

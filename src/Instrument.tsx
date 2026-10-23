@@ -399,19 +399,19 @@ export default function Instrument(props: Props) {
               </div>
               <div className="filter-envelope-title">
                 <label>
-                  AMOUNT
+                  ENV DEPTH
                   <input
-                    aria-label="Filter envelope amount"
+                    aria-label="Filter Env depth"
                     type="range"
                     min="-6"
                     max="6"
-                    step=".1"
+                    step=".01"
                     value={props.locks.filterAmount ?? p.filterAmount}
                     onChange={(e) => onParam("filterAmount", +e.target.value)}
                   />
                   <output>
                     {(props.locks.filterAmount ?? p.filterAmount) > 0 ? "+" : ""}
-                    {(props.locks.filterAmount ?? p.filterAmount).toFixed(1)}
+                    {(props.locks.filterAmount ?? p.filterAmount).toFixed(2)}
                   </output>
                 </label>
               </div>

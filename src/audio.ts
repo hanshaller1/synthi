@@ -162,6 +162,7 @@ export class SynthEngine {
   private filtersReady = false;
   combAvailable = false;
   private disposed = false;
+  previewTrack: number | null = null;
   private audible = Array(TRACK_COUNT).fill(true) as boolean[];
   private defaultSample: AudioBuffer;
   private noise: AudioBuffer;
@@ -253,7 +254,7 @@ export class SynthEngine {
       b = this.buses[track.id],
       t = this.context.currentTime,
       previous = this.trackPatches[track.id];
-    const audible = !track.mute && (!solo || track.solo);
+    const audible = !track.mute && (this.previewTrack !== null ? track.id === this.previewTrack : (!solo || track.solo));
     if (previous?.level !== p.level || this.audible[track.id] !== audible) {
       b.level.gain.cancelScheduledValues(t);
       b.level.gain.setTargetAtTime(audible ? 1 : 0, t, 0.02);

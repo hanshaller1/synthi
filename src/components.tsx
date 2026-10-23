@@ -119,7 +119,7 @@ export function Select({
       <select
         aria-label={label}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) => { onChange(e.target.value); e.currentTarget.blur(); }}
       >
         {children}
       </select>
@@ -487,7 +487,11 @@ export function Keyboard({
   onUp,
   octave,
   setOctave,
+  hold,
+  onHold,
 }: {
+  hold: boolean;
+  onHold: () => void;
   active: Set<number>;
   onDown: (note: number) => void;
   onUp: (note: number) => void;
@@ -546,7 +550,10 @@ export function Keyboard({
             +
           </button>
         </div>
-        <button className="keyboard-height small-button" aria-pressed={compact} title="Keyboard-Höhe halbieren" onClick={() => setCompact(!compact)}>{compact ? "100 % Höhe" : "50 % Höhe"}</button>
+        <div className="keyboard-options">
+        <button className={`keyboard-hold small-button ${hold ? "on" : ""}`} aria-pressed={hold} title="Hold: gespielte Noten halten · Erneut drücken zum Loslassen" onClick={onHold}>HOLD</button>
+        <button className="keyboard-height small-button" aria-pressed={compact} title="Keyboard-Höhe halbieren" onClick={() => setCompact(!compact)}>{compact ? "100 %" : "50 %"}</button>
+        </div>
       </div>
       <div
         className="keyboard"

@@ -8,27 +8,28 @@ import {
   RotateCcw,
   Trash2,
   UnlockKeyhole,
-  X,
   Undo2,
 } from "lucide-react";
 import { IconButton, Select, Modal, PanelHeader } from "./components";
 import {
   CHORDS,
   MAX_STEPS,
-  LOCK_PARAMS,
-  PARAMS,
   STEP_SPANS,
   patternTimeline,
   stepLengthLabel,
   noteName,
 } from "./model";
-import type { Condition, EditorMode, Param, Pattern, PianoNote, Project, Step } from "./model";
+import type { Condition, EditorMode, Pattern, PianoNote, Project, Step } from "./model";
 import { useCallback, useEffect, useState } from "react";
 
 import PianoRoll from "./PianoRoll";
+import { LockControls } from "./ParameterLocks";
+import type { TrackPlaybackState } from "./track-playback";
 
 type Props = {
   project: Project;
+  preview: TrackPlaybackState;
+  onPlayTrack: (track: number) => void; onPauseTrack: () => void; onStopTrack: () => void;
   onMode: (track: number, mode: EditorMode) => void;
   onNotes: (track: number, notes: PianoNote[]) => void;
   onAudition: (track: number, note: number, velocity: number) => void;
@@ -54,7 +55,7 @@ type Props = {
   onPattern: (track: number, patch: Partial<Pattern>) => void;
   onSelectPattern: (index: number) => void;
   onCopy: () => void;
-  onPaste: () => void;
+  onPaste: (editor: EditorMode) => void;
   onClear: () => void;
   onRandom: () => void;
   hasClipboard: boolean;
@@ -65,9 +66,9 @@ export default function Sequencer(p: Props) {
     step = pattern.steps[selectedStep];
   const [editor, setEditor] = useState<EditorMode>(project.tracks[track].mode);
   useEffect(() => { setEditor(project.tracks[track].mode); }, [track, project.tracks[track].mode]);
-  const modeMatches = project.tracks[track].mode === editor;
-  const visibleTracks = project.tracks.filter((t) => t.mode === editor);
-  const [addLock, setAddLock] = useState<Param>("cutoff");
+  const modeMatches = editor === "step" || project.tracks[track].mode === editor;
+  const canEdit = project.tracks[track].mode === editor;
+  const visibleTracks = editor === "step" ? project.tracks : project.tracks.filter((t) => t.mode === editor);
   const [editorOpen, setEditorOpen] = useState(false);
   const closeEditor = useCallback(() => setEditorOpen(false), []);
   // One shared 1/64-note scale; never normalize each track independently.
@@ -82,6 +83,11 @@ export default function Sequencer(p: Props) {
   const editableSteps = timelines[track];
   const selection = editableSteps.findIndex((s) => s.index === selectedStep);
   const change = (patch: Partial<Step>) => p.onStep(track, selectedStep, patch);
+  const lockEditor = <div className="lock-editor"><LockControls locks={step.locks} patch={project.tracks[track].patch} onSet={(key, value) => {
+    const locks = { ...step.locks };
+    if (value === null) delete locks[key]; else locks[key] = value;
+    change({ locks, ...(value !== null ? { on: true } : {}) });
+  }} /></div>;
   const stepEditor = (
     <div className="step-editor">
       <div className="step-editor-label">
@@ -264,24 +270,25 @@ export default function Sequencer(p: Props) {
           <button
             className={`small-button fill-button ${p.fill ? "on" : ""}`}
             onClick={() => p.setFill(!p.fill)}
-            title="Fill-Bedingungen aktivieren"
+            aria-pressed={p.fill}
+            title={p.fill ? "Fill aktiv: fill spielt, !fill pausiert" : "Fill aktivieren: fill spielt, !fill pausiert"}
           >
-            FILL
+            {p.fill ? "FILL ON" : "FILL"}
           </button>
           <IconButton label="Pattern kopieren" onClick={p.onCopy}>
             <Copy size={14} />
           </IconButton>
           <IconButton
             label="Pattern einfügen"
-            disabled={!p.hasClipboard}
-            onClick={p.onPaste}
+            disabled={!p.hasClipboard || !canEdit}
+            onClick={() => p.onPaste(editor)}
           >
             <Layers3 size={14} />
           </IconButton>
-          <IconButton label="Pattern generieren" disabled={!modeMatches} onClick={p.onRandom}>
+          <IconButton label="Pattern generieren" disabled={!canEdit} onClick={p.onRandom}>
             <Dices size={16} />
           </IconButton>
-          <IconButton label="Pattern leeren" disabled={!modeMatches} onClick={p.onClear}>
+          <IconButton label="Pattern leeren" disabled={!canEdit} onClick={p.onClear}>
             <Trash2 size={14} />
           </IconButton>
         </div>
@@ -307,7 +314,7 @@ export default function Sequencer(p: Props) {
             <button aria-label={`Track ${track + 1} solo`} aria-pressed={project.tracks[track].solo} className={project.tracks[track].solo ? "solo" : ""} onClick={() => p.onTrack(track, { solo: !project.tracks[track].solo })}>S</button>
           </div>
         </div>}
-        <div className="pattern-settings">
+        <fieldset className="pattern-settings" disabled={!canEdit}>
           <label>
             LENGTH
             <input
@@ -347,6 +354,7 @@ export default function Sequencer(p: Props) {
             <option value="random">⤨ Random</option>
           </Select>
           <IconButton label="Auflösung und Richtung zurücksetzen" onClick={() => p.onPattern(track, { direction: "forward", division: 16 })}><RotateCcw size={13} /></IconButton>
+        </fieldset>
           {editor === "step" && <div className="step-pages">
             <IconButton
               label="Vorherige Step-Seite"
@@ -366,10 +374,11 @@ export default function Sequencer(p: Props) {
               <ChevronRight size={12} />
             </IconButton>
           </div>}
-        </div>
       </div>
       {editor === "piano" && <>
-        <PianoRoll key={`${track}:${project.activePattern}`} pattern={pattern} patch={project.tracks[track].patch} color={project.tracks[track].color} playing={p.playing} playhead={p.playheads[track]}
+        <PianoRoll key={`${track}:${project.activePattern}`} pattern={pattern} patch={project.tracks[track].patch} color={project.tracks[track].color} playing={p.playing && (p.preview.state !== "playing" || p.preview.track === track)} playhead={p.playheads[track]}
+          playbackState={p.preview.track === track ? p.preview.state : "stopped"} onPlay={() => p.onPlayTrack(track)} onPause={p.onPauseTrack} onStop={p.onStopTrack}
+          onPlayback={(pianoPlayback) => p.onPattern(track, { pianoPlayback })}
           onScale={(scale) => p.onPattern(track, { scale })} onChange={(notes) => p.onNotes(track, notes)} onAudition={(note, velocity) => p.onAudition(track, note, velocity)}
           onUndo={p.onUndo} onRedo={p.onRedo} canUndo={p.canUndo} canRedo={p.canRedo} clipboard={p.noteClipboard} onClipboard={p.onNoteClipboard} getPosition={() => p.getPosition(track)} />
       </>}
@@ -385,8 +394,9 @@ export default function Sequencer(p: Props) {
           <span />
         </div>
         {project.tracks.map((t, ti) => {
-          if (t.mode !== "step") return null;
           const pat = t.patterns[project.activePattern];
+          const low = Math.min(60, ...pat.notes.map((n) => n.note));
+          const high = Math.max(72, ...pat.notes.map((n) => n.note));
           return (
             <div
               className={`sequence-track ${ti === track ? "selected" : ""} ${t.mute ? "muted-track" : ""}`}
@@ -395,13 +405,23 @@ export default function Sequencer(p: Props) {
             >
               <button
                 className="sequence-track-label"
+                disabled={t.mode === "piano"}
+                title={t.mode === "piano" ? "Piano Roll · schreibgeschützte Übersicht" : undefined}
                 onClick={() => p.selectTrack(ti)}
               >
                 <i />
                 <span>{String(ti + 1).padStart(2, "0")}</span>
                 <b>{t.name}</b>
               </button>
-              <div
+              {t.mode === "piano" ? <div className="piano-step-preview" role="img" aria-label={`${t.name}: Piano-Roll-Noten, schreibgeschützt`}>
+                <span>PIANO ROLL</span>
+                {pat.notes.filter((n) => n.start < last + 1 && n.start + n.duration > first).map((n) => {
+                  const start = Math.max(first, n.start) * 64 / pat.division;
+                  const end = Math.min(last + 1, n.start + n.duration) * 64 / pat.division;
+                  return <i key={n.id} title={`${noteName(n.note)} · ${n.duration.toFixed(2)} Steps`} className={n.start >= pat.length ? "outside" : ""} style={{ left: `${(start - startUnit) / (endUnit - startUnit) * 100}%`, width: `${(end - start) / (endUnit - startUnit) * 100}%`, top: `${18 + (high - n.note) / Math.max(12, high - low) * 62}%`, opacity: .4 + n.velocity * .6 }} />;
+                })}
+                {p.playing && p.playheads[ti] >= first && p.playheads[ti] < last + 1 && <b style={{ left: `${(p.playheads[ti] * 64 / pat.division - startUnit) / (endUnit - startUnit) * 100}%` }} />}
+              </div> : <div
                 className="steps"
                 style={timelineStyle}
               >
@@ -421,12 +441,12 @@ export default function Sequencer(p: Props) {
                         className={`step ${s.on ? "enabled" : ""} ${index === selectedStep && ti === track ? "inspected" : ""} ${p.playing && p.playheads[ti] === index ? "playhead" : ""} ${index >= pat.length ? "outside" : ""} ${index % 4 === 0 ? "beat-start" : ""}`}
                         aria-label={`Track ${ti + 1} Step ${index + 1} ${s.on ? "on" : "off"}${slots > 1 ? ` · Positionen ${index + 1}–${index + slots}` : ""}${continuation ? " · Fortsetzung" : ""}`}
                         aria-pressed={s.on}
-                        title={`${noteName(s.note)} · ${stepLengthLabel(span, pat.division)} · ${Math.round(s.velocity * 100)}%${hasLock ? " · Parameter locks" : ""}${span < s.span ? " · am Pattern-Ende gekürzt" : ""}\nKlick: Trig · Shift/Rechtsklick: bearbeiten`}
+                        title={`${noteName(s.note)} · ${stepLengthLabel(span, pat.division)} · ${Math.round(s.velocity * 100)}%${hasLock ? " · Parameter locks" : ""}${span < s.span ? " · am Pattern-Ende gekürzt" : ""}\nKlick: auswählen · Ausgewählten Step erneut klicken: löschen · Shift/Rechtsklick: Note & P-Locks`}
                         onClick={(e) => {
                           p.selectTrack(ti);
                           p.setStep(index);
                           if (e.shiftKey) setEditorOpen(true);
-                          else if (index < pat.length)
+                          else if (index < pat.length && (!s.on || (ti === track && index === selectedStep)))
                             p.onStep(ti, index, { on: !s.on });
                         }}
                         onContextMenu={(e) => {
@@ -450,7 +470,7 @@ export default function Sequencer(p: Props) {
                       </button>
                     );
                 })}
-              </div>
+              </div>}
               <div className="track-switches">
                 <button
                   className={t.mute ? "active" : ""}
@@ -473,10 +493,10 @@ export default function Sequencer(p: Props) {
           );
         })}
       </div>
-      {editorOpen ? (
+      {canEdit && (editorOpen ? (
         <Modal
           title={`Track ${track + 1} · Step ${String(selectedStep + 1).padStart(2, "0")}`}
-          subtitle="Note, Schrittlänge und Trig-Eigenschaften bearbeiten"
+          subtitle="Note, Trig-Eigenschaften und Parameter-Locks bearbeiten"
           wide
           onClose={closeEditor}
         >
@@ -501,81 +521,11 @@ export default function Sequencer(p: Props) {
             </button>
           </div>
           {stepEditor}
+          {lockEditor}
         </Modal>
       ) : (
-        stepEditor
-      )}
-      {(p.lockMode || Object.keys(step.locks).length > 0) && (
-        <div className="lock-editor">
-          <span>
-            <LockKeyhole size={12} /> PARAMETER LOCKS
-          </span>
-          {Object.entries(step.locks).map(([key, value]) => (
-            <div className="lock-chip" key={key}>
-              <b>{key}</b>
-              <input
-                aria-label={`Lock ${key}`}
-                type="number"
-                step="any"
-                min={PARAMS[key as Param][0]}
-                max={PARAMS[key as Param][1]}
-                value={Number(value.toFixed(3))}
-                onChange={(e) =>
-                  change({
-                    locks: {
-                      ...step.locks,
-                      [key]: Math.min(
-                        PARAMS[key as Param][1],
-                        Math.max(PARAMS[key as Param][0], +e.target.value),
-                      ),
-                    },
-                  })
-                }
-              />
-              <button
-                aria-label={`Remove ${key} lock`}
-                onClick={() => {
-                  const locks = { ...step.locks };
-                  delete locks[key as Param];
-                  change({ locks });
-                }}
-              >
-                <X size={11} />
-              </button>
-            </div>
-          ))}
-          {p.lockMode && (
-            <>
-              <Select
-                label="Parameter für Lock"
-                value={addLock}
-                onChange={(v) => setAddLock(v as Param)}
-              >
-                {LOCK_PARAMS.map((key) => (
-                  <option key={key} value={key}>
-                    {key}
-                  </option>
-                ))}
-              </Select>
-              <button
-                className="small-button"
-                onClick={() =>
-                  change({
-                    on: true,
-                    locks: {
-                      ...step.locks,
-                      [addLock]: project.tracks[track].patch[addLock],
-                    },
-                  })
-                }
-              >
-                + Lock
-              </button>
-              <small>Instrument-Regler bewegen, um Werte zu verriegeln.</small>
-            </>
-          )}
-        </div>
-      )}
+        <>{stepEditor}{(p.lockMode || Object.keys(step.locks).length > 0) && lockEditor}</>
+      ))}
       </>}
       </>}
       {!modeMatches && <div className="sequencer-empty"><strong>Keine Tracks im {editor === "piano" ? "Piano-Roll" : "Step"}-Modus</strong>Wähle einen Track im Rack und ändere oben seinen Editortyp.</div>}

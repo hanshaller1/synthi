@@ -1,3 +1,19 @@
+# Track-Wiedergabe und Bedienung vom 23.10.2026
+
+Basis: GitHub-`main` auf `6318ee6`, identisch mit dem lokalen Commitstand bei der Übernahme. Vorhandene uncommittete Änderungen wurden geprüft und vervollständigt; die bereits veröffentlichten Erweiterungen wurden beibehalten.
+
+- Eigene vorwärts laufende Piano-Track-Wiedergabe mit Start, Pause, Stop, Loop-Schalter und gespeicherten Bereichsmarkern. Mute wird berücksichtigt; andere Solo-Zustände beeinflussen diese Wiedergabe nicht und werden nicht verändert. Haupttransport und MIDI-Start beenden die Einzelwiedergabe, damit keine zwei Scheduler gleichzeitig spielen.
+- Audio- und MIDI-Warteschlangen werden bei Pause/Stop bzw. Bereichsänderungen geleert, Locks zurückgesetzt und Live-Aufnahmen abgeschlossen. Aufnahme und Notenbearbeitung aktualisieren zukünftige Ereignisse ohne Clock-Neustart oder erneutes Auslösen gerade aufgenommener Noten. Eine fortlaufende Position erhält Aufnahmedauern über Loop-Grenzen. Nach gedrosselten Tabs werden keine veralteten Ereignisse als Burst nachgeholt.
+- Hold hält freigegebene Live-/MIDI-Noten, löst gleiche Noten beim erneuten Anschlag sauber ab und berücksichtigt noch laufende Audioinitialisierung. Ausschalten von Hold, Stop und MIDI-Panic geben die gehaltenen Noten frei.
+- Piano-Tracks sind im Step-Register schreibgeschützt sichtbar; Mute/Solo und Seitennavigation bleiben bedienbar. Einfügen verändert nur Tracks des aktiven Editorregisters. Belegte Steps werden zuerst ausgewählt und erst beim erneuten Klick auf die Auswahl deaktiviert.
+- Gemeinsame größere Lock-Steuerung im Step-Editor, Rechtsklick-Dialog und Piano-Inspector: gruppierte Auswahl mit ausgeschriebenen Namen, Maus-Slider und frei bearbeitbare Zahlenfelder. Die zuvor ausgeschlossenen, pro Stimme erzeugten Unison-/Wavetable-/Sampler-/Additive-Parameter sind verfügbar. Gemeinsame Effekt-Kurven/Impulse (distortion/reverbSize) und separate FX-Zusatzparameter bleiben außerhalb der Note-Locks.
+- Alle Synthesizer-/Master-Knöpfe verwenden die Oscillator-Größe von 55 px und dieselbe Geometrie. Space-Titel und Schalter sind an Dynamics angeglichen. Eine zu breite Space-SVG-Regel, die auch Icons und Knopf-Ringe erfasste, ist auf die Visualisierungen begrenzt. Env depth ist breiter und auf 0,01 einstellbar.
+- Kompakte Piano-Symbolbuttons samt Tooltips, deutlich aktives Fill, Hold neben der Keyboard-Höhenwahl und Fokusfreigabe nach Combo-Auswahl. Follow und Fill sind in Hilfe und README erklärt.
+
+Verifikation: statische Code-Durchsicht, TypeScript-/Produktions-Build und generierte HTML-Dateien über `npm run build:pages`, außerdem `git diff --check`. Keine Tests angelegt oder ausgeführt und keine Test-Abhängigkeiten hinzugefügt. Sichtbare Browserbedienung, Klang und Hardware-MIDI wurden nicht praktisch geprüft. Änderungen können innerhalb des bereits geplanten Audio-Vorlaufs von 120 ms verzögert hörbar werden; gemeinsam genutzte Track-FX bleiben nicht pro Note unabhängig.
+
+---
+
 # Desktop-Ausbau und Piano-Roll-Werkzeuge vom 23.10.2026
 
 Basis: GitHub-`main` auf `4a8b771`. Umsetzung und Push nach `main` sind ausdrücklich beauftragt.

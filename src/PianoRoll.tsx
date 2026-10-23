@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
-import { Copy, ClipboardPaste, Trash2, Undo2, Redo2, Minus, Plus } from "lucide-react";
+import { Copy, ClipboardPaste, Trash2, Undo2, Redo2, Minus, Plus, Filter, Wand2, FlipHorizontal2, Shuffle, Pencil, MousePointer2, Eraser, Hand, CopyPlus, Grid2X2, LocateFixed, Play, Pause, Square, Repeat2 } from "lucide-react";
 import { IconButton, Select } from "./components";
-import { MAX_STEPS, SCALES, LOCK_PARAMS, PARAMS, clamp, clone, noteName } from "./model";
-import type { ScaleConfig, Condition, Param, Patch, Pattern, PianoNote } from "./model";
+import { MAX_STEPS, SCALES, pianoRange, clamp, clone, noteName } from "./model";
+import type { ScaleConfig, Condition, Patch, Pattern, PianoNote } from "./model";
 import { makeNote, newNoteId } from "./sequence";
 import { inScale, scalePitch } from "./piano-tools";
 import PianoTools from "./PianoTools";
+import { LockControls } from "./ParameterLocks";
 
 type Props = {
   pattern: Pattern; patch: Patch; color: string; playing: boolean; playhead: number;
+  playbackState: "stopped" | "playing" | "paused";
+  onPlay: () => void; onPause: () => void; onStop: () => void;
+  onPlayback: (range: NonNullable<Pattern["pianoPlayback"]>) => void;
   onScale: (scale: ScaleConfig) => void;
   onChange: (notes: PianoNote[]) => void;
   onAudition: (note: number, velocity: number) => void;
@@ -22,7 +26,7 @@ type Gesture = {
   x: number; y: number; base: PianoNote[]; ids: Set<string>; changed: boolean;
   originals: PianoNote[]; pointer: number; scrollLeft?: number; scrollTop?: number; preview?: string;
 };
-const KEY = 58, TOP = 26;
+const KEY = 58, TOP = 42;
 const black = (note: number) => [1, 3, 6, 8, 10].includes(note % 12);
 export default function PianoRoll(p: Props) {
   const [selected, setSelected] = useState(new Set<string>());
@@ -35,7 +39,10 @@ export default function PianoRoll(p: Props) {
   const [draft, setDraft] = useState<PianoNote[] | null>(null);
   const [box, setBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [follow, setFollow] = useState(true), [message, setMessage] = useState("");
-  const [lock, setLock] = useState<Param>("cutoff");
+  const [rangeDraft, setRangeDraft] = useState<Pattern["pianoPlayback"]>();
+  const range = rangeDraft ?? pianoRange(p.pattern);
+  const rangeRef = useRef(range); rangeRef.current = range;
+  const marker = useRef<"start" | "end" | null>(null);
   const viewport = useRef<HTMLDivElement>(null), grid = useRef<HTMLDivElement>(null);
   const playline = useRef<HTMLDivElement>(null), velocityViewport = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null), draftRef = useRef<PianoNote[] | null>(null);
@@ -236,7 +243,7 @@ export default function PianoRoll(p: Props) {
     gesture.current = null; previewDraft(null); setBox(null);
   };
   const keyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest("input,select,[role=dialog]")) return;
+    if ((e.target as HTMLElement).closest("input,select,[role=dialog],[role=slider]")) return;
     const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
     if (key === "delete" || key === "backspace") { e.preventDefault(); e.stopPropagation(); remove(); }
     else if (mod && ["a", "c", "x", "v", "d", "z", "y"].includes(key)) {
@@ -271,11 +278,11 @@ export default function PianoRoll(p: Props) {
       const value = latest.current.getPosition();
       const head = value ?? latest.current.playhead;
       if (playline.current) {
-        playline.current.style.display = latest.current.playing && head >= 0 ? "block" : "none";
+        playline.current.style.display = (latest.current.playing || latest.current.playbackState === "paused") && head >= 0 ? "block" : "none";
         playline.current.style.left = `${KEY + clamp(head, 0, latest.current.pattern.length) * zoom}px`;
       }
       const v = viewport.current;
-      if (follow && !gesture.current && !rulerDrag.current && latest.current.playing && v && head >= 0) {
+      if (follow && !gesture.current && !rulerDrag.current && !marker.current && latest.current.playing && v && head >= 0) {
         const x = head * zoom;
         if (x < v.scrollLeft || x > v.scrollLeft + v.clientWidth - KEY - 30) v.scrollLeft = Math.max(0, x - 50);
       }
@@ -286,40 +293,51 @@ export default function PianoRoll(p: Props) {
   const outOfRange = notes.filter((n) => n.start >= p.pattern.length).length;
   return <div className="piano-roll" onKeyDown={keyDown} data-piano-roll style={{ "--roll-color": p.color } as CSSProperties}>
     <div className="roll-toolbar">
+      <div className="roll-transport">
+        <IconButton label={p.playbackState === "paused" ? "Nur diesen Track fortsetzen" : "Nur diesen Track ab Startmarkierung spielen"} active={p.playbackState === "playing"} disabled={p.playbackState === "playing"} onClick={p.onPlay}><Play size={15} fill="currentColor" /></IconButton>
+        <IconButton label="Track pausieren" active={p.playbackState === "paused"} disabled={p.playbackState !== "playing"} onClick={p.onPause}><Pause size={15} /></IconButton>
+        <IconButton label="Track stoppen und zur Startmarkierung zurücksetzen" disabled={p.playbackState === "stopped"} onClick={p.onStop}><Square size={13} fill="currentColor" /></IconButton>
+        <IconButton label={range.loop ? "Loop an · Bereich wiederholen" : "Loop aus · Bereich einmal spielen"} active={range.loop} onClick={() => p.onPlayback({ ...range, loop: !range.loop })}><Repeat2 size={16} /></IconButton>
+      </div>
       <button className={`small-button ${scale.enabled ? "on" : ""}`} aria-pressed={scale.enabled} onClick={() => p.onScale({ ...scale, enabled: !scale.enabled })}>Scale</button>
       <Select label="Skalen-Grundton" value={scale.root} onChange={(v) => p.onScale({ ...scale, root: +v })}>{["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"].map((n, i) => <option key={n} value={i}>{n}</option>)}</Select>
       <Select label="Skala" value={scale.name} onChange={(v) => p.onScale({ ...scale, name: v as ScaleConfig["name"] })}>{Object.entries(SCALES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</Select>
-      <button className={`small-button ${fold ? "on" : ""}`} aria-pressed={fold} title="Nur verwendete Töne und aktive Skala anzeigen" onClick={() => setFold(!fold)}>Fold</button>
-      <button className="small-button" onClick={() => setToolDialog("generate")}>Generieren</button>
-      <button className="small-button" onClick={() => setToolDialog("transform")}>Transformieren</button>
-      <button className="small-button" onClick={() => setToolDialog("humanize")}>Humanize</button>
+      <IconButton label="Fold · Nur verwendete Töne und aktive Skala anzeigen" active={fold} onClick={() => setFold(!fold)}><Filter size={15} /></IconButton>
+      <IconButton label="Generieren · Melodie, Euclid-Rhythmus, Arpeggio" onClick={() => setToolDialog("generate")}><Wand2 size={15} /></IconButton>
+      <IconButton label="Transformieren · Spiegeln, Legato, Strecken, Rotieren" onClick={() => setToolDialog("transform")}><FlipHorizontal2 size={15} /></IconButton>
+      <IconButton label="Humanize · Timing, Velocity und Länge variieren" onClick={() => setToolDialog("humanize")}><Shuffle size={15} /></IconButton>
       <span className="roll-toolbar-divider" />
       <div className="roll-tools" aria-label="Piano-Roll-Werkzeug">
-        {(["draw", "select", "erase", "pan"] as const).map((t) => <button key={t} className={tool === t ? "active" : ""} aria-pressed={tool === t} onClick={() => setTool(t)}>{t === "draw" ? "Zeichnen" : t === "select" ? "Auswahl" : t === "pan" ? "Hand" : "Radieren"}</button>)}
+        {([{ id: "draw", label: "Zeichnen", icon: Pencil }, { id: "select", label: "Auswahl", icon: MousePointer2 }, { id: "erase", label: "Radieren", icon: Eraser }, { id: "pan", label: "Hand · Ausschnitt verschieben", icon: Hand }] as const).map((t) => <IconButton key={t.id} label={t.label} active={tool === t.id} onClick={() => setTool(t.id)}><t.icon size={15} /></IconButton>)}
       </div>
       <label>Raster <Select label="Piano-Roll-Raster" value={snap} onChange={(v) => setSnap(+v)}>{[0, .125, .25, .5, 1, 2, 4].map((v) => <option key={v} value={v}>{v ? `1/${p.pattern.division / v}` : "Frei"}</option>)}</Select></label>
       <label>Länge <input aria-label="Neue Notenlänge in Steps" type="number" min=".01" max="256" step={snap || .01} value={defaultLength} onChange={(e) => setDefaultLength(clamp(+e.target.value || .01, .01, 256))} /></label>
       <button className="small-button" onClick={() => { const n = makeNote(clamp(cursor, 0, p.pattern.length - .001), scalePitch(first?.note ?? 60, scale), defaultLength); commit([...notes, n]); setSelected(new Set([n.id])); p.onAudition(n.note, n.velocity); }}>+ Note</button>
       <IconButton label="Noten kopieren (Ctrl+C)" disabled={!selection.length} onClick={copy}><Copy size={14} /></IconButton>
       <IconButton label="Noten am Cursor einfügen (Ctrl+V)" disabled={!p.clipboard.length} onClick={() => insert(p.clipboard, cursor)}><ClipboardPaste size={14} /></IconButton>
-      <button className="small-button" disabled={!selection.length} onClick={duplicate}>Duplizieren</button>
-      <button className="small-button" disabled={!selection.length || !snap} onClick={() => commit(notes.map((n) => selected.has(n.id) ? { ...n, start: clamp(quantize(n.start + n.micro), 0, (MAX_STEPS - .001)), duration: Math.max(minimum, quantize(n.duration)), micro: 0 } : n))}>Quantisieren</button>
+      <IconButton label="Auswahl duplizieren (Ctrl/Cmd+D)" disabled={!selection.length} onClick={duplicate}><CopyPlus size={15} /></IconButton>
+      <IconButton label="Auswahl auf das Raster quantisieren" disabled={!selection.length || !snap} onClick={() => commit(notes.map((n) => selected.has(n.id) ? { ...n, start: clamp(quantize(n.start + n.micro), 0, (MAX_STEPS - .001)), duration: Math.max(minimum, quantize(n.duration)), micro: 0 } : n))}><Grid2X2 size={15} /></IconButton>
       <IconButton label="Auswahl löschen" disabled={!selection.length} onClick={remove}><Trash2 size={14} /></IconButton>
       <IconButton label="Rückgängig (Ctrl+Z)" disabled={!p.canUndo} onClick={p.onUndo}><Undo2 size={14} /></IconButton>
       <IconButton label="Wiederholen (Ctrl+Shift+Z)" disabled={!p.canRedo} onClick={p.onRedo}><Redo2 size={14} /></IconButton>
       <IconButton label="Horizontal herauszoomen" disabled={zoom <= 4} onClick={() => zoomAt(zoom / 1.25)}><Minus size={14} /></IconButton>
       <IconButton label="Horizontal hineinzoomen" disabled={zoom >= 240} onClick={() => zoomAt(zoom * 1.25)}><Plus size={14} /></IconButton>
       <button className="small-button" title="Pattern in Fenster einpassen (H)" onClick={fit}>Fit</button>
-      <button className={`small-button ${follow ? "on" : ""}`} aria-pressed={follow} onClick={() => setFollow(!follow)}>Follow</button>
+      <IconButton label="Follow · Ansicht folgt bei Wiedergabe dem Abspielkopf" active={follow} onClick={() => setFollow(!follow)}><LocateFixed size={15} /></IconButton>
     </div>
     <div className="roll-viewport" ref={viewport} onScroll={() => { if (velocityViewport.current && viewport.current) velocityViewport.current.scrollLeft = viewport.current.scrollLeft; }}>
       <div className="roll-content" style={{ width: KEY + width, height: TOP + rows.length * rowHeight }}>
-        <div className="roll-ruler" style={{ width: KEY + width }} title="Ziehen: vertikal zoomen, horizontal verschieben · Doppelklick: einpassen"
+        <div className="roll-ruler" style={{ width: KEY + width }} title="Ziehen: zoomen / verschieben · Doppelklick: Fit · Shift+Klick: Start · Alt+Klick: Ende"
           onDoubleClick={fit}
           onPointerDown={(e) => {
             if (e.button !== 0 || !viewport.current) return;
             e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
             const rect = viewport.current.getBoundingClientRect(), x = e.clientX - rect.left - KEY;
+            const position = Math.round((viewport.current.scrollLeft + x) / zoom);
+            if (e.shiftKey || e.altKey) {
+              p.onPlayback(e.shiftKey ? { ...range, start: clamp(position, 0, range.end - 1) } : { ...range, end: clamp(position, range.start + 1, p.pattern.length) });
+              return;
+            }
             rulerDrag.current = { x: e.clientX, y: e.clientY, zoom, unit: (viewport.current.scrollLeft + x) / zoom, changed: false };
           }}
           onPointerMove={(e) => {
@@ -333,6 +351,26 @@ export default function PianoRoll(p: Props) {
           }}
           onPointerUp={() => { const g = rulerDrag.current; if (g && !g.changed) setCursor(clamp(quantize(g.unit), 0, p.pattern.length - .001)); rulerDrag.current = null; }}
           onPointerCancel={() => { rulerDrag.current = null; }} onLostPointerCapture={() => { rulerDrag.current = null; }}>
+          <div className={`roll-range ${range.loop ? "looping" : ""}`} style={{ left: KEY + range.start * zoom, width: (range.end - range.start) * zoom }} />
+          {(["start", "end"] as const).map((side) => <button key={side} className={`roll-marker ${side}`} role="slider" tabIndex={0}
+            aria-label={side === "start" ? "Bereichsanfang" : "Bereichsende"} aria-valuemin={side === "start" ? 0 : range.start + 1} aria-valuemax={side === "start" ? range.end - 1 : p.pattern.length} aria-valuenow={range[side]}
+            title={side === "start" ? `Start: Step ${range.start + 1} · ziehen` : `Ende: nach Step ${range.end} · ziehen`}
+            style={{ left: KEY + range[side] * zoom }} onDoubleClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); marker.current = side; e.currentTarget.focus({ preventScroll: true }); e.currentTarget.setPointerCapture(e.pointerId); }}
+            onPointerMove={(e) => {
+              if (!marker.current || !viewport.current || !grid.current) return;
+              e.stopPropagation(); const v = viewport.current, rect = v.getBoundingClientRect();
+              if (e.clientX > rect.right - 20) v.scrollLeft += 12;
+              if (e.clientX < rect.left + KEY + 10) v.scrollLeft -= 12;
+              const position = Math.round((e.clientX - grid.current.getBoundingClientRect().left) / zoom);
+              const value = side === "start" ? clamp(position, 0, range.end - 1) : clamp(position, range.start + 1, p.pattern.length);
+              const next = { ...range, [side]: value }; rangeRef.current = next; setRangeDraft(next);
+            }}
+            onPointerUp={(e) => { e.stopPropagation(); if (marker.current) p.onPlayback(rangeRef.current); marker.current = null; setRangeDraft(undefined); }}
+            onPointerCancel={() => { marker.current = null; setRangeDraft(undefined); }}
+            onLostPointerCapture={() => { marker.current = null; setRangeDraft(undefined); }}
+            onKeyDown={(e) => { if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return; e.preventDefault(); e.stopPropagation(); const min = side === "start" ? 0 : range.start + 1, max = side === "start" ? range.end - 1 : p.pattern.length; p.onPlayback({ ...range, [side]: clamp(e.key === "Home" ? min : e.key === "End" ? max : range[side] + (e.key === "ArrowRight" ? 1 : -1) * (e.shiftKey ? 4 : 1), min, max) }); }}
+          >{side === "start" ? "▶" : "◀"}</button>)}
           <span className="roll-ruler-corner">NOTE</span>
           {Array.from({ length: units }, (_, i) => <button key={i} style={{ left: KEY + i * zoom, width: zoom }} className={i % (p.pattern.division / 4) === 0 ? "beat" : ""} aria-label={`Einfügeposition Step ${i + 1}`}>{i % p.pattern.division === 0 ? `${Math.floor(i / p.pattern.division) + 1}.1` : zoom >= 40 ? i + 1 : "·"}</button>)}
         </div>
@@ -386,11 +424,11 @@ export default function PianoRoll(p: Props) {
         <label>Micro <input aria-label="Noten-Microtiming in Steps" type="number" min="-3.6" max="3.6" step=".01" value={+first.micro.toFixed(3)} onChange={(e) => editSelected({ micro: clamp(+e.target.value, -3.6, 3.6) })} /></label>
         <label>Bedingung <Select label="Noten-Bedingung" value={first.condition} onChange={(v) => editSelected({ condition: v as Condition, group: undefined })}>{["always", "1:2", "2:2", "1:4", "fill", "!fill"].map((v) => <option key={v} value={v}>{v}</option>)}</Select></label>
       </>}
-    {first && <>
-      <span className="inspector-divider" /><Select label="Noten-Lock-Parameter" value={lock} onChange={(v) => setLock(v as Param)}>{LOCK_PARAMS.map((v) => <option key={v} value={v}>{v}</option>)}</Select>
-      <button className="small-button" onClick={() => commit(notes.map((n) => selected.has(n.id) ? { ...n, locks: { ...n.locks, [lock]: p.patch[lock] } } : n))}>+ Lock</button>
-      {Object.entries(first.locks).map(([key, value]) => <label key={key}>{key}<input aria-label={`Noten-Lock ${key}`} type="number" step="any" min={PARAMS[key as Param][0]} max={PARAMS[key as Param][1]} value={+value.toFixed(3)} onChange={(e) => commit(notes.map((n) => selected.has(n.id) ? { ...n, locks: { ...n.locks, [key]: clamp(+e.target.value, PARAMS[key as Param][0], PARAMS[key as Param][1]) } } : n))} /><button aria-label={`Noten-Lock ${key} entfernen`} onClick={() => commit(notes.map((n) => { if (!selected.has(n.id)) return n; const locks = { ...n.locks }; delete locks[key as Param]; return { ...n, locks }; }))}>×</button></label>)}
-    </>}
+    {first && <LockControls locks={first.locks} patch={p.patch} onSet={(key, value) => commit(notes.map((n) => {
+      if (!selected.has(n.id)) return n;
+      const locks = { ...n.locks }; if (value === null) delete locks[key]; else locks[key] = value;
+      return { ...n, locks };
+    }))} />}
     </div>
     {(message || outOfRange > 0) && <div className="roll-status" role="status"><span>{message || `${outOfRange} Noten außerhalb der Loop-Länge bleiben gespeichert.`}</span>{message && <button aria-label="Hinweis schließen" onClick={() => setMessage("")}>×</button>}</div>}
     {toolDialog && <PianoTools pattern={p.pattern} selection={selected} page={toolDialog} onClose={closeTools} onApply={commit} />}

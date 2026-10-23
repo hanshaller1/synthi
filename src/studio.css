@@ -638,7 +638,7 @@
   color: #d7bd8e;
   min-height: 0;
 }
-.master-editor svg path {
+.master-editor svg:not(.knob-ring) path {
   stroke: currentColor;
   stroke-width: 1.5;
   fill: none;
@@ -751,7 +751,7 @@
   border: 1px solid #4f5e45;
   border-radius: 4px;
 }
-.master-space svg {
+.master-space > section > svg {
   flex: 1;
   min-height: 30px;
   max-height: 180px;

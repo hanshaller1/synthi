@@ -18,10 +18,10 @@
 .roll-toolbar select, .roll-inspector select { font-size:11px; padding:6px 22px 6px 7px; }
 .roll-viewport { overflow:auto; flex:1 1 300px; min-height:180px; position:relative; scrollbar-color:#5e6757 #1c211c; overscroll-behavior:contain; }
 .roll-content { position:relative; background:#202720; }
-.roll-ruler { position:sticky; top:0; height:26px; z-index:6; background:#1c231c; border-bottom:1px solid #66705a; }
-.roll-ruler > button { position:absolute; top:0; height:26px; text-align:left; padding:0 5px; border-left:1px solid #48503e; font:10px var(--mono); color:#9da58d; }
+.roll-ruler { position:sticky; top:0; height:42px; z-index:6; background:#1c231c; border-bottom:1px solid #66705a; }
+.roll-ruler > button { position:absolute; top:16px; height:26px; text-align:left; padding:0 5px; border-left:1px solid #48503e; font:10px var(--mono); color:#9da58d; }
 .roll-ruler > button.beat { color:#e3d4ad; }
-.roll-ruler-corner { position:sticky; left:0; display:flex; align-items:center; height:26px; width:58px; background:#323b2f; padding-left:9px; font:9px var(--mono); z-index:7; }
+.roll-ruler-corner { position:sticky; left:0; display:flex; align-items:center; height:42px; width:58px; background:#323b2f; padding-left:9px; font:9px var(--mono); z-index:7; }
 .roll-keys { position:sticky; left:0; width:58px; z-index:5; }
 .roll-keys > button { display:block; width:58px; font:9px var(--mono); text-align:right; padding:0 7px; border-bottom:1px solid #434b3d; }
 .roll-keys .white { background:#bbc1ad; color:#303b2d; }
@@ -39,7 +39,7 @@
 .roll-resize { position:absolute; top:0; bottom:0; width:6px; cursor:ew-resize; z-index:3; }
 .roll-resize.left { left:0; }
 .roll-resize.right { right:0; background:#ffffff18; }
-.roll-playhead { position:absolute; top:26px; bottom:0; width:2px; background:#ffe4b7; box-shadow:0 0 7px #ffe4b755; z-index:4; pointer-events:none; }
+.roll-playhead { position:absolute; top:42px; bottom:0; width:2px; background:#ffe4b7; box-shadow:0 0 7px #ffe4b755; z-index:4; pointer-events:none; }
 .roll-cursor { position:absolute; top:0; bottom:0; width:1px; background:#ccbca966; pointer-events:none; }
 .roll-marquee { position:absolute; border:1px solid #efd0a5; background:#efd0a51c; z-index:4; pointer-events:none; }
 .roll-velocity-viewport { flex:0 0 62px; overflow:hidden; border-top:1px solid #4e5746; border-bottom:1px solid #4e5746; background:#1b221c; }
@@ -93,3 +93,14 @@
 .tool-preview svg { width: 100%; height: 100%; fill: var(--accent); }
 .tool-preview p { padding: 35px 25px; font-size: 12px; color: var(--muted); text-align: center; }
 .tool-result { min-height: 20px; margin-top: 9px; font: 11px var(--mono); color: var(--accent); }
+
+/* Transport, note tools and generators share compact icon controls. */
+.roll-transport { display: flex; gap: 2px; align-items: center; padding: 2px; border: 1px solid var(--panel-line); border-radius: 4px; background: var(--surface-low); }
+.roll-toolbar .icon-button, .roll-tools .icon-button { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 27px; width: 27px; height: 27px; padding: 0; }
+.roll-toolbar .icon-button.active { color: var(--accent); background: #e5ac8615; box-shadow: inset 0 0 0 1px #9a7957; }
+.roll-range { position: absolute; top: 1px; height: 14px; pointer-events: none; background: #a8afa42b; border-block: 1px solid #a8afa460; }
+.roll-range.looping { background: #e5ac862b; border-color: #e5ac8680; }
+.roll-ruler > .roll-marker { top: 0; z-index: 2; width: 15px; height: 16px; padding: 0; border: 0; border-radius: 2px; font: 11px/16px var(--mono); text-align: center; color: #22261f; background: var(--accent); cursor: ew-resize; overflow: visible; }
+.roll-ruler > .roll-marker.end { transform: translateX(-100%); }
+.roll-ruler > .roll-marker:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.roll-ruler > .roll-marker:hover { filter: brightness(1.15); }

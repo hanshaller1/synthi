@@ -257,7 +257,7 @@ export default function MasterFX({
             </div>
         </section>
         <section className="module master-module master-space">
-          <div className="module-title"><h3><Waves size={14} /> Space</h3><span className="module-index">04</span></div>
+          <div className="module-title master-section-title"><h3><Waves size={14} /> Space</h3><span className="module-index">04</span></div>
             <section>
               <div className="master-section-title">
                 <h3>Ping-pong echo</h3>

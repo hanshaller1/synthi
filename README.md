@@ -142,9 +142,13 @@ Acht Pattern-Speicher **A01–A08**, jeder mit zwölf Tracks. Pro Track unabhän
 - Parameter-Locks für Klangerzeugung, Filter, Envelopes sowie planbare Effektparameter.
 - Globales Tempo, Tap Tempo, Swing, Mute/Solo, Kopieren/Einfügen, Duplizieren und musikalische Pattern-Generierung.
 
-**Step klicken:** Trig ein-/ausschalten. **Shift + Klick** oder **Rechtsklick:** den Step-Dialog öffnen, ohne den Trig zu verändern. Dort Notenname, Länge und sämtliche Trig-Eigenschaften einstellen; die Pfeile wechseln zum benachbarten Step. Ein kompakter Editor steht außerdem direkt unter dem Raster.
+**Step klicken:** Ein leerer Step wird aktiviert. Ein belegter Step wird zunächst ausgewählt; erst ein weiterer Klick auf den bereits ausgewählten Step deaktiviert ihn. **Shift + Klick** oder **Rechtsklick:** den Step-Dialog öffnen, ohne den Trig zu verändern. Dort Notenname, Länge, sämtliche Trig-Eigenschaften und Parameter-Locks einstellen; die Pfeile wechseln zum benachbarten Step. Ein Editor steht außerdem direkt unter dem Raster.
 
-**P-LOCK im Sequencer aktivieren**, ins Hauptregister **Synthesizer** wechseln und einen Instrument-Regler bewegen: Der Wert wird nur für den ausgewählten Step gespeichert. Locks können auch direkt im Lock-Editor ergänzt, editiert und entfernt werden. Drive-Kennlinie, Hallraum-Größe, Unison-Anzahl, Wavetable-Auswahl, Sampler-Reverse/-Fade sowie additive Topologieparameter sind keine Step-Lock-Ziele. Effekt-spezifische Zusatzparameter werden im Patch gespeichert. Die globalen Pattern- und FX-Regler bleiben separat verfügbar.
+**P-LOCK im Sequencer aktivieren**, ins Hauptregister **Synthesizer** wechseln und einen Instrument-Regler bewegen: Der Wert wird nur für den ausgewählten Step gespeichert. Locks können auch direkt im vergrößerten Lock-Editor oder im Rechtsklick-Dialog ergänzt, mit Maus-Slidern bzw. Zahlenfeldern editiert und entfernt werden. Die Auswahl ist nach Bereichen gruppiert und verwendet ausgeschriebene Parameternamen. Unison-Anzahl, Wavetable-Auswahl, Sampler-Reverse/-Fade und additive Spektralparameter werden pro Stimme erzeugt und sind ebenfalls verfügbar. Nur die gemeinsame Drive-Kennlinie und Hallraum-Größe bleiben ausgenommen, da sie gemeinsam genutzte Effekt-Puffer bzw. Kurven ersetzen. Effekt-spezifische Zusatzparameter werden im Patch gespeichert. Die globalen Pattern- und FX-Regler bleiben separat verfügbar.
+
+**Fill:** Der Button schaltet die Fill-Bedingung ein und zeigt dann deutlich **FILL ON**. Noten mit `fill` spielen nur bei aktivem Fill, Noten mit `!fill` nur bei ausgeschaltetem Fill. `always` bleibt davon unabhängig; der Button erzeugt selbst keine zusätzlichen Noten.
+
+**Hold im Keyboard:** Hält gespielte Keyboard- und MIDI-Noten nach dem Loslassen. Ausschalten gibt die gehaltenen Noten frei; Stop bzw. Esc beendet alle Noten. Erneutes Anschlagen derselben gehaltenen Tonhöhe ersetzt die vorige Live-Note. Die Halbierung der Keyboard-Höhe bleibt separat verfügbar. Auswahlfelder verlieren nach einer Auswahl den Fokus, damit Tastatureingaben wieder das Computer-Keyboard erreichen.
 
 **Live Rec im Step-Modus:** Keyboard-/MIDI-Noten werden am aktuellen Step aufgenommen. Im Stillstand werden Noten schrittweise eingetragen. Ein Step speichert eine Root Note und den gewählten Akkordtyp. In der Piano Roll werden Startzeit, Anschlagstärke und tatsächliche Notendauer polyphon aufgenommen, einschließlich gehaltener Noten über Loop-Grenzen. Aufgenommen wird der ausgewählte Track; im Stillstand rückt die Einfügeposition nach dem Loslassen des Akkords weiter.
 
@@ -152,7 +156,7 @@ Die Wiedergabe verwendet einen Lookahead-Scheduler auf der AudioContext-Zeitachs
 
 ### Piano Roll und Editorwechsel
 
-Im Sequencer gibt es die Register **Step-Sequencer** und **Piano Roll**. Jedes zeigt ausschließlich Tracks mit diesem Editortyp; beide Gruppen laufen gemeinsam im Transport. Track im Rack auswählen und den Editor über die Auswahl im Sequencer umstellen. Jeder der zwölf Tracks besitzt weiterhin acht eigene Patterns, Instrument, Mute/Solo und Effekte.
+Im Sequencer gibt es die Register **Step-Sequencer** und **Piano Roll**. Das Piano-Roll-Register zeigt die Piano-Tracks. Das Step-Register zeigt alle zwölf Tracks; Piano-Tracks erscheinen dort als schreibgeschützte Notenübersicht mit bedienbaren Mute-/Solo-Schaltern. Auch bei ausgewähltem Piano-Track bleibt die Step-Seitennavigation verfügbar. Beide Gruppen laufen gemeinsam im Haupttransport. Pattern-Einfügen betrifft nur Tracks des geöffneten Editorregisters. Track im Rack auswählen und den Editor über die Auswahl im Sequencer umstellen. Jeder der zwölf Tracks besitzt weiterhin acht eigene Patterns, Instrument, Mute/Solo und Effekte.
 
 - Polyphone Noten im gesamten MIDI-Bereich 0–127; unabhängige Startzeit, Dauer und Velocity. Bis zu 4096 Noten pro Pattern.
 - Zeichnen, Verschieben, linke/rechte Notenkante skalieren, Radieren, Rechteck- und Shift-Mehrfachauswahl. **Hand** verschiebt den Ausschnitt mit der Maus; Zoom, Scrollen, Playhead und optionales Follow sind verfügbar.
@@ -161,6 +165,12 @@ Im Sequencer gibt es die Register **Step-Sequencer** und **Piano Roll**. Jedes z
 - **Ctrl/Cmd+A/C/X/V/D:** alles auswählen, kopieren, ausschneiden, am Lineal-Cursor einfügen und duplizieren. **Entf/Backspace** löscht die Auswahl. **Ctrl/Cmd+Z / Shift+Z** oder die Toolbar bieten Undo/Redo. Pfeile verschieben die Auswahl; **Shift+↑/↓** transponiert um eine Oktave.
 - Pattern-Länge bestimmt den Loop. Außerhalb liegende Noten bleiben sichtbar und gespeichert, lösen aber nicht aus. Noten dürfen über die Loop-Grenze hinaus klingen. Eine verkürzte Ansicht löscht keine Noten.
 - Projekt-JSON, Autosave, Pattern-Kopieren/Generieren/Duplizieren, Live Rec, MIDI-Ausgabe und WAV-Export berücksichtigen den jeweiligen Editor. Vorhören zeichnet keine Noten auf.
+
+**Eigene Track-Wiedergabe:** Die Play-/Pause-/Stop-Symbole in der Piano-Roll-Toolbar spielen nur diesen Track, ohne seine Solo-Einstellungen zu ändern; Mute wird berücksichtigt. Play startet am Anfangsmarker, Pause hält die Position und Play setzt sie fort. Stop setzt die Wiedergabe zurück. Loop an wiederholt den markierten Bereich; Loop aus spielt ihn einmal. Die Bereichswiedergabe läuft vorwärts und nutzt internes Tempo, Auflösung, Swing, Microtiming, Bedingungen, Wahrscheinlichkeit, Noten-Locks und MIDI-Ausgabe. Sie ist unabhängig von der Richtung und externer Clock des Haupttransports. An den Bereichsgrenzen werden Noten abgeschnitten; beim Fortsetzen werden überlappende Noten für die Restdauer neu angeschlagen. Der Haupttransport und WAV-Export behalten ihren bisherigen Ablauf.
+
+**Start-/Endmarker:** Oben im Lineal ziehen; Shift+Klick setzt den Anfang, Alt+Klick das Ende. Marker lassen sich fokussieren und mit Links/Rechts (Shift: vier Steps) sowie Home/End ändern. Der Bereich umfasst mindestens einen Step und wird pro Pattern gespeichert. Bereichs-/Tempoänderungen schließen laufende Aufnahmen ab und setzen die Wiedergabe im gültigen Bereich fort. Neue bzw. bearbeitete Noten aktualisieren zukünftige Ereignisse, ohne den Abspielkopf zurückzusetzen. Pause und Stop schließen gehaltene Aufnahme-Noten ab.
+
+**Follow:** Die Ansicht scrollt während der Wiedergabe automatisch mit dem Abspielkopf. Das Symbol schaltet nur dieses Mitlaufen um. Fold, Generieren, Transformieren, Humanize, Werkzeuge, Duplizieren, Quantisieren und Follow sind kompakte Symbolbuttons mit erklärenden Tooltips.
 
 **Skalen und Fold:** Grundton plus Major, Minor, Kirchentonarten, harmonisch/melodisch Moll, Pentatonik, Blues oder Chromatik wählen. Bei aktiver Skala werden Zeichnen und vertikales Verschieben auf Skalentöne gerastert; Pfeiltasten wechseln zum nächsten Skalenton. Die Skala wird pro Pattern gespeichert. Fold zeigt benutzte Tonhöhen und, bei aktiver Skala, deren Töne. Vorhandene Noten außerhalb der Skala bleiben erhalten. Beim Verschieben werden die Noten vorgehört; bei Mehrfachauswahl maximal acht gleichzeitig.
 
@@ -226,7 +236,9 @@ Die Anwendung wurde als Produktions-Bundle kompiliert; es wurden keine Tests aus
 - `src/sequence.ts`: gemeinsame musikalische Ereignisse, verlustfreie Übernahme und bestätigte Rückmigration.
 - `src/PianoTools.tsx`, `src/piano-tools.ts`: Generatoren, Transformationen und Humanize mit Vorschau.
 - `src/desktop.css`: Desktop-Layout und gemeinsame Modulgestaltung.
-- `src/PianoRoll.tsx`, `src/piano.css`: Piano-Roll-Bearbeitung, Auswahl, Zwischenablage und Inspector.
+- `src/PianoRoll.tsx`, `src/piano.css`: Piano-Roll-Bearbeitung, Auswahl, Zwischenablage, Bereichsmarker und Inspector.
+- `src/track-playback.ts`: unabhängige Piano-Track-Wiedergabe mit Pause und markiertem Loop-Bereich.
+- `src/ParameterLocks.tsx`: gemeinsame Lock-Auswahl, Maus-Slider und Zahlenfelder.
 - `src/audio.ts`: Stimmen, Synthese, Filter/Envelopes/FX, Transport und Offline-Rendering.
 - `src/midi.ts`: Web-MIDI-Verbindungen, Nachrichten und Ausgabe.
 - `src/storage.ts`: IndexedDB sowie Dateiimport/-export.

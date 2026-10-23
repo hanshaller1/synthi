@@ -217,7 +217,7 @@ export const MOD_TARGETS = {
   combDamping: destination("Comb damping", "Filter"),
   combMix: destination("Comb dry / wet", "Filter"),
   drive: destination("Filter drive", "Filter"),
-  filterAmount: destination("Filter envelope amount", "Filter"),
+  filterAmount: destination("Filter · Env depth", "Filter"),
   filterAttack: destination("Filter attack", "Filter envelope", true),
   filterDecay: destination("Filter decay", "Filter envelope", true),
   filterSustain: destination("Filter sustain", "Filter envelope", true),
@@ -230,20 +230,18 @@ export const MOD_TARGETS = {
   sustain: destination("Amp sustain", "Amp envelope", true),
   release: destination("Amp release", "Amp envelope", true),
 };
-// These values are AudioNode topology/buffer changes rather than schedulable AudioParams.
+// Only shared effect-buffer/curve replacements cannot be scheduled per trigger.
+// Oscillator count, spectra and sample direction are constructed per voice.
 export const LOCK_PARAMS: Param[] = (Object.keys(PARAMS) as Param[]).filter(
-  (key) =>
-    ![
-      "distortion",
-      "reverbSize",
-      "unison",
-      "wavetable",
-      "sampleReverse",
-      "sampleFade",
-      "inharmonicity",
-      "harmonics",
-    ].includes(key),
+  (key) => key !== "distortion" && key !== "reverbSize",
 );
+export const PARAM_LABELS = Object.fromEntries((Object.keys(PARAMS) as Param[]).map((key) => [key,
+  key in MOD_TARGETS ? MOD_TARGETS[key as keyof typeof MOD_TARGETS].label : ({
+    chorus: "Modulation FX · Mix", delay: "Delay · Mix", delayTime: "Delay · Time",
+    feedback: "Delay · Feedback", reverb: "Reverb · Mix", reverbSize: "Reverb · Decay",
+    distortion: "Saturation · Drive",
+  } as Partial<Record<Param, string>>)[key] ?? key,
+])) as Record<Param, string>;
 export type Numbers = Record<Param, number>;
 export const FX_OPTIONS = {
   saturationMode: [
@@ -424,8 +422,13 @@ export type Pattern = {
   steps: Step[];
   notes: PianoNote[];
   scale: ScaleConfig;
+  pianoPlayback?: { start: number; end: number; loop: boolean };
   pianoBackup?: { notes: PianoNote[]; steps: Step[]; length: number; division: number; direction: Pattern["direction"] };
 };
+export function pianoRange(pattern: Pattern) {
+  const start = clamp(Math.round(pattern.pianoPlayback?.start ?? 0), 0, pattern.length - 1);
+  return { start, end: clamp(Math.round(pattern.pianoPlayback?.end ?? pattern.length), start + 1, pattern.length), loop: pattern.pianoPlayback?.loop ?? true };
+}
 export type Track = {
   id: number;
   name: string;
@@ -1297,6 +1300,10 @@ export function sanitizeProject(value: unknown): Project {
           root: Math.round(num(item.scale.root, 0, 11, 0)),
           name: typeof item.scale.name === "string" && Object.hasOwn(SCALES, item.scale.name) ? item.scale.name as ScaleConfig["name"] : "minor",
         };
+        if (isRecord(item.pianoPlayback)) {
+          const start = Math.round(num(item.pianoPlayback.start, 0, pat.length - 1, 0));
+          pat.pianoPlayback = { start, end: Math.round(num(item.pianoPlayback.end, start + 1, pat.length, pat.length)), loop: item.pianoPlayback.loop !== false };
+        }
         if (isRecord(item.pianoBackup)) {
           const saved = item.pianoBackup;
           pat.pianoBackup = {
