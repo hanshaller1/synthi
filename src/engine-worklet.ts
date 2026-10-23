@@ -22,6 +22,7 @@ const phaseEngineAdsr=(p,prefix,t)=> {
   return a>0&&t<a ? t/a : t<a+d ? 1+(s-1)*(t-a)/d : s;
 };
 // Initialization and phase increments must use the identical effective frequency.
+const phaseEngineOsc1Hz=(hz,p)=>hz*Math.pow(2,-p.detune/2400);
 const phaseEngineOsc2Hz=(hz,p)=>Math.min(sampleRate*.45,hz*Math.pow(2,(p.detune/2+p.osc2Tune*100)/1200)*Math.pow(2,p.syncAmount*4));
 const phaseEngineRingHz=(hz,p,pitchEnv)=>{
   const base=p.ringModMode>=.5?p.ringModHz*Math.pow(2,(p.pitch+p.transpose*100)/1200):hz*p.fmRatio;
@@ -49,7 +50,8 @@ class PhaseEngineVoice extends AudioWorkletProcessor {
   read(line,delay){const d=Math.max(1,Math.min(this.mask-2,delay)),n=Math.floor(d),f=d-n,a=line[(this.position-n)&this.mask],b=line[(this.position-n-1)&this.mask];return a+(b-a)*f;}
   initialize(hz,p,frame){
     const clock=(currentFrame+frame)/sampleRate;
-    this.phase1=this.o.engine==='ring'?0:phaseEngineFract(p.osc1Phase+(p.oscPhaseReset<.5?clock*hz:0));
+    const firstHz=this.o.engine==='subtractive'?phaseEngineOsc1Hz(hz,p):hz;
+    this.phase1=this.o.engine==='ring'?0:phaseEngineFract(p.osc1Phase+(p.oscPhaseReset<.5?clock*firstHz:0));
     const secondHz=this.o.engine==='ring'?phaseEngineRingHz(hz,p,phaseEngineAdsr(p,'ringPitch',0)):phaseEngineOsc2Hz(hz,p);
     this.phase2=phaseEngineFract((this.o.engine==='ring'?p.ringModPhase:p.osc2Phase)+((this.o.engine==='ring'?p.ringPhaseReset:p.oscPhaseReset)<.5?clock*secondHz:0));
     if(this.o.engine==='physical'){
@@ -125,7 +127,7 @@ class PhaseEngineVoice extends AudioWorkletProcessor {
       if(p.gate<.5&&this.releaseAt<0){this.releasePitch=phaseEngineAdsr(p,'ringPitch',this.elapsed);this.releaseDepth=phaseEngineAdsr(p,'ringEnv',this.elapsed);this.releaseAt=this.elapsed;}
       let value=0;
       if(this.o.engine==='subtractive'){
-        const f1=hz*Math.pow(2,-p.detune/2400),f2=phaseEngineOsc2Hz(hz,p);
+        const f1=phaseEngineOsc1Hz(hz,p),f2=phaseEngineOsc2Hz(hz,p);
         value=phaseEngineWave(this.o.wave,this.phase1,f1/sampleRate,p.pulseWidth)*(1-p.mix*.5)+(phaseEngineWave(this.o.wave2,this.phase2,f2/sampleRate,p.pulseWidth2)+this.syncTail)*p.mix*.7;
         this.syncTail*=.25;this.phase1+=f1/sampleRate;this.phase2=phaseEngineFract(this.phase2+f2/sampleRate);
         if(this.phase1>=1){this.phase1-=1;if(p.syncAmount>1e-5){const before=phaseEngineWave(this.o.wave2,this.phase2,f2/sampleRate,p.pulseWidth2);this.phase2=phaseEngineFract(p.osc2Phase);this.syncTail+=before-phaseEngineWave(this.o.wave2,this.phase2,f2/sampleRate,p.pulseWidth2);}}

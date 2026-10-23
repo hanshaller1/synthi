@@ -1,3 +1,11 @@
+# Subtractive / OSC 1 Free Phase bei Detune vom 23.10.2026
+
+Basis: GitHub-`main`, Commit `1d24f1d`, sauberer Checkout und gleicher Remote-Stand bei Beginn. Die Free-Phase-Initialisierung von OSC 1 verwendet jetzt `hz * 2 ** (-detune / 2400)`. Startphase und laufender DSP teilen dieselbe Frequenzfunktion; die bisherige laufende Frequenzberechnung bleibt identisch. Phase Reset, gespeicherte Phasenwerte, andere Engines sowie das Desktop-UI bleiben unverändert. Echtzeit-Audio und WAV-Export verwenden denselben korrigierten Worklet.
+
+Verifikation: statische Durchsicht, TypeScript-/Produktionsbuild und erneutes Erzeugen der drei App-Dateien mit `npm run build:pages`, außerdem `git diff --check`. Keine Tests, Hörprüfungen oder Benchmarks angelegt oder ausgeführt. Die bestehende Vite-Warnung zur Bundlegröße bleibt bestehen.
+
+---
+
 # Gezielte Synthese-Korrekturen vom 23.10.2026
 
 Basis: ausschließlich GitHub-`main`, Commit `9b1d07e`; sauberer Checkout und gleicher Remote-Stand bei Beginn. Bearbeitet wurden nur die fünf ausgeführten Review-Punkte. Punkt 6 enthielt keinen Befund. Keine Tests, Hörprüfungen, Browserprüfungen oder Benchmarks angelegt oder ausgeführt.
