@@ -108,7 +108,7 @@ export default function SourceEditor({
     <Select
       label={label}
       value={p[key]}
-      onChange={(value) => onPatch({ [key]: value as Wave })}
+      onChange={(value) => onPatch(key === "wave" ? { wave: value as Wave } : { wave2: value as Wave })}
     >
       {["sawtooth", "square", "triangle", "sine"].map((type) => (
         <option key={type} value={type}>
@@ -252,7 +252,7 @@ export default function SourceEditor({
             sampleName: sample.name,
             sampleRoot: sample.root,
             sampleLoop: sample.granular || sample.category === "Pad",
-          });
+          } as Partial<Patch>);
       }}
     >
       {p.sample && <option value="uploaded">Imported · {p.sampleName}</option>}

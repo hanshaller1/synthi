@@ -260,3 +260,36 @@ body, #root { overflow: hidden; }
 .engine-section .adsr-envelope-graph { height: 100px; margin: 0; }
 .studio-viewport .lock-chip > .select-wrap { min-width: 0; max-width: 170px; }
 .studio-viewport .lock-chip > .select-wrap select { min-width: 0; width: 100%; font-size: 10px; }
+
+/* Modulation and effect extensions retain the existing module grid and 55px knobs. */
+.expanded-modulation { overflow-y: auto; }
+.expanded-modulation .lfo-grid { flex: 0 0 auto; }
+.mod-source-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.mod-knob-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px 8px; margin-top: 12px; }
+.mod-knob-grid > .knob-control { justify-self: center; }
+.mod-select-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.mod-field,.fx-choice { display: flex; flex-direction: column; gap: 5px; min-width: 0; color: var(--muted); font: 9px var(--mono); }
+.mod-field select,.fx-choice select { min-width: 0; width: 100%; }
+.mod-knob-grid .mod-field { grid-column: 1/-1; }
+.mod-curve-grid { display: grid; grid-template-columns: repeat(3,minmax(55px,1fr)); gap: 6px; margin-top: 9px; }
+.mod-envelope .adsr-envelope-graph { height: 100px; }
+.mod-scope-hint { font: 10px/1.6 Inter,sans-serif; color: var(--muted); margin: 0 0 12px; }
+.expanded-modulation .matrix-row,.expanded-modulation .matrix-heading { grid-template-columns: 150px 16px minmax(210px,1fr) 115px 145px 28px; gap: 8px; }
+.expanded-modulation .matrix-module { overflow: visible; flex: 0 0 auto; }
+.fx-controls .fx-choice { grid-column: 1/-1; margin-top: 4px; }
+.knob-mod-range { fill: none; stroke: #8cb6c2; stroke-width: 2.6; opacity: .65; }
+.knob-mod-current { fill: #b5c49e; stroke: var(--surface-low); stroke-width: .8; }
+
+/* The expanded page scrolls as a whole; the former four-column rule must not
+   constrain the new envelope row or the full-width 24-route matrix. */
+.studio-viewport .modulation-layout.expanded-modulation { display: flex; flex-direction: column; overflow: auto; }
+.studio-viewport .modulation-layout.expanded-modulation .lfo-grid,
+.studio-viewport .modulation-layout.expanded-modulation .mod-source-grid { display: grid; grid-template-columns: repeat(3,minmax(250px,1fr)); flex: 0 0 auto; gap: 0; }
+.studio-viewport .modulation-layout.expanded-modulation .module { overflow: visible; flex: 0 0 auto; }
+.studio-viewport .modulation-layout.expanded-modulation .mod-source-grid,
+.studio-viewport .modulation-layout.expanded-modulation .matrix-module { border-top: 1px solid var(--panel-line) !important; }
+.studio-viewport .modulation-layout.expanded-modulation .mod-source-grid > .module + .module { border-left: 1px solid var(--panel-line) !important; }
+.studio-viewport .modulation-layout.expanded-modulation .matrix-module { border-left: 0 !important; }
+.studio-viewport .modulation-layout.expanded-modulation .matrix-row,
+.studio-viewport .modulation-layout.expanded-modulation .matrix-heading { grid-template-columns: 150px 16px minmax(210px,1fr) 115px 145px 28px; gap: 8px; }
+.studio-viewport .modulation-layout.expanded-modulation .lfo-module .knob { width: 55px; height: 55px; }

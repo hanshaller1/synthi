@@ -1,3 +1,5 @@
+import { useKnobModulation } from "./modulation-ui";
+import type { Param } from "./model";
 import { filterCurve } from "./filter-config";
 import { FM_ALGORITHMS } from "./fm-config";
 import { wavetableSpectrum } from "./catalog";
@@ -148,6 +150,7 @@ export function Knob({
   locked = false,
   onLearn,
   onEdit,
+  parameterId,
 }: {
   label: string;
   value: number;
@@ -163,7 +166,10 @@ export function Knob({
   locked?: boolean;
   onLearn?: () => void;
   onEdit?: () => void;
+  parameterId?: Param;
 }) {
+  const modulation=useKnobModulation(parameterId,value);
+  const position=(v:number)=>max===min?0:log?Math.log(Math.max(min,v)/min)/Math.log(max/min):(v-min)/(max-min);
   const drag = useRef<{ y: number; x: number; value: number } | null>(null);
   const normalized = max === min ? 0 : log
     ? Math.log(value / min) / Math.log(max / min)
@@ -187,7 +193,7 @@ export function Knob({
         aria-valuenow={Number(value.toFixed(4))}
         aria-valuetext={format(value)}
         tabIndex={0}
-        title={`${label}: ${format(value)} · Ziehen · Shift: fein · Doppelklick: Reset${onLearn ? " · Rechtsklick: MIDI Learn" : ""}`}
+        title={`${label}: ${format(value)}${modulation?` · Modulation ${format(modulation.min)} … ${format(modulation.max)} · Aktuell ${format(modulation.current)}`:""} · Ziehen · Shift: fein · Doppelklick: Reset${onLearn ? " · Rechtsklick: MIDI Learn" : ""}`}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault(); onEdit?.();
@@ -251,6 +257,8 @@ export function Knob({
             pathLength="100"
             strokeDasharray={`${clamp(normalized, 0, 1) * 100} 100`}
           />
+          {modulation&&<path d="M 13.6 50.4 A 26 26 0 1 1 50.4 50.4" className="knob-mod-range" pathLength="100" strokeDasharray={`${Math.max(0,position(modulation.max)-position(modulation.min))*100} 100`} strokeDashoffset={-position(modulation.min)*100}/>}
+          {modulation&&<circle className="knob-mod-current" cx={32+26*Math.sin((-135+clamp(position(modulation.current),0,1)*270)*Math.PI/180)} cy={32-26*Math.cos((-135+clamp(position(modulation.current),0,1)*270)*Math.PI/180)} r="2.3"/>}
         </svg>
         <span className="knob-cap">
           <i style={{ transform: `rotate(${angle}deg)` }} />

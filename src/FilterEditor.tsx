@@ -1,3 +1,4 @@
+import { PARAMS } from "./model";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { SlidersHorizontal } from "lucide-react";
@@ -18,7 +19,7 @@ const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
 export default function FilterEditor({ patch, locks, sampleRate, onPatch, onParam, onCheckpoint, onLearn, knob }: Props) {
   const p = { ...patch, ...locks }, comb = p.filterType === "comb", peak = p.filterType === "multimode" && p.multimodeType === "peak";
   const [previewNote, setPreviewNote] = useState(60), [previewVelocity, setPreviewVelocity] = useState(1);
-  const discrete = (key: Param, label: string, options: readonly string[]) => <Select label={label} value={p[key]} onChange={(v) => { onCheckpoint(); onParam(key, +v); }} onLearn={() => onLearn(key)}>{options.map((text, i) => <option key={i} value={i}>{text}</option>)}</Select>;
+  const discrete = (key: Param, label: string, options: readonly string[]) => <Select label={label} value={p[key] ?? PARAMS[key][2]} onChange={(v) => { onCheckpoint(); onParam(key, +v); }} onLearn={() => onLearn(key)}>{options.map((text, i) => <option key={i} value={i}>{text}</option>)}</Select>;
   return <section className="module filter-module" data-filter={p.filterType}>
     <div className="module-title"><h3><SlidersHorizontal size={14} /> Filter</h3><span className="module-index">03</span></div>
     <details className="filter-section base-width-section">

@@ -1,3 +1,4 @@
+import { getParameter } from "./parameter-spec";
 import { ENGINE_KEYS, ENGINE_PARAMS, ENGINE_TRIGGER, engineOwner } from "./engine-config";
 import { PARAMS } from "./model";
 import type { Param, Patch } from "./model";
@@ -179,7 +180,7 @@ export class EngineSource extends EventTarget {
     this.node = new AudioWorkletNode(context, sample ? "phase-sample-player" : "phase-engine-voice", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [sample ? 2 : 1], processorOptions: options });
     for (const id of evicted) this.node.port.postMessage({ drop: id });
     this.frequency = this.param("frequency"); this.detune = this.param("pitch");
-    for (const key of this.keys) this.param(key).value = p[key];
+    for (const key of this.keys) this.param(key).value = getParameter(p,key);
     this.param("transpose").value = p.tune;
     this.node.port.onmessage = ({ data }) => { if (data === "ended") this.dispatchEvent(new Event("ended")); };
   }

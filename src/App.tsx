@@ -1,3 +1,4 @@
+import { parameterEdits, PARAMETER_REGISTRY } from "./parameters";
 import { normalizeTrackSampleLocks } from "./model";
 import { enginePatchEdits, needsEngineWorklet, sampleSliceSelection } from "./engine-config";
 import { filterPatchEdits, needsAdvancedFilter } from "./filter-config";
@@ -235,7 +236,7 @@ export default function App() {
       updateProject((p) => ({
         ...p,
         tracks: p.tracks.map((t, i) =>
-          i === which ? { ...t, patch: { ...t.patch, ...fmPatchEdits(t.patch, edits) } } : t,
+          i === which ? { ...t, patch: parameterEdits(t.patch, fmPatchEdits(t.patch, edits)) } : t,
         ),
       }));
     },
@@ -679,10 +680,10 @@ export default function App() {
         const range = binding.legacyPeak ? [0, 20] : binding.param === "sampleSlice"
           ? [0, sampleSliceSelection(projectRef.current.tracks[binding.track].patch.sampleSlices, 0).sampleSlices - 1]
           : PARAMS[binding.param];
-        changePatch(
-          { [binding.param]: range[0] + value * (range[1] - range[0]) },
-          binding.track,
-        );
+        const meta=PARAMETER_REGISTRY[binding.param];
+        let mapped=meta.scale==="log"&&range[0]>0?range[0]*Math.pow(range[1]/range[0],value):range[0]+value*(range[1]-range[0]);
+        if(meta.options)mapped=meta.options[Math.min(meta.options.length-1,Math.floor(value*meta.options.length))].value;
+        changePatch({[binding.param]:mapped},binding.track);
         return;
       }
       if (cc === 1 && engineRef.current) engineRef.current.modwheel = value;
@@ -711,6 +712,7 @@ export default function App() {
         }
       }
     };
+    midi.onPressure=(value,_channel,note)=>engineRef.current?.pressure(trackRef.current,value,note);
     midi.onBend = (value) =>
       engineRef.current?.pitchBend(trackRef.current, value);
     midi.onClock = (status) => {
@@ -1427,6 +1429,7 @@ export default function App() {
               track={track}
               tempo={project.tempo}
               sampleRate={audioInfo.sampleRate || 48000}
+              readModulation={()=>engineRef.current?.modulationReading(track)}
               tab={tab}
               setTab={setTab}
               onPatch={(partial) => {
@@ -1807,7 +1810,7 @@ export default function App() {
               <div className="mapping-row" key={b.cc}>
                 <span>CC {b.cc}</span>
                 <span>
-                  → TRACK 0{b.track + 1} / {b.param}
+                  → TRACK {String(b.track+1).padStart(2,"0")} / {b.param==="fmAlgorithm"?"FM algorithm":PARAMETER_REGISTRY[b.param].label}
                 </span>
                 <button
                   onClick={() => {
@@ -2217,10 +2220,16 @@ export default function App() {
                 15 MB / 60 s).
               </p>
               <p>
-                Modulation: Drei LFOs mit Exp, Ramp, Random und
-                Free/Hold/One/Half; bis zu acht Routen. Effekte: vier Slots für
-                Saturation, Modulation, Delay und Reverb mit jeweils fünf
-                Varianten, eigenem Bypass und veränderbarer Reihenfolge.
+                Modulation: 24 Routen mit eigener Linear-/Exp-/Log-Kurve. Drei LFOs bieten Free Run, Note Retrigger, One Shot, Half Cycle und Sample &amp; Hold, Sync von 1/64 bis acht Takten einschließlich Triolen und punktierter Werte, Phase, Delay/Fade, Skew, Slew, Polarität und Pulsbreite. Amp-/Filter-Envelope, zwei Mod-ADSRs, Random, Aftertouch, Pitch Bend und vier Macros ergänzen die Quellen.
+              </p>
+              <p>
+                Alle FX-Regler, LFO-Regler sowie Slot-Bypass und Variante stehen in Matrix, Locks und MIDI Learn bereit. „Anschlag“ bedeutet Note-On/Step; Zyklen zwischen Generatoren sind gesperrt. Neue Stimmen-Ziele greifen ab der nächsten Note. Die Knöpfe zeigen Grundwert, möglichen Modulationsbereich und einen Punkt für den wirksamen Wert.
+              </p>
+              <p>
+                Vier serielle FX-Slots mit je fünf Varianten: zusätzliche Klangregler, dauerhaftes BPM-Sync für Delay sowie Vibrato/Tremolo, sichere kurze Überblendungen für Varianten und Struktur. Track-FX verwenden die zuletzt gehaltene Note, danach deren Release; Track-LFOs laufen während der Effekt-Tails weiter. Gemeinsame FX-Locks folgen der Ereignisreihenfolge. Master FX bleiben separat.
+              </p>
+              <p>
+                Alte Sounds behalten ihre bisherigen FX-/LFO-Pfade. Alte eingefrorene Hold-LFOs sind als „Legacy Hold“ bezeichnet; eine Bearbeitung der erweiterten LFO-Funktionen aktiviert das neue Verhalten. Effektgrafiken zeigen wirksame Einstellungen als schematische Vorschau.
               </p>
               <p>
                 Sounds über die Library speichern, Projekte inklusive Samples

@@ -1,23 +1,23 @@
+import { ModulationProvider } from "./modulation-ui";
+import type { ModulationReading } from "./modulation-worklet";
+import ModulationEditor from "./ModulationEditor";
+import { MOD_SOURCES } from "./modulation-spec";
+import { getParameter } from "./parameters";
 import { sampleSliceSelection } from "./engine-config";
-import { visibleFmTarget } from "./fm-config";
 import SourceEditor from "./SourceEditor";
 import FxRack from "./FxRack";
 import FilterEditor from "./FilterEditor";
-import { lfoValue } from "./lfo";
 import {
   AudioLines,
   ChevronLeft,
   ChevronRight,
   Dices,
   FolderOpen,
-  Link2,
-  Plus,
   Radio,
   Save,
   SlidersHorizontal,
   Sparkles,
   Waves,
-  X,
 } from "lucide-react";
 import {
   EnvelopeGraph,
@@ -31,11 +31,7 @@ import {
 import { ENGINES, MOD_TARGETS, PARAMS } from "./model";
 import type {
   MidiTarget,
-  Lfo,
-  LfoShape,
-  LfoMode,
   ModSource,
-  ModTarget,
   Param,
   Patch,
 } from "./model";
@@ -46,6 +42,7 @@ type Props = {
   track: number;
   tempo: number;
   sampleRate: number;
+  readModulation:()=>{voice?:ModulationReading;fx?:ModulationReading}|undefined;
   tab: string;
   setTab: (tab: string) => void;
   onPatch: (patch: Partial<Patch>) => void;
@@ -59,21 +56,12 @@ type Props = {
   onPreset: (offset: number) => void;
   onSample: (file: File) => void;
 };
-const sourceNames: Record<ModSource, string> = {
-  lfo1: "LFO 1",
-  lfo2: "LFO 2",
-  lfo3: "LFO 3",
-  velocity: "Velocity",
-  keytrack: "Key tracking",
-  modwheel: "Mod wheel",
-  filterEnv: "Filter envelope",
-};
+const sourceNames=Object.fromEntries(Object.entries(MOD_SOURCES).map(([id,m])=>[id,m.label])) as Record<ModSource,string>;
 const targetNames = Object.fromEntries(
   Object.entries(MOD_TARGETS).map(([key, item]) => [key, item.label]),
 );
 export default function Instrument(props: Props) {
   const { patch: p, onPatch, onParam, tab, setTab } = props;
-  const visibleTargets = Object.entries(MOD_TARGETS).filter(([key]) => visibleFmTarget(key));
   const knob = (
     key: Param,
     label: string,
@@ -83,9 +71,10 @@ export default function Instrument(props: Props) {
   ) => (
     <Knob
       key={key}
+      parameterId={key}
       onEdit={props.onCheckpoint}
       label={label}
-      value={key === "sampleSlice" ? sampleSliceSelection(props.locks.sampleSlices ?? p.sampleSlices, props.locks.sampleSlice ?? p.sampleSlice).sampleSlice : props.locks[key] ?? p[key]}
+      value={key === "sampleSlice" ? sampleSliceSelection(props.locks.sampleSlices ?? p.sampleSlices, props.locks.sampleSlice ?? p.sampleSlice).sampleSlice : props.locks[key] ?? getParameter(p,key)}
       min={PARAMS[key][0]}
       max={key === "sampleSlice" ? sampleSliceSelection(props.locks.sampleSlices ?? p.sampleSlices, 0).sampleSlices - 1 : PARAMS[key][1]}
       defaultValue={PARAMS[key][2]}
@@ -112,106 +101,8 @@ export default function Instrument(props: Props) {
       )}
     </div>
   );
-  const lfo = (index: number) => {
-    const l = p.lfos[index];
-    const change = (v: Partial<Lfo>) =>
-      onPatch({
-        lfos: p.lfos.map((x, i) => (i === index ? { ...x, ...v } : x)) as [
-          Lfo,
-          Lfo,
-          Lfo,
-        ],
-      });
-    return (
-      <section className="module lfo-module" key={index} data-lfo={index}>
-        <div className="module-title">
-          <h3>
-            <Waves size={14} /> LFO {index + 1}
-          </h3>
-          <button
-            className={`small-button ${l.sync ? "on" : ""}`}
-            onClick={() => change({ sync: !l.sync })}
-          >
-            <Link2 size={11} />
-            {l.sync ? "SYNC" : "FREE"}
-          </button>
-        </div>
-        <svg
-          className="waveform lfo-waveform"
-          viewBox="0 0 240 70"
-          preserveAspectRatio="none"
-          role="img"
-          aria-label={`LFO ${index + 1} ${l.shape} ${l.mode}`}
-        >
-          <path
-            d={Array.from(
-              { length: 241 },
-              (_, i) =>
-                `${i ? "L" : "M"}${i},${35 - lfoValue(l.shape, i / 120, 1) * 25}`,
-            ).join(" ")}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          />
-        </svg>
-        <div className="lfo-controls">
-          <Select
-            label={`LFO ${index + 1} Wellenform`}
-            value={l.shape}
-            onChange={(v) => change({ shape: v as LfoShape })}
-          >
-            <option value="sine">Sine</option>
-            <option value="triangle">Triangle</option>
-            <option value="square">Square</option>
-            <option value="sawtooth">Sawtooth</option>
-            <option value="exp">Exp</option>
-            <option value="ramp">Ramp</option>
-            <option value="random">Random</option>
-          </Select>
-          <Select
-            label={`LFO ${index + 1} Modus`}
-            value={l.mode}
-            onChange={(v) => change({ mode: v as LfoMode })}
-          >
-            <option value="free">Free · laufend</option>
-            <option value="hold">Hold · Wert halten</option>
-            <option value="one">One · ein Zyklus</option>
-            <option value="half">Half · halber Zyklus</option>
-          </Select>
-          <button
-            className={`small-button ${l.retrigger ? "on" : ""}`}
-            onClick={() => change({ retrigger: !l.retrigger })}
-          >
-            RETRIG {l.retrigger ? "ON" : "OFF"}
-          </button>
-        </div>
-        <div className="knob-row">
-          <Knob
-            label={l.sync ? "Division" : "Rate"}
-            defaultValue={l.sync ? [4, 2, 8][index] : [0.6, 2, 0.15][index]}
-            value={l.sync ? l.division : l.rate}
-            min={l.sync ? 0.25 : 0.02}
-            max={l.sync ? 16 : 30}
-            log
-            format={(v) =>
-              l.sync
-                ? `${v.toFixed(v < 1 ? 2 : 1)} beats`
-                : `${v.toFixed(2)} Hz`
-            }
-            onChange={(v) => change(l.sync ? { division: v } : { rate: v })}
-          />
-          <Knob
-            label="Depth"
-            defaultValue={[0.35, 0.25, 0.3][index]}
-            value={l.depth}
-            onChange={(v) => change({ depth: v })}
-          />
-        </div>
-      </section>
-    );
-  };
   return (
-    <section
+    <ModulationProvider patch={p} read={props.readModulation}><section
       className="instrument studio-panel"
       style={{ "--track-color": props.color } as React.CSSProperties}
     >
@@ -374,127 +265,12 @@ export default function Instrument(props: Props) {
             </span>
             <span>
               <SlidersHorizontal size={12} /> MOD MATRIX{" "}
-              <b>{p.mods.length} / 8</b>
+              <b>{p.mods.length} / 24</b>
             </span>
           </button>
         </>
       )}
-      {tab === "modulation" && (
-        <div className="modulation-layout">
-
-
-          <div className="lfo-grid">{[0, 1, 2].map(lfo)}</div>
-          <section className="module matrix-module">
-            <div className="module-title">
-              <h3>
-                <SlidersHorizontal size={14} /> Modulation matrix
-              </h3>
-
-              <span className="module-index">{p.mods.length} / 8 ROUTES</span>
-            </div>
-            <div className="matrix-heading">
-              <span>SOURCE</span>
-              <span />
-              <span>DESTINATION</span>
-              <span>AMOUNT</span>
-              <span />
-            </div>
-            {p.mods.map((mod, i) => (
-              <div
-                className="matrix-row"
-                key={i}
-              >
-                <Select
-                  label={`Modulation ${i + 1} source`}
-                  value={mod.source}
-                  onChange={(v) =>
-                    onPatch({
-                      mods: p.mods.map((m, j) =>
-                        j === i ? { ...m, source: v as ModSource } : m,
-                      ),
-                    })
-                  }
-                >
-                  {Object.entries(sourceNames).map(([key, label]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
-                  ))}
-                </Select>
-                <span className="route-arrow">→</span>
-                <Select
-                  label={`Modulation ${i + 1} destination`}
-                  value={mod.target}
-                  onChange={(v) =>
-                    onPatch({
-                      mods: p.mods.map((m, j) =>
-                        j === i ? { ...m, target: v as ModTarget } : m,
-                      ),
-                    })
-                  }
-                >
-                  {[...new Set(visibleTargets.map(([, item]) => item.group))].map((group) => (
-                    <optgroup key={group} label={group}>
-                      {visibleTargets.filter(([, item]) => item.group === group).map(([key, item]) => (
-                        <option key={key} value={key}>{item.label}{item.trigger ? " · Anschlag" : ""}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </Select>
-                <label className="mod-amount">
-                  <input
-                    aria-label={`Modulation ${i + 1} amount`}
-                    onPointerDown={props.onCheckpoint}
-                    onKeyDown={(e) => { if (!e.repeat && e.key.startsWith("Arrow")) props.onCheckpoint(); }}
-                    type="range"
-                    min="-1"
-                    max="1"
-                    step=".01"
-                    value={mod.amount}
-                    onChange={(e) =>
-                      onPatch({
-                        mods: p.mods.map((m, j) =>
-                          j === i ? { ...m, amount: +e.target.value } : m,
-                        ),
-                      })
-                    }
-                  />
-                  <output>
-                    {mod.amount > 0 ? "+" : ""}
-                    {Math.round(mod.amount * 100)}%
-                  </output>
-                </label>
-                <IconButton
-                  label={`Modulation ${i + 1} entfernen`}
-                  onClick={() =>
-                    onPatch({ mods: p.mods.filter((_, j) => j !== i) })
-                  }
-                >
-                  <X size={13} />
-                </IconButton>
-              </div>
-            ))}
-            {p.mods.length < 8 && (
-              <button
-                className="add-route"
-                onClick={() => {
-                  onPatch({
-                    mods: [
-                      ...p.mods,
-                      { source: "lfo3", target: "pitch", amount: 0.05 },
-                    ],
-                  });
-                }}
-              >
-                <Plus size={13} /> Add modulation route
-              </button>
-            )}
-            <div className="module-note">
-              Alle Engines · Filter · Amp · bipolare Tiefe. „Anschlag“: Zeit-, Sample- und Modellparameter werden je Note abgetastet; Granular-Ziele je Grain.
-            </div>
-          </section>
-        </div>
-      )}
+      {tab === "modulation" && <ModulationEditor patch={p} locks={props.locks} tempo={props.tempo} onPatch={onPatch} onParam={onParam} onLearn={props.onLearn} onCheckpoint={props.onCheckpoint} />}
       {tab === "effects" && (
         <FxRack
           patch={p}
@@ -503,8 +279,9 @@ export default function Instrument(props: Props) {
           locks={props.locks}
           tempo={props.tempo}
           onLearn={props.onLearn}
+          onCheckpoint={props.onCheckpoint}
         />
       )}
-    </section>
+    </section></ModulationProvider>
   );
 }

@@ -1,3 +1,4 @@
+import { WorkletRack } from "./worklet-rack";
 import { fxValues } from "./fx-spec";
 import { clamp } from "./model";
 import type { FxSlot, Patch } from "./model";
@@ -7,7 +8,7 @@ export function transfer(x: number, mode: string, v: Values) {
   if (mode === "soft" && (v.drive ?? 0.2) < 0.0001) return x;
   const drive = 1 + (v.drive ?? 0.2) * 35;
   if (mode === "hard")
-    return clamp(x * drive, -(v.threshold ?? 0.7), v.threshold ?? 0.7);
+    return clamp(x * drive, -(v.threshold ?? .7)*(1-Math.max(0,v.symmetry??0)*.95), (v.threshold ?? .7)*(1+Math.min(0,v.symmetry??0)*.95));
   if (mode === "fold")
     return (
       (2 / Math.PI) *
@@ -407,7 +408,7 @@ class FxStage {
   }
 }
 /** A true serial, reorderable rack. Each stage has its own dry/wet path and bypass. */
-export class EffectRack {
+class LegacyEffectRack {
   private stages: Record<FxSlot, FxStage>;
   private order: FxSlot[] = [];
   private out: GainNode;
@@ -456,4 +457,47 @@ export class EffectRack {
     for (const stage of Object.values(this.stages)) stage.dispose();
     this.out.disconnect();
   }
+}
+
+/** Existing sounds retain the native path until advanced controls are used. */
+export class EffectRack {
+  private legacy:LegacyEffectRack;private worklet?:WorkletRack;private advanced=false;private ready=false;
+  private legacyFeed:GainNode;private legacyOut:GainNode;private advancedOut:GainNode;private patch?:Patch;private tempo=118;
+  constructor(private context:Context,private feedInput:AudioNode,output:AudioNode){
+    this.legacyFeed=context.createGain();this.legacyOut=context.createGain();this.advancedOut=context.createGain();this.advancedOut.gain.value=0;
+    feedInput.connect(this.legacyFeed);this.legacyOut.connect(output);this.advancedOut.connect(output);this.legacy=new LegacyEffectRack(context,this.legacyFeed,this.legacyOut);
+  }
+  prepareEffects(p:Patch,tempo:number){this.ready=true;this.tempo=tempo;this.updateEffects(p,undefined,this.context.currentTime);}
+  private select(p:Patch,at:number){
+    const advanced=this.ready&&p.fxVersion===2;
+    if(advanced&&!this.worklet)this.worklet=new WorkletRack(this.context,this.feedInput,this.advancedOut);
+    if(advanced!==this.advanced){
+      this.advanced=advanced;
+      this.legacyOut.gain.setTargetAtTime(advanced?0:1,at,.008);
+      this.legacyFeed.gain.setTargetAtTime(advanced?0:1,at,.008);
+      this.advancedOut.gain.setTargetAtTime(advanced?1:0,at,.008);
+    }
+    return advanced;
+  }
+  updateEffects(p:Patch,previous:Patch|undefined,at:number){
+    this.patch=p;
+    if(this.select(p,at))this.worklet!.update(p,at,this.tempo);
+    else this.legacy.updateEffects(p,previous,at);
+  }
+  scheduleEffects(p:Patch,time:number){
+    if(this.select(p,time))this.worklet!.update(p,time,this.tempo,true);
+    else this.legacy.scheduleEffects(p,time);
+  }
+  effectNote(id:number,note:number,velocity:number,p:Patch,at:number){if(this.select(p,at))this.worklet!.note(id,note,velocity,p,at);}
+  effectRelease(id:number,at:number){this.worklet?.release(id,at);}
+  effectRetune(id:number,note:number,at:number){this.worklet?.retune(id,note,at);}
+  effectPressure(value:number,at:number,note?:number){this.worklet?.pressure(value,at,note);}
+  effectExpression(key:"tempo"|"wheel"|"pressure"|"bend",value:number,at:number){if(key==="tempo")this.tempo=value;this.worklet?.expression(key,value,at);}
+  effectPanic(at:number){
+    this.worklet?.panic(at,this.patch);
+    for(const gain of [this.legacyOut.gain,this.legacyFeed.gain,this.advancedOut.gain])gain.cancelScheduledValues(at);
+    if(this.patch){this.advanced=this.ready&&this.patch.fxVersion===2;this.legacyOut.gain.setTargetAtTime(this.advanced?0:1,at,.008);this.legacyFeed.gain.setTargetAtTime(this.advanced?0:1,at,.008);this.advancedOut.gain.setTargetAtTime(this.advanced?1:0,at,.008);}
+  }
+  get effectReading(){return this.advanced?this.worklet?.reading:undefined;}
+  disposeEffects(){this.worklet?.dispose();this.legacy.disposeEffects();this.feedInput.disconnect(this.legacyFeed);this.legacyFeed.disconnect();this.legacyOut.disconnect();this.advancedOut.disconnect();}
 }

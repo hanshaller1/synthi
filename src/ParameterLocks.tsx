@@ -1,11 +1,11 @@
-import { ENGINE_DISCRETE, ENGINE_OPTIONS, sampleSliceSelection } from "./engine-config";
+import { getParameter, PARAMETER_REGISTRY } from "./parameters";
+import { ENGINE_DISCRETE, sampleSliceSelection } from "./engine-config";
 import { FILTER_DISCRETE } from "./filter-config";
 import { FM_KEYS, visibleFmTarget } from "./fm-config";
 import { useEffect, useRef, useState } from "react";
 import { LockKeyhole, X } from "lucide-react";
 import { IconButton, Select } from "./components";
-import { LOCK_PARAMS, PARAMS, PARAM_LABELS, MOD_TARGETS, clamp } from "./model";
-import type { EngineParam } from "./engine-config";
+import { LOCK_PARAMS, PARAMS, PARAM_LABELS, clamp } from "./model";
 import type { Numbers, Param, Patch } from "./model";
 
 const integral = new Set<Param>(["tune", "osc2Tune", "sampleRoot", "unison", "harmonics", "wavetable", "sampleReverse", ...FILTER_DISCRETE, ...ENGINE_DISCRETE, ...FM_KEYS.filter((key) => /(?:Wave|Mode)$/.test(key))]);
@@ -36,17 +36,17 @@ export function LockControls({ locks, patch, onSet }: {
 }) {
   const [addLock, setAddLock] = useState<Param>("cutoff");
   const available = LOCK_PARAMS.filter(visibleFmTarget);
-  const group = (key: Param) => key in MOD_TARGETS ? MOD_TARGETS[key as keyof typeof MOD_TARGETS].group : "Track effects";
+  const group = (key: Param) => PARAMETER_REGISTRY[key].group;
   return <>
     <span className="lock-heading"><LockKeyhole size={13} /> PARAMETER LOCKS</span>
     {Object.entries(locks).map(([name, value]) => {
       const key = name as Param, min = PARAMS[key][0], max = key === "sampleSlice" ? sampleSliceSelection(locks.sampleSlices ?? patch.sampleSlices, 0).sampleSlices - 1 : PARAMS[key][1];
       const log = min > 0 && max / min >= 100 && !integral.has(key);
       const normalized = max === min ? 0 : log ? Math.log(value! / min) / Math.log(max / min) : (value! - min) / (max - min);
-      const set = (v: number) => onSet(key, clamp(integral.has(key) ? Math.round(v) : +v.toFixed(4), min, max));
+      const set = (v:number) => {const options=PARAMETER_REGISTRY[key].options;let next=clamp(integral.has(key)?Math.round(v):+v.toFixed(4),min,max);if(options)next=options.reduce((best,o)=>Math.abs(o.value-next)<Math.abs(best-next)?o.value:best,options[0].value);onSet(key,next);};
       return <div className="lock-chip" key={key}>
         <label>{PARAM_LABELS[key]}<input aria-label={`${PARAM_LABELS[key]} per Maus ändern`} type="range" min="0" max="1" step=".001" value={normalized} onChange={(e) => set(log ? min * (max / min) ** +e.target.value : min + +e.target.value * (max - min))} /></label>
-        {ENGINE_OPTIONS[key as EngineParam] ? <Select label={`${PARAM_LABELS[key]} Lock-Wert`} value={Math.round(value!)} onChange={(v) => set(+v)}>{ENGINE_OPTIONS[key as EngineParam]!.map((label,i) => <option key={i} value={i}>{label}</option>)}</Select> : <LockValue label={PARAM_LABELS[key]} value={value!} min={min} max={max} integral={integral.has(key)} onChange={set} />}
+        {PARAMETER_REGISTRY[key].options ? <Select label={`${PARAM_LABELS[key]} Lock-Wert`} value={value!} onChange={(v) => set(+v)}>{PARAMETER_REGISTRY[key].options!.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</Select> : <LockValue label={PARAM_LABELS[key]} value={value!} min={min} max={max} integral={integral.has(key)} onChange={set} />}
         <IconButton label={`${PARAM_LABELS[key]} Lock entfernen`} onClick={() => onSet(key, null)}><X size={12} /></IconButton>
       </div>;
     })}
@@ -54,7 +54,7 @@ export function LockControls({ locks, patch, onSet }: {
       <Select label="Parameter-Lock hinzufügen" value={addLock} onChange={(v) => setAddLock(v as Param)}>
         {[...new Set(available.map(group))].map((g) => <optgroup key={g} label={g}>{available.filter((key) => group(key) === g).map((key) => <option key={key} value={key}>{PARAM_LABELS[key]}</option>)}</optgroup>)}
       </Select>
-      <button className="small-button" onClick={() => onSet(addLock, patch[addLock])}>+ Lock</button>
+      <button className="small-button" onClick={() => onSet(addLock, getParameter(patch,addLock))}>+ Lock</button>
     </div>
   </>;
 }

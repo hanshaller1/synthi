@@ -1,3 +1,4 @@
+import { getParameter } from "./parameter-spec";
 import { PARAMS } from "./model";
 import type { Param, Patch } from "./model";
 import { FILTER_AUDIO_PARAMS } from "./advanced-filter-worklet";
@@ -109,7 +110,7 @@ export class VoiceFilter {
   private controls(p: Patch, when: number, previous?: Patch, scheduled = false, force = false) {
     for (const key of Object.keys(controlDefaults)) {
       if (key === "detune" || key === "note") continue;
-      const value = key === "polarity" ? p.combPolarity === "negative" ? -1 : 1 : p[key as Param];
+      const value = key === "polarity" ? p.combPolarity === "negative" ? -1 : 1 : getParameter(p,key);
       const old = key === "polarity" ? previous?.combPolarity === "negative" ? -1 : 1 : previous?.[key as Param];
       const param = this.sources[key].offset;
       if (scheduled) param.setValueAtTime(value, when);
@@ -120,7 +121,7 @@ export class VoiceFilter {
     // Keep note-local locks and sampled topology when an unrelated project
     // value changes. Explicit edits of a filter control still apply live.
     const keys = [...FILTER_KEYS, "drive", "combFeedback", "combDamping", "combMix", "filterType", "multimodeType", "combPolarity", "cutoff", "resonance"] as const;
-    const next = previous && this.patch ? { ...p, ...Object.fromEntries(keys.filter((key) => p[key] === previous[key]).map((key) => [key, this.patch![key]])) } : p;
+    const next = previous && this.patch ? { ...p, ...Object.fromEntries(keys.filter((key) => getParameter(p,key) === previous[key]).map((key) => [key, this.patch![key]])) } : p;
     this.controls(next, when, this.patch, false, this.setShape(next, when));
     this.patch = { ...next };
   }

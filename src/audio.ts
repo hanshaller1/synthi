@@ -1,3 +1,7 @@
+import { Modulator } from "./modulation-worklet";
+import { PARAMETER_REGISTRY, setParameters } from "./parameters";
+import { DYNAMIC_META } from "./parameter-spec";
+import { getParameter } from "./parameters";
 import { EngineSource } from "./engine-worklet";
 import { ENGINE_KEYS, engineOwner, needsEngineWorklet, sampleRegion, sampleSliceSelection } from "./engine-config";
 import { grainEnvelope, quantizeGrain, GRAIN_BEATS } from "./grain-tools";
@@ -18,7 +22,7 @@ import {
   stepIndex,
 } from "./model";
 import { EffectRack } from "./effects";
-import { fxValues } from "./fx-spec";
+import { FX_PARAMETERS, FX_SLOT_MODES } from "./fx-spec";
 import { VoiceFilter } from "./filters";
 import { prepareFilterWorklet } from "./filter-worklet";
 import { SpectralSource, SPECTRAL_KEYS } from "./spectral-worklet";
@@ -59,6 +63,8 @@ type Voice = {
   pitch: AudioParam[];
   pitchOffsets: Map<AudioParam, number>;
   modwheelParams: AudioParam[];
+  modulator?: Modulator;
+  effectId: number;
   lfoControls: {
     index: number;
     source: AudioBufferSourceNode | ConstantSourceNode;
@@ -202,6 +208,8 @@ export class SynthEngine {
   }
   set modwheel(value: number) {
     this.wheel = clamp(value, 0, 1);
+    for (const bus of this.buses) bus.effectExpression("wheel",this.wheel,this.context.currentTime);
+    for(const voice of this.voices)voice.modulator?.expression("wheel",this.wheel);
     for (const voice of this.voices)
       for (const param of voice.modwheelParams)
         param.setTargetAtTime(this.wheel, this.context.currentTime, 0.015);
@@ -211,6 +219,8 @@ export class SynthEngine {
   private monoHeld: { note: number; velocity: number; patch: Patch }[][] =
     Array.from({ length: TRACK_COUNT }, () => []);
   tempo = 118;
+  private voiceSerial=0;
+  pressures=Array(TRACK_COUNT).fill(0) as number[];
   constructor(context: Context, samples?: Map<string, AudioBuffer>) {
     this.context = context;
     if (samples) this.sampleCache = samples;
@@ -291,13 +301,8 @@ export class SynthEngine {
       b.level.gain.setTargetAtTime(audible ? 1 : 0, t, 0.02);
     }
     this.audible[track.id] = audible;
-    const smooth = (key: Param, param: AudioParam, scale = 1) => {
-      if (previous?.[key] !== p[key]) {
-        param.cancelScheduledValues(t);
-        param.setTargetAtTime(p[key] * scale, t, 0.02);
-      }
-    };
-    smooth("pan", b.pan.pan);
+    if(previous?.pan!==p.pan||previous?.modVersion!==p.modVersion){b.pan.pan.cancelScheduledValues(t);b.pan.pan.setTargetAtTime(p.modVersion===2?0:p.pan,t,.02);}
+    b.effectExpression("tempo",this.tempo,t);
     b.updateEffects(p, previous, t);
     if (this.filtersReady && p.voiceMode === "para")
       b.paraFilter.update(p, previous, t);
@@ -329,7 +334,13 @@ export class SynthEngine {
       (v) => v.track === track.id && v.end > t,
     )) {
       if (previous?.level !== p.level) voice.updateLevel(p.level, t);
+      if(voice.patch.modVersion===2&&previous?.pan!==p.pan){voice.panner.pan.cancelScheduledValues(t);voice.panner.pan.setTargetAtTime(p.pan,t,.02);}
       if (voice.time <= t && voice.releaseAt > t) voice.updateFm(p, previous, t);
+      if(voice.modulator){
+        const edits=Object.fromEntries(Object.keys(PARAMS).filter(id=>!PARAMETER_REGISTRY[id as Param].trigger&&(voice.releaseAt>t||PARAMETER_REGISTRY[id as Param].scope!=="voice"||id==="level"||id==="pan")&&getParameter(p,id)!==getParameter(previous??voice.basePatch,id)).map(id=>[id,getParameter(p,id)]));
+        const base=setParameters({...voice.patch,lfos:p.lfos,mods:p.mods},edits);voice.modulator.update(base,t);voice.patch=base;
+      }
+      voice.modulator?.expression("tempo",this.tempo,t);
       voice.patch.lfos = p.lfos;
       for (const control of voice.lfoControls) {
         const l = p.lfos[control.index];
@@ -373,7 +384,7 @@ export class SynthEngine {
     const b = this.buses[track];
     const values: [AudioParam, number][] = [
       [b.level.gain, this.audible[track] ? 1 : 0],
-      [b.pan.pan, patch.pan],
+      [b.pan.pan, patch.modVersion===2?0:patch.pan],
     ];
     for (const [param, value] of values) param.setTargetAtTime(value, when, .003);
     b.scheduleEffects(patch, when);
@@ -445,6 +456,8 @@ export class SynthEngine {
       throw new Error("Diese Synthese benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if (!this.combAvailable && project.tracks.some((t) => requiresModulationWorklet(t.patch)))
       throw new Error("Laufende Spektral- und Drive-Modulation benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
+    if(!this.combAvailable&&project.tracks.some(t=>t.patch.fxVersion===2))throw new Error("Erweiterte Effects benötigen AudioWorklet über HTTPS oder localhost.");
+    if(this.combAvailable)project.tracks.forEach(t=>this.buses[t.id].prepareEffects(t.patch,project.tempo));
     if (!this.filtersReady) {
       this.filtersReady = true;
       this.update(project);
@@ -469,6 +482,7 @@ export class SynthEngine {
       this.cleanupTimers.delete(voice.cleanupTimer);
       voice.cleanupTimer = undefined;
     }
+    voice.modulator?.dispose();
     voice.filter.dispose();
     for (const source of voice.sources) {
       try {
@@ -511,7 +525,7 @@ export class SynthEngine {
   ): Voice {
     const c = this.context,
       start = Math.max(when, c.currentTime),
-      p = triggerPatch(patch, start, note, velocity, this.modwheel, this.tempo, this.combAvailable),
+      p = triggerPatch(patch, start, note, velocity, this.modwheel, this.tempo, this.combAvailable,{pressure:this.pressures[track],pitchbend:this.bends[track]/200}),
       frequency = midiHz(note + p.tune);
     const filterVelocityScale = 1 - p.filterVelocity * (1 - velocity);
     const envelopePatch = { ...p, filterAmount: p.filterAmount * filterVelocityScale };
@@ -607,6 +621,7 @@ export class SynthEngine {
     filter.connect(amp);
     volume.gain.value = p.level;
     // Modulation multiplies the envelope: it cannot reopen a silent/released note.
+    if(p.modVersion===2)panner.pan.setValueAtTime(p.pan,start);
     amp.connect(tremolo).connect(volume).connect(panner);
     panner.connect(isPara ? bus.paraFilter.input : bus.input);
     const env: Envelope = {
@@ -702,7 +717,7 @@ export class SynthEngine {
     };
     const routed = (key: string) => p.mods.some((m) => m.target === key && m.amount !== 0);
     const numberAt = (key: Param, at: number) => modulatedNumber(
-      p, key, at, start, note, velocity, this.modwheel, this.tempo, modulationRelease,
+      p, key, at, start, note, velocity, this.modwheel, this.tempo, modulationRelease,{pressure:this.pressures[track],pitchbend:this.bends[track]/200},
     );
     if (!(driveProcessor instanceof WaveShaperNode))
       driveProcessor.parameters.forEach((param, key) => { if (key === "amount") bind("drive", param); });
@@ -1246,8 +1261,8 @@ export class SynthEngine {
       const [min, max] = PARAMS[key], half = (max - min) / 2;
       const signal = c.createConstantSource(), bias = c.createConstantSource(),
         clamp = c.createWaveShaper(), range = c.createGain(), output = c.createGain();
-      signal.offset.value = (p[key] - min) / half - 1;
-      bias.offset.value = min + half - p[key];
+      signal.offset.value = (getParameter(p,key) - min) / half - 1;
+      bias.offset.value = min + half - getParameter(p,key);
       // WaveShaper holds its endpoints outside [-1, 1], clipping the sum of
       // all routes once, before it is mapped back to the parameter's range.
       clamp.curve = p.legacyPeakModulation && key === "filterPeakGain"
@@ -1265,6 +1280,18 @@ export class SynthEngine {
       routeOutputs[key] = [output];
       return control;
     };
+    let modulator: Modulator | undefined;
+    if (p.modVersion === 2 && p.mods.length && this.combAvailable) {
+      const ids = [...new Set(p.mods.filter(r=>targets[r.target]?.params.length && !MOD_TARGETS[r.target].trigger).map(r=>r.target))];
+      modulator = new Modulator(c,p,ids,start,note,velocity,false,note+1);
+      modulator.expression("tempo",this.tempo,start);modulator.expression("wheel",this.modwheel,start);modulator.expression("pressure",this.pressures[track],start);modulator.expression("bend",this.bends[track]/200,start);
+      for (const id of ids) {
+        const output=c.createGain();modulator.connect(id,output);nodes.push(output);
+        if(bindings[id])for(const binding of bindings[id])connectBinding(output,binding.param,binding.weight);
+        else for(const param of targets[id].params)output.connect(param);
+        routeOutputs[id]=[output];if(id==="pitch")pitchModNodes.push(output);
+      }
+    } else {
     for (const mod of p.mods) {
       const target = targets[mod.target];
       if (!target?.params.length || Math.abs(mod.amount) < 0.0001) continue;
@@ -1319,7 +1346,10 @@ export class SynthEngine {
       } else for (const param of target.params) gain.connect(param);
       if (mod.target === "pitch") pitchModNodes.push(gain);
     }
-    const voice: Voice = {
+    }
+    const effectId=++this.voiceSerial;
+    this.buses[track].effectNote(effectId,note,velocity,p,start);
+    const voice: Voice = { effectId, modulator,
       track,
       note,
       velocity,
@@ -1358,8 +1388,8 @@ export class SynthEngine {
           if (!control) continue;
           const [min, max] = PARAMS[key], half = (max - min) / 2;
           control.input.cancelScheduledValues(time); control.bias.cancelScheduledValues(time);
-          control.input.setTargetAtTime((next[key] - min) / half - 1, time, .015);
-          control.bias.setTargetAtTime(min + half - next[key], time, .015);
+          control.input.setTargetAtTime((getParameter(next,key) - min) / half - 1, time, .015);
+          control.bias.setTargetAtTime(min + half - getParameter(next,key), time, .015);
         }
       },
       updateFm: (next, previous, time) => {
@@ -1370,11 +1400,11 @@ export class SynthEngine {
           const keys = source instanceof EngineSource ? source.keys : SPECTRAL_KEYS;
           for (const key of keys) {
             if (previous?.[key] === next[key] || (key in MOD_TARGETS && MOD_TARGETS[key as keyof typeof MOD_TARGETS].trigger)) continue;
-            const param = source.param(key); param.cancelScheduledValues(time); param.setTargetAtTime(next[key], time, .015); changed.add(key);
+            const param = source.param(key); param.cancelScheduledValues(time); param.setTargetAtTime(getParameter(next,key), time, .015); changed.add(key);
           }
         }
         if (p.engine === "granular") for (const key of [...ENGINE_KEYS.filter((key) => engineOwner(key) === "granular"), "grainSize", "grainDensity", "grainScan", "grainReverse", "grainPitch", "position", "spread", "grainWindow", "grainPan", "tune", "sampleRoot"] as Param[]) {
-          if (previous?.[key] !== next[key]) { p[key] = next[key]; changed.add(key); }
+          if (previous?.[key] !== next[key]) { p[key] = getParameter(next,key); changed.add(key); }
         }
         if (engineSources.length && previous?.tune !== next.tune) {
           for (const source of engineSources) { source.frequency.setTargetAtTime(midiHz(note+next.tune),time,.015); source.param("transpose").setTargetAtTime(next.tune,time,.015); }
@@ -1384,7 +1414,7 @@ export class SynthEngine {
           const control=controls.get(key); if(!control) continue;
           const [min,max]=PARAMS[key],half=(max-min)/2;
           control.input.cancelScheduledValues(time);control.bias.cancelScheduledValues(time);
-          control.input.setTargetAtTime((next[key]-min)/half-1,time,.015);control.bias.setTargetAtTime(min+half-next[key],time,.015);
+          control.input.setTargetAtTime((getParameter(next,key)-min)/half-1,time,.015);control.bias.setTargetAtTime(min+half-getParameter(next,key),time,.015);
         }
         if (!fmSource || next.engine !== "fm") return;
         if (previous?.tune !== next.tune) {
@@ -1400,7 +1430,7 @@ export class SynthEngine {
         }
         for (const key of [...FM_KEYS.filter((key) => !FM_TARGETS[key].trigger), "unisonDetune", "unisonWidth"] as Param[]) {
           if (previous?.[key] === next[key]) continue;
-          const param = fmSource.param(key), value = next[key];
+          const param = fmSource.param(key), value = getParameter(next,key);
           param.cancelScheduledValues(time); param.setTargetAtTime(value, time, .015);
           const control = controls.get(key);
           if (control) {
@@ -1422,7 +1452,7 @@ export class SynthEngine {
         const delta = (next - note) * 100;
         pitchShift += delta;
         note = next;
-        voice.note = next;
+        voice.note = next;modulator?.retune(next,at);this.buses[track].effectRetune(effectId,next,at);
         activeFilter.setNote(next, at);
         if (fmSource) {
           holdParameter(fmSource.frequency, at, fmSource.frequency.value, true);
@@ -1464,6 +1494,7 @@ export class SynthEngine {
           0.24;
       voice.releaseAt = releaseAt;
       modulationRelease = releaseAt;
+      modulator?.release(releaseAt);this.buses[track].effectRelease(effectId,releaseAt);
       for (const source of sources) if (source instanceof FmSource || source instanceof EngineSource) source.release(releaseAt);
       for (const timer of grainTimers) window.clearInterval(timer);
       grainTimers.length = 0;
@@ -1578,6 +1609,8 @@ export class SynthEngine {
   }
   pitchBend(track: number, value: number) {
     this.bends[track] = clamp(value, -1, 1) * 200;
+    this.buses[track].effectExpression("bend",value,this.context.currentTime);
+    for(const voice of this.voices)if(voice.track===track)voice.modulator?.expression("bend",value);
     for (const voice of this.voices)
       if (voice.track === track)
         for (const param of voice.pitch) {
@@ -1589,6 +1622,14 @@ export class SynthEngine {
           );
         }
   }
+  pressure(track:number,value:number,note?:number){
+    const pressure=clamp(value,0,1),at=this.context.currentTime;
+    if(note===undefined)this.pressures[track]=pressure;
+    this.buses[track].effectPressure(pressure,at,note);
+    if(note===undefined)this.buses[track].effectExpression("pressure",pressure,at);
+    for(const voice of this.voices)if(voice.track===track&&(note===undefined||voice.note===note))voice.modulator?.pressure(pressure,at,note);
+  }
+  modulationReading(track:number){const voice=this.voices.filter(v=>v.track===track&&v.time<=this.context.currentTime&&v.end>this.context.currentTime).at(-1);return {voice:voice?.modulator?.reading,fx:this.buses[track].effectReading};}
   panic(track?: number) {
     const now = this.context.currentTime;
     this.monoHeld = this.monoHeld.map((notes, i) =>
@@ -1616,6 +1657,7 @@ export class SynthEngine {
       if (track !== undefined && index !== track) return;
       bus.paraAmp.gain.cancelScheduledValues(now);
       bus.paraAmp.gain.setTargetAtTime(0, now, 0.005);
+      bus.effectPanic(now);
       bus.paraFilter.reset();
     });
   }
@@ -1812,11 +1854,14 @@ export class Transport {
   }
 }
 export function lockedPatch(patch: Patch, locks: Partial<Numbers>): Patch {
-  const p = { ...patch };
+  let p = { ...patch };
   const migrated = migrateFmLocks(locks, patch);
   for (const key of Object.keys(migrated) as Param[])
-    if (LOCK_PARAMS.includes(key))
+    if (LOCK_PARAMS.includes(key) && !Object.hasOwn(DYNAMIC_META,key))
       p[key] = clamp(migrated[key]!, PARAMS[key][0], PARAMS[key][1]);
+  const dynamic=Object.fromEntries(Object.entries(migrated).filter(([id])=>Object.hasOwn(DYNAMIC_META,id)));
+  p=setParameters(p,dynamic);
+  if(Object.keys(migrated).some(id=>id.startsWith("fx.")||FX_PARAMETERS.has(id as Param)&&!["chorus","delay","delayTime","feedback","reverb"].includes(id)))p.fxVersion=2;
   if (patch.engineVersion === 1 && locks.pulseWidth !== undefined && locks.pulseWidth2 === undefined) p.pulseWidth2 = p.pulseWidth;
   return Object.assign(p, sampleSliceSelection(p.sampleSlices, p.sampleSlice));
 }
@@ -1826,15 +1871,30 @@ function delayTail(time: number, feedback: number) {
     feedback > 0 ? Math.ceil(Math.log(0.001) / Math.log(feedback)) : 1;
   return time * Math.max(1, repeats);
 }
-function effectTail(patch: Patch) {
-  let tail = 0;
-  if (patch.fxEnabled.delayMode && patch.delay > 0)
-    tail += delayTail(patch.delayTime, patch.feedback);
-  if (patch.fxEnabled.reverbMode && patch.reverb > 0) {
-    const values = fxValues(patch, patch.reverbMode);
-    tail += values.decay + (values.predelay ?? 0);
+/** Conservative bounds include switched algorithms, sync divisions and modulated feedback. */
+function effectTail(patch: Patch,tempo:number) {
+  const canonical=(id:string)=>DYNAMIC_META[id as keyof typeof DYNAMIC_META]?.canonical??id;
+  const routed=(id:string)=>patch.mods.some(r=>r.amount!==0&&canonical(r.target)===canonical(id));
+  const upper=(id:string)=>routed(id)?PARAMETER_REGISTRY[id as Param].max:getParameter(patch,id);
+  const enabled=(slot:"delayMode"|"reverbMode")=>patch.fxEnabled[slot]||routed(`fx.${slot}.bypass`);
+  const modes=(slot:"delayMode"|"reverbMode")=>routed(`fx.${slot}.mode`)?FX_SLOT_MODES[slot]:[patch[slot]];
+  let delay=0,reverb=0;
+  if(enabled("delayMode"))for(const mode of modes("delayMode")){
+    const id=(key:string)=>`fx.delayMode.${mode}.${key}`;
+    if(upper(id("mix"))<=0)continue;
+    const seconds=upper(id("sync"))>=.5?60/tempo*upper(id("division")):upper(id("time"));
+    const right=mode==="pingpong"?(upper(id("sync"))>=.5?60/tempo*upper(id("rightDivision")):upper(id("rightTime"))):mode==="digital"?Math.abs(upper(id("stereoOffset"))):0;
+    const time=Math.min(16,Math.max(seconds+(mode==="digital"?right:0),right)+.006);
+    delay=Math.max(delay,delayTail(time,Math.min(.92,upper(id("feedback"))))+(mode==="multitap"?Math.min(16,time*upper(id("spacing"))*2):0));
   }
-  return tail;
+  if(enabled("reverbMode"))for(const mode of modes("reverbMode")){
+    const id=(key:string)=>`fx.reverbMode.${mode}.${key}`;
+    if(upper(id("mix"))<=0)continue;
+    const decay=upper(id("decay")),pre=Object.hasOwn(PARAMETER_REGISTRY,id("predelay"))?upper(id("predelay")):0;
+    reverb=Math.max(reverb,decay+pre+.2+(mode==="gated"?upper(id("hold"))+upper(id("gate"))*decay*.5+upper(id("release"))*7:0));
+  }
+  // The modulation delay itself also retains a short signal tail.
+  return delay+reverb+(patch.fxEnabled.modulationMode?.12:0);
 }
 export async function renderProject(
   project: Project,
@@ -1876,7 +1936,7 @@ export async function renderProject(
           audibleGate=(region.end-region.start)*(articulation.sampleStretchMode>=.5?articulation.sampleStretch:1/(2**((n.note+articulation.tune-articulation.sampleRoot)/12)*2**((articulation.sampleFine+slowest-articulation.drift*.5)/1200)));
         }
         end = Math.max(end, at + Math.max(0.01, audibleGate) +
-          (patch.mods.some((m) => m.target === "release" && m.amount !== 0) ? PARAMS.release[1] : patch.release) + effectTail(patch));
+          (patch.mods.some((m) => m.target === "release" && m.amount !== 0) ? PARAMS.release[1] : patch.release) + effectTail(patch,project.tempo));
       }
     }
   }

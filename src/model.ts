@@ -1,9 +1,12 @@
+import { MODULATION_PARAMS, MODULATION_LABELS, MOD_SOURCES, LFO_MODES, LFO_SHAPES } from "./modulation-spec";
+import type { DynamicParam } from "./modulation-spec";
+import { DYNAMIC_META, DYNAMIC_PARAMS, DYNAMIC_TARGETS, normalizeModulationPatch } from "./parameter-spec";
 import { ENGINE_PARAMS, ENGINE_KEYS, ENGINE_TARGETS, ENGINE_DISCRETE, sampleSliceSelection, normalizeSampleLocks } from "./engine-config";
 import { makeSoundBank } from "./factory-presets";
 import { FILTER_PARAMS, FILTER_KEYS, FILTER_TARGETS, FILTER_DISCRETE } from "./filter-config";
 import { FM_PARAMS, FM_KEYS, FM_TARGETS, FM_ALGORITHMS, LEGACY_FM_KEYS, migrateFmPatch, migrateFmLocks } from "./fm-config";
 import type { FmAlgorithm } from "./fm-config";
-import { FX_CONTROLS, defaultFxSettings } from "./fx-spec";
+import { FX_CONTROLS, LEGACY_FX_KEYS, FX_PARAMETER_META, defaultFxSettings } from "./fx-spec";
 import type { FxSettings } from "./fx-spec";
 export const TRACK_COUNT = 12;
 export const KEYBOARD_OCTAVES = 4;
@@ -46,8 +49,8 @@ export type Envelope = {
   sustain: number;
   release: number;
 };
-export type LfoShape = Wave | "exp" | "ramp" | "random";
-export type LfoMode = "free" | "hold" | "one" | "half";
+export type LfoShape = (typeof LFO_SHAPES)[number];
+export type LfoMode = (typeof LFO_MODES)[number];
 export type Lfo = {
   shape: LfoShape;
   mode: LfoMode;
@@ -56,25 +59,21 @@ export type Lfo = {
   division: number;
   depth: number;
   retrigger: boolean;
+  phase?:number; delay?:number; fade?:number; slew?:number; skew?:number; pulseWidth?:number; polarity?:number;
 };
-export type ModSource =
-  | "lfo1"
-  | "lfo2"
-  | "lfo3"
-  | "velocity"
-  | "keytrack"
-  | "modwheel"
-  | "filterEnv";
+export type ModSource = keyof typeof MOD_SOURCES;
 export type ModTarget = keyof typeof MOD_TARGETS;
 export type Modulation = {
   source: ModSource;
   target: ModTarget;
   amount: number;
+  curve?: "linear" | "exponential" | "logarithmic";
 };
-export const PARAMS = {
+export const BASE_PARAMS = {
   ...FM_PARAMS,
   ...FILTER_PARAMS,
   ...ENGINE_PARAMS,
+  ...MODULATION_PARAMS,
   tune: [-24, 24, 0],
   unison: [1, 8, 1],
   unisonDetune: [0, 50, 12],
@@ -154,14 +153,23 @@ export const PARAMS = {
   reverb: [0, 1, 0.2],
   reverbSize: [0.2, 5, 2.6],
   distortion: [0, 1, 0.05],
+  saturationOutputTrim: [-24,12,0], reverbLowCut: [20,2000,20], reverbHighCut: [500,20000,20000], reverbWidth: [0,1,1],
 } as const;
+export const PARAMS: typeof BASE_PARAMS & typeof DYNAMIC_PARAMS = { ...BASE_PARAMS, ...DYNAMIC_PARAMS };
+export type BaseParam = keyof typeof BASE_PARAMS;
 export type Param = keyof typeof PARAMS;
 export type MidiTarget = Param | "fmAlgorithm";
 const destination = (label: string, group: string, trigger = false) => ({ label, group, trigger });
-export const MOD_TARGETS = {
+const TARGET_SPEC = {
+  ...Object.fromEntries(Object.keys(BASE_PARAMS).map(key=>[key,destination(key, key.startsWith("modEnv")?"Modulation envelopes":key.startsWith("macro")?"Macros":"Synthesizer")])) as Record<BaseParam,ReturnType<typeof destination>>,
+  ...Object.fromEntries(Object.entries(FX_PARAMETER_META).map(([id,m])=>[id,destination(m.label,m.group)])),
+  ...Object.fromEntries(Object.entries(MODULATION_LABELS).map(([id,label])=>[id,destination(label,id.startsWith("modEnv")?"Modulation envelopes":id.startsWith("macro")?"Macros":"Random",id.startsWith("modEnv"))])),
+  ...DYNAMIC_TARGETS,
   ...FM_TARGETS,
   ...FILTER_TARGETS,
   ...ENGINE_TARGETS,
+  distortion: destination("Saturation drive", "Track FX"), chorus: destination("Modulation FX mix", "Track FX"), delay: destination("Delay mix", "Track FX"), delayTime: destination("Delay time", "Track FX"), feedback: destination("Delay feedback", "Track FX"), reverb: destination("Reverb mix", "Track FX"), reverbSize: destination("Reverb decay", "Track FX"),
+  ...Object.fromEntries(Object.keys(MODULATION_PARAMS).filter(key=>key.startsWith("modEnv")).map(key=>[key,destination(MODULATION_LABELS[key],"Modulation envelopes",true)])) as Record<keyof typeof MODULATION_PARAMS,ReturnType<typeof destination>>,
   pitch: destination("Pitch", "Global"),
   tune: destination("Transpose", "Global"),
   unison: destination("Unison voices", "Global", true),
@@ -247,11 +255,9 @@ export const MOD_TARGETS = {
   sustain: destination("Amp sustain", "Amp envelope", true),
   release: destination("Amp release", "Amp envelope", true),
 };
-// Only shared effect-buffer/curve replacements cannot be scheduled per trigger.
-// Oscillator count, spectra and sample direction are constructed per voice.
-export const LOCK_PARAMS: Param[] = (Object.keys(PARAMS) as Param[]).filter(
-  (key) => key !== "distortion" && key !== "reverbSize",
-);
+export const MOD_TARGETS = TARGET_SPEC as typeof TARGET_SPEC & Record<DynamicParam,ReturnType<typeof destination>>;
+// Event targets are sampled on the note/step timeline; continuous controls are smoothed.
+export const LOCK_PARAMS = Object.keys(PARAMS) as Param[];
 export const PARAM_LABELS = Object.fromEntries((Object.keys(PARAMS) as Param[]).map((key) => [key,
   key in MOD_TARGETS ? MOD_TARGETS[key as keyof typeof MOD_TARGETS].label : ({
     chorus: "Modulation FX · Mix", delay: "Delay · Mix", delayTime: "Delay · Time",
@@ -356,11 +362,13 @@ export const FX_OPTIONS = {
 } as const;
 export type FxSlot = keyof typeof FX_OPTIONS;
 type FxSelection = { [K in FxSlot]: (typeof FX_OPTIONS)[K][number]["id"] };
-export type Patch = Numbers &
+export type Patch = Record<BaseParam, number> & Partial<Record<DynamicParam,number>> &
   FxSelection & {
     name: string;
     engine: Engine;
     engineVersion: 1 | 2;
+    modVersion: 1 | 2;
+    fxVersion: 1 | 2;
     wave: Wave;
     wave2: Wave;
     filterType: FilterType;
@@ -701,13 +709,14 @@ export const makePattern = (): Pattern => ({
 });
 export function makePatch(overrides: Partial<Patch> = {}): Patch {
   const numbers = Object.fromEntries(
-    Object.entries(PARAMS).map(([key, range]) => [key, range[2]]),
-  ) as Numbers;
+    Object.entries(BASE_PARAMS).map(([key, range]) => [key, range[2]]),
+  ) as Record<BaseParam,number>;
   const patch: Patch = {
     ...numbers,
     name: "Velvet circuit",
     engine: "subtractive",
     engineVersion: 2,
+    modVersion: 2, fxVersion: 2,
     wave: "sawtooth",
     wave2: "triangle",
     filterType: "lowpass",
@@ -772,9 +781,9 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
   if (overrides.fmVersion !== 2 && !FM_KEYS.some((key) => key in overrides) && LEGACY_FM_KEYS.some((key) => key in overrides)) migrateFmPatch(patch);
   if (overrides.filterPeakGain === undefined && patch.filterType === "multimode" && patch.multimodeType === "peak") patch.filterPeakGain = patch.resonance;
   if (overrides.pulseWidth2 === undefined && overrides.pulseWidth !== undefined) patch.pulseWidth2 = overrides.pulseWidth;
-  return Object.assign(patch, sampleSliceSelection(patch.sampleSlices, patch.sampleSlice));
+  return normalizeModulationPatch(Object.assign(patch, sampleSliceSelection(patch.sampleSlices, patch.sampleSlice)));
 }
-const makeLegacyPatch = (recipe: Partial<Patch> = {}) => makePatch({ ...recipe, engineVersion: 1, ringBiasMode: 0, bowMode: 0 });
+const makeLegacyPatch = (recipe: Partial<Patch> = {}) => makePatch({ ...recipe, engineVersion: 1, modVersion: 1, fxVersion: 1, ringBiasMode: 0, bowMode: 0 });
 export const PRESETS: Patch[] = [
   makeLegacyPatch(),
   makeLegacyPatch({
@@ -1065,8 +1074,10 @@ const waves: Wave[] = ["sine", "sawtooth", "triangle", "square"];
 export function sanitizePatch(value: unknown): Patch {
   if (!isRecord(value)) throw new Error("Ungültiges Preset.");
   const p = makePatch();
-  for (const key of Object.keys(PARAMS) as Param[])
+  for (const key of Object.keys(BASE_PARAMS) as BaseParam[])
     p[key] = num(value[key], PARAMS[key][0], PARAMS[key][1], p[key]);
+  p.modVersion = value.modVersion === 2 ? 2 : 1;
+  p.fxVersion = value.fxVersion === 2 ? 2 : 1;
   p.engineVersion = value.engineVersion === 2 ? 2 : 1;
   if (value.pulseWidth2 === undefined) p.pulseWidth2 = p.pulseWidth;
   if (value.ringBiasMode === undefined) p.ringBiasMode = 0;
@@ -1107,6 +1118,9 @@ export function sanitizePatch(value: unknown): Patch {
               control.default,
             );
     }
+  if(value.fxVersion===undefined&&isRecord(value.fxSettings))for(const [id,settings] of Object.entries(value.fxSettings))if(isRecord(settings)&&LEGACY_FX_KEYS[id]&&Object.keys(settings).some(key=>!LEGACY_FX_KEYS[id].has(key)))p.fxVersion=2;
+  if(["saturationOutputTrim","reverbLowCut","reverbHighCut","reverbWidth"].some(key=>key in value))p.fxVersion=value.fxVersion===1?1:2;
+  for(const [id,controls] of Object.entries(FX_CONTROLS))for(const c of controls)if(c.options&&!c.param){const v=p.fxSettings[id][c.key];p.fxSettings[id][c.key]=c.options.reduce((best,o)=>Math.abs(o.value-v)<Math.abs(best-v)?o.value:best,c.options[0].value);}
   if (
     typeof value.sampleId === "string" &&
     /^sample-(?:[0-9]|1[0-5])-[0-3]$/.test(value.sampleId)
@@ -1154,40 +1168,34 @@ export function sanitizePatch(value: unknown): Patch {
       const v = x[i];
       if (!isRecord(v)) return l;
       return {
-        shape: [...waves, "exp", "ramp", "random"].includes(String(v.shape))
+        shape: (LFO_SHAPES as readonly string[]).includes(String(v.shape))
           ? (v.shape as LfoShape)
           : l.shape,
-        mode: ["free", "hold", "one", "half"].includes(String(v.mode))
+        mode: (LFO_MODES as readonly string[]).includes(String(v.mode))
           ? (v.mode as LfoMode)
           : "free",
         rate: num(v.rate, 0.02, 30, l.rate),
         sync: v.sync === true,
-        division: num(v.division, 0.25, 16, 4),
+        division: num(v.division, 1/24, 32, 4),
         depth: num(v.depth, 0, 1, 0.3),
         retrigger: v.retrigger === true,
+        phase:num(v.phase,0,360,0),delay:num(v.delay,0,8,0),fade:num(v.fade,0,8,0),skew:num(v.skew,-.95,.95,0),slew:num(v.slew,0,1,0),pulseWidth:num(v.pulseWidth,.01,.99,.5),polarity:Math.round(num(v.polarity,0,1,0)),
       };
     }) as [Lfo, Lfo, Lfo];
   if (Array.isArray(value.mods))
     p.mods = value.mods
-      .slice(0, 8)
+      .slice(0, 24)
       .filter(isRecord)
       .filter(
         (m) =>
-          [
-            "lfo1",
-            "lfo2",
-            "lfo3",
-            "velocity",
-            "keytrack",
-            "modwheel",
-            "filterEnv",
-          ].includes(String(m.source)) &&
+          Object.keys(MOD_SOURCES).includes(String(m.source)) &&
           typeof m.target === "string" && Object.hasOwn(MOD_TARGETS, m.target),
       )
       .map((m) => ({
         source: m.source as ModSource,
         target: m.target as ModTarget,
         amount: num(m.amount, -1, 1, 0),
+        curve: ["exponential","logarithmic"].includes(String(m.curve)) ? m.curve as "exponential"|"logarithmic" : "linear",
       }));
   // Old partial v2 imports also retain the former zero OP-3 indices. New
   // patches get musical defaults; serialized presets always carry their values.
@@ -1205,10 +1213,12 @@ export function sanitizePatch(value: unknown): Patch {
     p.legacyPeakModulation = true;
     p.mods = p.mods.map((m) => m.target === "resonance" ? { ...m, target: "filterPeakGain", amount: m.amount * 20 / 48 } : m);
   }
-  return Object.assign(p, sampleSliceSelection(p.sampleSlices, p.sampleSlice));
+  return normalizeModulationPatch(Object.assign(p, sampleSliceSelection(p.sampleSlices, p.sampleSlice),Object.fromEntries(Object.entries(value).filter(([id,v])=>Object.hasOwn(DYNAMIC_META,id)&&typeof v==="number"&&Number.isFinite(v)))));
 }
 function sanitizeLockNumber(key: Param, value: unknown) {
   const result = num(value, PARAMS[key][0], PARAMS[key][1], PARAMS[key][2]);
+  const options=DYNAMIC_META[key as DynamicParam]?.options;
+  if(options)return options.reduce((best,o)=>Math.abs(o.value-result)<Math.abs(best-result)?o.value:best,options[0].value);
   return /^fm[123](Wave|Mode)$/.test(key) || (FILTER_DISCRETE as readonly string[]).includes(key) || (ENGINE_DISCRETE as readonly string[]).includes(key) ? Math.round(result) : result;
 }
 function sanitizeSteps(value: unknown): Step[] {

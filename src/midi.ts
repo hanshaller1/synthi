@@ -11,6 +11,7 @@ export class MidiController {
   onNote: (note: number, velocity: number, channel: number) => void = () => {};
   onOff: (note: number, channel: number) => void = () => {};
   onCC: (cc: number, value: number, channel: number) => void = () => {};
+  onPressure:(value:number,channel:number,note?:number)=>void=()=>{};
   onBend: (value: number, channel: number) => void = () => {};
   onClock: (status: number) => void = () => {};
   onPorts: () => void = () => {};
@@ -59,6 +60,8 @@ export class MidiController {
         if (cmd === 0x90 && b > 0) this.onNote(a, b / 127, channel);
         if (cmd === 0x80 || (cmd === 0x90 && b === 0)) this.onOff(a, channel);
         if (cmd === 0xb0) this.onCC(a, b / 127, channel);
+        if(cmd===0xd0)this.onPressure(a/127,channel);
+        if(cmd===0xa0)this.onPressure(b/127,channel,a);
         if (cmd === 0xe0) this.onBend((((b << 7) | a) - 8192) / 8192, channel);
       };
   }
