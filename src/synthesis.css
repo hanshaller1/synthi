@@ -324,32 +324,3 @@
     padding-top: 6px;
   }
 }
-@media (max-width: 850px) {
-  .studio-viewport .synth-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .studio-viewport .synth-grid > .module {
-    display: none;
-    border: 0 !important;
-  }
-  .studio-viewport .instrument[data-section="oscillator"] .synth-grid > .source-module,
-  .studio-viewport .instrument[data-section="character"] .synth-grid > .character-module,
-  .studio-viewport .instrument[data-section="filter"] .synth-grid > .filter-module {
-    display: flex;
-  }
-  .studio-viewport .instrument[data-section="amp"] .synth-grid > .amp-module {
-    display: block;
-  }
-  .studio-viewport .module-switch button {
-    min-width: 0;
-  }
-  .studio-viewport .character-module .source-detail-controls,
-  .studio-viewport .character-module .unison-knobs {
-    width: 100%;
-    max-width: 560px;
-    align-self: center;
-  }
-  .studio-viewport .synth-grid .amp-module .signal-flow {
-    display: flex;
-  }
-}

@@ -2,18 +2,19 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Dice5,
+  Dices,
   Layers3,
   LockKeyhole,
   RotateCcw,
-  Shuffle,
   Trash2,
   UnlockKeyhole,
   X,
+  Undo2,
 } from "lucide-react";
 import { IconButton, Select, Modal, PanelHeader } from "./components";
 import {
   CHORDS,
+  MAX_STEPS,
   LOCK_PARAMS,
   PARAMS,
   STEP_SPANS,
@@ -238,6 +239,13 @@ export default function Sequencer(p: Props) {
         icon={<Layers3 size={16} />}
         title="Sequencer"
         context={<>
+          <div className="tabs" role="tablist" aria-label="Sequencer-Editor">
+        {(["step", "piano"] as const).map((mode) => <button key={mode} role="tab" aria-selected={editor === mode} className={editor === mode ? "active" : ""} onClick={() => {
+          setEditor(mode); p.setLockMode(false);
+          const first = project.tracks.find((t) => t.mode === mode);
+          if (first && project.tracks[track].mode !== mode) p.selectTrack(first.id);
+        }}>{mode === "step" ? "Step-Sequencer" : "Piano Roll"} <small>({project.tracks.filter((t) => t.mode === mode).length})</small></button>)}
+          </div>
           <span className="tag">PATTERN A0{project.activePattern + 1}</span>
           {p.recording && (
             <span className="record-tag">
@@ -247,6 +255,12 @@ export default function Sequencer(p: Props) {
         </>}
         actions={
         <div className="sequencer-actions">
+        <label>Track {String(track + 1).padStart(2, "0")} · Editor
+          <Select label={`Editortyp für Track ${track + 1}`} value={project.tracks[track].mode} onChange={(v) => p.onMode(track, v as EditorMode)}>
+            <option value="step">Step-Sequencer</option><option value="piano">Piano Roll</option>
+          </Select>
+        </label>
+          {project.tracks[track].patterns.some((pat) => pat.pianoBackup) && <IconButton label="Original-Piano-Roll wiederherstellen" onClick={() => p.onRestorePiano(track)}><Undo2 size={14} /></IconButton>}
           <button
             className={`small-button fill-button ${p.fill ? "on" : ""}`}
             onClick={() => p.setFill(!p.fill)}
@@ -265,7 +279,7 @@ export default function Sequencer(p: Props) {
             <Layers3 size={14} />
           </IconButton>
           <IconButton label="Pattern generieren" disabled={!modeMatches} onClick={p.onRandom}>
-            <Dice5 size={15} />
+            <Dices size={16} />
           </IconButton>
           <IconButton label="Pattern leeren" disabled={!modeMatches} onClick={p.onClear}>
             <Trash2 size={14} />
@@ -273,19 +287,6 @@ export default function Sequencer(p: Props) {
         </div>
         }
       />
-      <div className="sequencer-editor-tabs" role="tablist" aria-label="Sequencer-Editor">
-        {(["step", "piano"] as const).map((mode) => <button key={mode} role="tab" aria-selected={editor === mode} className={editor === mode ? "active" : ""} onClick={() => {
-          setEditor(mode); p.setLockMode(false);
-          const first = project.tracks.find((t) => t.mode === mode);
-          if (first && project.tracks[track].mode !== mode) p.selectTrack(first.id);
-        }}>{mode === "step" ? "Step-Sequencer" : "Piano Roll"} <small>({project.tracks.filter((t) => t.mode === mode).length})</small></button>)}
-        <label>Track {String(track + 1).padStart(2, "0")} · Editor
-          <Select label={`Editortyp für Track ${track + 1}`} value={project.tracks[track].mode} onChange={(v) => p.onMode(track, v as EditorMode)}>
-            <option value="step">Step-Sequencer</option><option value="piano">Piano Roll</option>
-          </Select>
-        </label>
-        {project.tracks[track].patterns.some((pat) => pat.pianoBackup) && <button className="small-button" onClick={() => p.onRestorePiano(track)}>Original-Piano-Roll wiederherstellen</button>}
-      </div>
       {modeMatches && <>
       <div className="pattern-toolbar">
         <div className="pattern-bank" aria-label="Pattern-Speicher">
@@ -299,6 +300,13 @@ export default function Sequencer(p: Props) {
             </button>
           ))}
         </div>
+        {editor === "piano" && <div className="piano-track-item" style={{ "--track-color": project.tracks[track].color } as React.CSSProperties}>
+          <Select label="Piano-Roll-Track" value={track} onChange={(v) => p.selectTrack(+v)}>{visibleTracks.map((t) => <option key={t.id} value={t.id}>{String(t.id + 1).padStart(2, "0")} · {t.name}</option>)}</Select>
+          <div className="track-switches">
+            <button aria-label={`Track ${track + 1} mute`} aria-pressed={project.tracks[track].mute} className={project.tracks[track].mute ? "active" : ""} onClick={() => p.onTrack(track, { mute: !project.tracks[track].mute })}>M</button>
+            <button aria-label={`Track ${track + 1} solo`} aria-pressed={project.tracks[track].solo} className={project.tracks[track].solo ? "solo" : ""} onClick={() => p.onTrack(track, { solo: !project.tracks[track].solo })}>S</button>
+          </div>
+        </div>}
         <div className="pattern-settings">
           <label>
             LENGTH
@@ -306,12 +314,12 @@ export default function Sequencer(p: Props) {
               aria-label="Pattern length"
               type="number"
               min="1"
-              max="64"
+              max={MAX_STEPS}
               value={pattern.length}
               onChange={(e) =>
                 p.onPattern(track, {
                   length: Math.round(
-                    Math.min(64, Math.max(1, +e.target.value || 1)),
+                    Math.min(MAX_STEPS, Math.max(1, +e.target.value || 1)),
                   ),
                 })
               }
@@ -338,6 +346,7 @@ export default function Sequencer(p: Props) {
             <option value="pingpong">↔ Ping-pong</option>
             <option value="random">⤨ Random</option>
           </Select>
+          <IconButton label="Auflösung und Richtung zurücksetzen" onClick={() => p.onPattern(track, { direction: "forward", division: 16 })}><RotateCcw size={13} /></IconButton>
           {editor === "step" && <div className="step-pages">
             <IconButton
               label="Vorherige Step-Seite"
@@ -351,8 +360,8 @@ export default function Sequencer(p: Props) {
             </span>
             <IconButton
               label="Nächste Step-Seite"
-              onClick={() => p.setPage(Math.min(3, page + 1))}
-              disabled={page === 3}
+              onClick={() => p.setPage(Math.min(MAX_STEPS / 16 - 1, page + 1))}
+              disabled={page === MAX_STEPS / 16 - 1}
             >
               <ChevronRight size={12} />
             </IconButton>
@@ -360,17 +369,8 @@ export default function Sequencer(p: Props) {
         </div>
       </div>
       {editor === "piano" && <>
-        <div className="piano-track-list" aria-label="Piano-Roll-Tracks">
-          {visibleTracks.map((t) => <div key={t.id} className={`piano-track-item ${track === t.id ? "selected" : ""}`} style={{ "--track-color": t.color } as React.CSSProperties}>
-            <button onClick={() => p.selectTrack(t.id)}>{String(t.id + 1).padStart(2, "0")} · {t.name}</button>
-            <div className="track-switches">
-              <button aria-label={`Track ${t.id + 1} mute`} aria-pressed={t.mute} className={t.mute ? "active" : ""} onClick={() => p.onTrack(t.id, { mute: !t.mute })}>M</button>
-              <button aria-label={`Track ${t.id + 1} solo`} aria-pressed={t.solo} className={t.solo ? "solo" : ""} onClick={() => p.onTrack(t.id, { solo: !t.solo })}>S</button>
-            </div>
-          </div>)}
-        </div>
         <PianoRoll key={`${track}:${project.activePattern}`} pattern={pattern} patch={project.tracks[track].patch} color={project.tracks[track].color} playing={p.playing} playhead={p.playheads[track]}
-          onChange={(notes) => p.onNotes(track, notes)} onAudition={(note, velocity) => p.onAudition(track, note, velocity)}
+          onScale={(scale) => p.onPattern(track, { scale })} onChange={(notes) => p.onNotes(track, notes)} onAudition={(note, velocity) => p.onAudition(track, note, velocity)}
           onUndo={p.onUndo} onRedo={p.onRedo} canUndo={p.canUndo} canRedo={p.canRedo} clipboard={p.noteClipboard} onClipboard={p.onNoteClipboard} getPosition={() => p.getPosition(track)} />
       </>}
       {editor === "step" && <>
@@ -579,27 +579,7 @@ export default function Sequencer(p: Props) {
       </>}
       </>}
       {!modeMatches && <div className="sequencer-empty"><strong>Keine Tracks im {editor === "piano" ? "Piano-Roll" : "Step"}-Modus</strong>Wähle einen Track im Rack und ändere oben seinen Editortyp.</div>}
-      <footer className="sequencer-footer">
-        <span>
-          <i /> {p.playing ? "SEQUENCER RUNNING" : "SEQUENCER READY"}
-        </span>
-        <span>
-          <Shuffle size={11} /> PER-TRACK LENGTH & SPEED
-        </span>
-        <span>
-          Klick: Trig <b>·</b> Shift + Klick: bearbeiten <b>·</b> P-Lock: Regler
-          verriegeln
-        </span>
-        <button
-          onClick={() => {
-            p.onPattern(track, { direction: "forward", division: 16 });
-          }}
-          title="Auflösung und Richtung zurücksetzen"
-          disabled={!modeMatches}
-        >
-          <RotateCcw size={11} /> RESET TIMING
-        </button>
-      </footer>
+
     </section>
   );
 }

@@ -1,4 +1,4 @@
-import { CHORDS, STEP_SPANS, clamp, clone, makeStep, patternTimeline, playbackStep, shouldTrigger, stepIndex } from "./model";
+import { MAX_STEPS, CHORDS, STEP_SPANS, clamp, clone, makeStep, patternTimeline, playbackStep, shouldTrigger, stepIndex } from "./model";
 import type { Numbers, Pattern, PianoNote, Step, Track } from "./model";
 
 export const newNoteId = () => typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint32Array(4)), (v) => v.toString(16)).join("-");
@@ -118,7 +118,7 @@ export function migrateToSteps(pattern: Pattern, swing = 0): { steps: Step[]; re
   const steps = pattern.steps.map((s) => ({ ...clone(s), on: false, span: 1 }));
   const buckets = new Map<number, PianoNote[]>();
   for (const n of pattern.notes) {
-    const slot = clamp(Math.round(n.start + n.micro), 0, 63);
+    const slot = clamp(Math.round(n.start + n.micro), 0, MAX_STEPS - 1);
     const group = buckets.get(slot) ?? []; group.push(n); buckets.set(slot, group);
   }
   const occupied = [...buckets.keys()].sort((a, b) => a - b);
@@ -135,8 +135,8 @@ export function migrateToSteps(pattern: Pattern, swing = 0): { steps: Step[]; re
       if (value > score) { score = value; chosen = selected; root = candidate.note; chord = key; }
     }
     const lead = [...chosen].sort((a, b) => b.velocity - a.velocity)[0];
-    const next = occupied.find((value) => value > slot) ?? 64;
-    const boundary = slot < pattern.length ? pattern.length : 64;
+    const next = occupied.find((value) => value > slot) ?? MAX_STEPS;
+    const boundary = slot < pattern.length ? pattern.length : MAX_STEPS;
     const available = Math.min(next - slot, boundary - slot);
     const options = STEP_SPANS.filter((span) => Math.ceil(span) <= available).map((span) => {
       const offset = slot % 2 ? swing * Math.min(span, swingUnits) : 0;

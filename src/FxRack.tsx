@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { ArrowLeft, ArrowRight, Power, Sparkles } from "lucide-react";
 import { Knob, Select, formatHz, formatTime, percent } from "./components";
 import { FX_OPTIONS } from "./model";
@@ -218,7 +217,6 @@ export default function FxRack({
   tempo: number;
   onLearn: (param: Param) => void;
 }) {
-  const [activeSlot, setActiveSlot] = useState<FxSlot>("saturationMode");
   const move = (index: number, offset: number) => {
     const order = [...p.fxOrder];
     [order[index], order[index + offset]] = [
@@ -228,18 +226,8 @@ export default function FxRack({
     onPatch({ fxOrder: order });
   };
   return (
-    <div className="effects-grid serial-fx" data-active={activeSlot}>
-      <nav className="fx-mobile-tabs" aria-label="Effekt-Slot auswählen">
-        {p.fxOrder.map((slot, index) => (
-          <button
-            key={slot}
-            className={activeSlot === slot ? "active" : ""}
-            onClick={() => setActiveSlot(slot)}
-          >
-            {index + 1} · {titles[slot]}
-          </button>
-        ))}
-      </nav>
+    <div className="effects-grid serial-fx">
+
       {p.fxOrder.map((slot, index) => {
         const mode = p[slot],
           controls = FX_CONTROLS[mode],

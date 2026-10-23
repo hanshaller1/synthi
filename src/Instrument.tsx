@@ -2,7 +2,6 @@ import SourceEditor from "./SourceEditor";
 import FxRack from "./FxRack";
 import FilterResponse from "./FilterResponse";
 import { lfoValue } from "./lfo";
-import { useState } from "react";
 import {
   AudioLines,
   ChevronLeft,
@@ -73,10 +72,6 @@ const targetNames = Object.fromEntries(
 );
 export default function Instrument(props: Props) {
   const { patch: p, onPatch, onParam, tab, setTab } = props;
-  const [section, setSection] = useState("oscillator");
-  const [activeLfo, setActiveLfo] = useState(0);
-  const [routePage, setRoutePage] = useState(0);
-  const [modPage, setModPage] = useState("lfos");
   const knob = (
     key: Param,
     label: string,
@@ -215,10 +210,6 @@ export default function Instrument(props: Props) {
   return (
     <section
       className="instrument studio-panel"
-      data-section={section}
-      data-mod-page={modPage}
-      data-lfo={activeLfo}
-      data-route-page={p.mods.length <= 4 ? 0 : routePage}
       style={{ "--track-color": props.color } as React.CSSProperties}
     >
       <PanelHeader
@@ -239,46 +230,6 @@ export default function Instrument(props: Props) {
                 </option>
               ))}
             </Select>
-            <button className="panel-preset" onClick={props.onLibrary}>
-              {p.name}
-              <FolderOpen size={14} />
-            </button>
-          </>
-        }
-        actions={
-        <div className="patch-actions">
-          <span className="voice-badge">
-            <i />{" "}
-            {p.voiceMode === "poly"
-              ? "POLYPHONIC"
-              : p.voiceMode === "para"
-                ? "PARAPHONIC"
-                : "MONOPHONIC"}
-          </span>
-          <div className="button-pair">
-            <IconButton
-              label="Vorheriges Preset"
-              onClick={() => props.onPreset(-1)}
-            >
-              <ChevronLeft size={15} />
-            </IconButton>
-            <IconButton
-              label="Nächstes Preset"
-              onClick={() => props.onPreset(1)}
-            >
-              <ChevronRight size={15} />
-            </IconButton>
-          </div>
-          <IconButton label="Sound zufällig variieren" onClick={props.onRandom}>
-            <Dices size={16} />
-          </IconButton>
-          <IconButton label="Preset speichern" onClick={props.onSave}>
-            <Save size={15} />
-          </IconButton>
-        </div>
-        }
-      />
-      <div className="instrument-toolbar">
         <div className="tabs" role="tablist" aria-label="Instrument-Bereich">
           {[
             { id: "synth", label: "Synthesis", icon: AudioLines },
@@ -298,6 +249,28 @@ export default function Instrument(props: Props) {
             </button>
           ))}
         </div>
+          <div className="button-pair">
+            <IconButton
+              label="Vorheriges Preset"
+              onClick={() => props.onPreset(-1)}
+            >
+              <ChevronLeft size={15} />
+            </IconButton>
+            <IconButton
+              label="Nächstes Preset"
+              onClick={() => props.onPreset(1)}
+            >
+              <ChevronRight size={15} />
+            </IconButton>
+          </div>
+            <button className="panel-preset" onClick={props.onLibrary}>
+              {p.name}
+              <FolderOpen size={14} />
+            </button>
+          </>
+        }
+        actions={
+        <div className="patch-actions">
         <div className="voice-mode">
           <span>VOICE</span>
           <Select
@@ -310,25 +283,18 @@ export default function Instrument(props: Props) {
             <option value="mono">Monophonic</option>
           </Select>
         </div>
-      </div>
+          <IconButton label="Sound zufällig variieren" onClick={props.onRandom}>
+            <Dices size={16} />
+          </IconButton>
+          <IconButton label="Preset speichern" onClick={props.onSave}>
+            <Save size={15} />
+          </IconButton>
+        </div>
+        }
+      />
       {tab === "synth" && (
         <>
-          <nav className="module-switch" aria-label="Synthesizer-Modul">
-            {[
-              ["oscillator", "Klangquelle"],
-              ["character", "Character / Unison"],
-              ["filter", "Filter"],
-              ["amp", "Amp / Output"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                className={section === id ? "active" : ""}
-                onClick={() => setSection(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+
           <div className="module-grid synth-grid">
             <SourceEditor
               patch={p}
@@ -534,56 +500,15 @@ export default function Instrument(props: Props) {
       )}
       {tab === "modulation" && (
         <div className="modulation-layout">
-          <nav className="mod-mobile-tabs" aria-label="Modulationsbereich">
-            <button
-              className={modPage === "lfos" ? "active" : ""}
-              onClick={() => setModPage("lfos")}
-            >
-              3 LFOs
-            </button>
-            <button
-              className={modPage === "matrix" ? "active" : ""}
-              onClick={() => setModPage("matrix")}
-            >
-              Modulation matrix
-            </button>
-          </nav>
-          <nav className="lfo-switch" aria-label="LFO auswählen">
-            {[0, 1, 2].map((index) => (
-              <button
-                key={index}
-                className={activeLfo === index ? "active" : ""}
-                onClick={() => setActiveLfo(index)}
-              >
-                LFO {index + 1}
-              </button>
-            ))}
-          </nav>
+
+
           <div className="lfo-grid">{[0, 1, 2].map(lfo)}</div>
           <section className="module matrix-module">
             <div className="module-title">
               <h3>
                 <SlidersHorizontal size={14} /> Modulation matrix
               </h3>
-              <nav
-                className="route-pages"
-                aria-label="Modulationsrouten auswählen"
-              >
-                {[0, 1].map((page) => (
-                  <button
-                    key={page}
-                    disabled={page === 1 && p.mods.length < 5}
-                    className={
-                      (p.mods.length <= 4 ? 0 : routePage) === page
-                        ? "active"
-                        : ""
-                    }
-                    onClick={() => setRoutePage(page)}
-                  >
-                    {page ? "5–8" : "1–4"}
-                  </button>
-                ))}
-              </nav>
+
               <span className="module-index">{p.mods.length} / 8 ROUTES</span>
             </div>
             <div className="matrix-heading">
@@ -597,7 +522,6 @@ export default function Instrument(props: Props) {
               <div
                 className="matrix-row"
                 key={i}
-                data-route-page={Math.floor(i / 4)}
               >
                 <Select
                   label={`Modulation ${i + 1} source`}
@@ -671,7 +595,6 @@ export default function Instrument(props: Props) {
               <button
                 className="add-route"
                 onClick={() => {
-                  setRoutePage(Math.floor(p.mods.length / 4));
                   onPatch({
                     mods: [
                       ...p.mods,

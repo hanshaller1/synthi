@@ -10,6 +10,48 @@ export const formatTime = (v: number) =>
 export const formatHz = (v: number) =>
   v >= 1000 ? `${(v / 1000).toFixed(2)} kHz` : `${Math.round(v)} Hz`;
 export const percent = (v: number) => `${Math.round(v * 100)}%`;
+export function TempoInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const editing = useRef(false);
+  const cancelled = useRef(false);
+  const drag = useRef<{ y: number; value: number; moved: boolean } | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (!editing.current) setText(String(value)); }, [value]);
+  const commit = () => {
+    if (cancelled.current) { cancelled.current = false; editing.current = false; setText(String(value)); return; }
+    const parsed = Number(text.replace(",", "."));
+    const next = text.trim() && Number.isFinite(parsed) ? clamp(Math.round(parsed * 10) / 10, 40, 240) : value;
+    editing.current = false; setText(String(next)); onChange(next);
+  };
+  return <label className="tempo-input" title="Ziehen: BPM ändern · Shift: fein · Wert anklicken: eingeben"
+    onPointerDown={(e) => {
+      if (e.button !== 0 || (e.target === input.current && editing.current)) return;
+      drag.current = { y: e.clientY, value, moved: false };
+    }}
+    onPointerMove={(e) => {
+      const d = drag.current; if (!d || !e.buttons) return;
+      if (!d.moved && Math.abs(e.clientY - d.y) < 3) return;
+      d.moved = true; e.currentTarget.setPointerCapture(e.pointerId);
+      const next = clamp(Math.round((d.value + (d.y - e.clientY) * (e.shiftKey ? .1 : 1)) * 10) / 10, 40, 240);
+      setText(String(next)); onChange(next);
+    }}
+    onPointerUp={() => { drag.current = null; }}
+    onPointerCancel={() => { drag.current = null; }}
+    onLostPointerCapture={() => { drag.current = null; }}>
+    <span>BPM</span>
+    <input ref={input} aria-label="Tempo BPM" type="text" value={text}
+      onFocus={(e) => { editing.current = true; e.target.select(); }}
+      onChange={(e) => setText(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.currentTarget.blur(); e.preventDefault(); }
+        if (e.key === "Escape") { cancelled.current = true; e.currentTarget.blur(); e.preventDefault(); e.stopPropagation(); }
+        if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+          e.preventDefault(); const next = clamp(value + (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? .1 : 1), 40, 240);
+          setText(String(+next.toFixed(1))); onChange(+next.toFixed(1));
+        }
+      }} />
+  </label>;
+}
 export function PanelHeader({
   icon, title, context, actions,
 }: {
@@ -251,7 +293,7 @@ export function EnvelopeGraph({
             opacity=".1"
           />
         ))}
-        <g transform={kind === "filter" ? "translate(13.6 0) scale(0.9 1)" : undefined}>
+        <g transform="translate(13.6 0) scale(0.9 1)">
           <path
             d={`M18,70 L${a},20 L${d},${y} L${r},${y} L253,70 Z`}
             fill={`url(#env-${kind})`}
@@ -439,9 +481,6 @@ export function Scope({
     />
   );
 }
-const MOBILE_KEYBOARD_QUERY =
-  "(max-width: 620px), (max-width: 960px) and (max-height: 620px) and (pointer: coarse)";
-
 export function Keyboard({
   active,
   onDown,
@@ -455,17 +494,8 @@ export function Keyboard({
   octave: number;
   setOctave: (n: number) => void;
 }) {
-  const [mobile, setMobile] = useState(
-    () => window.matchMedia(MOBILE_KEYBOARD_QUERY).matches,
-  );
-  const octaveCount = mobile ? 2 : KEYBOARD_OCTAVES;
-  useEffect(() => {
-    const query = window.matchMedia(MOBILE_KEYBOARD_QUERY);
-    const update = () => setMobile(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
+  const [compact, setCompact] = useState(false);
+  const octaveCount = KEYBOARD_OCTAVES;
   const notes = Array.from(
       { length: octaveCount * 12 + 1 },
       (_, i) => octave * 12 + i,
@@ -498,7 +528,7 @@ export function Keyboard({
     }
   };
   return (
-    <div className="keyboard-section">
+    <div className={`keyboard-section ${compact ? "keyboard-compact" : ""}`}>
       <div className="keyboard-controls">
         <span className="eyebrow">{octaveCount} OCTAVES</span>
         <div className="octave-buttons">
@@ -516,7 +546,7 @@ export function Keyboard({
             +
           </button>
         </div>
-        <span className="keyboard-hint">A W S E D F T G Y H U J K</span>
+        <button className="keyboard-height small-button" aria-pressed={compact} title="Keyboard-Höhe halbieren" onClick={() => setCompact(!compact)}>{compact ? "100 % Höhe" : "50 % Höhe"}</button>
       </div>
       <div
         className="keyboard"

@@ -1,3 +1,17 @@
+# Desktop-Ausbau und Piano-Roll-Werkzeuge vom 23.10.2026
+
+Basis: GitHub-`main` auf `4a8b771`. Umsetzung und Push nach `main` sind ausdrücklich beauftragt.
+
+- Gemeinsames 128-Step-Limit für Factory-Daten, Import, Bearbeitung, acht Step-Seiten, Generator und Rückmigration. Alte Projekte werden mit leeren zusätzlichen Steps aufgefüllt. Bestehende Note-/Backup-Daten bleiben erhalten.
+- Gespeicherte Skalen pro Pattern, Fold, Maus-Zoom am Zeitlineal, Zoom am Mauszeiger in beiden Achsen und Vorhören beim Verschieben. Horizontales Verschieben verändert keine Tonhöhe; Skalen-Pfeiltasten bleiben nicht zwischen zwei Tönen stecken.
+- Melodie-/Euclid-/Arpeggio-Generator, neun Transformationen, Humanize mit begrenzten Abweichungen. Vorschau vor Anwendung, eine Undo-Aktion pro Übernahme. Neue MIDI-Aufnahmen invalidieren offene Vorschauen, damit sie nicht überschrieben werden.
+- Desktop-Oberfläche ohne Smartphone-Media-Queries, mobile Navigation, Touch-Regeln oder verkürztes Smartphone-Keyboard. Footer, zusätzliche Editor-Toolbar und Roll-Hilfe entfernt; Shortcuts im oberen `?`. Track-Auswahl und Noten-Locks in vorhandene Werkzeugleisten integriert.
+- Modulation und alle Master-FX gleichzeitig im Synthesizer-Moduldesign; angeglichene Amp-/Filter-Hüllkurven, mehr Platz für die Filter-Response. Preset-Paar, Stimmenmodus, MIDI und Register neu angeordnet. Keyboard-Höhe halbierbar, Track-Abstände reduziert, BPM per Maus und mit löschbarer Texteingabe.
+
+Validierung: statische Durchsicht, TypeScript-/Produktions-Build und Erzeugen der HTML-Veröffentlichungsdateien mit `npm run build:pages`; Whitespace-Prüfung mit `git diff --check`. Keine Tests angelegt oder ausgeführt, keine Test-Abhängigkeiten hinzugefügt. Browserbedienung und Klang wurden nicht praktisch geprüft.
+
+---
+
 # Codeprüfung und Piano Roll vom 23.10.2026
 
 Basis: ausdrücklich neu von GitHub geladenes `main`, Commit `a7f202d`. Der ursprünglich bereitgestellte Vier-Track-Checkout wurde vor jeder Änderung verworfen bzw. per Fast-forward aktualisiert. Die acht vorhandenen Tracks bleiben erhalten; vier weitere ergeben zwölf Tracks. Keine Veröffentlichung und kein Push.

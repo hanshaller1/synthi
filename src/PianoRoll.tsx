@@ -1,13 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
 import { Copy, ClipboardPaste, Trash2, Undo2, Redo2, Minus, Plus } from "lucide-react";
 import { IconButton, Select } from "./components";
-import { LOCK_PARAMS, PARAMS, clamp, clone, noteName } from "./model";
-import type { Condition, Param, Patch, Pattern, PianoNote } from "./model";
+import { MAX_STEPS, SCALES, LOCK_PARAMS, PARAMS, clamp, clone, noteName } from "./model";
+import type { ScaleConfig, Condition, Param, Patch, Pattern, PianoNote } from "./model";
 import { makeNote, newNoteId } from "./sequence";
+import { inScale, scalePitch } from "./piano-tools";
+import PianoTools from "./PianoTools";
 
 type Props = {
   pattern: Pattern; patch: Patch; color: string; playing: boolean; playhead: number;
+  onScale: (scale: ScaleConfig) => void;
   onChange: (notes: PianoNote[]) => void;
   onAudition: (note: number, velocity: number) => void;
   onUndo: () => void; onRedo: () => void; canUndo: boolean; canRedo: boolean;
@@ -17,12 +20,15 @@ type Props = {
 type Gesture = {
   kind: "draw" | "move" | "left" | "right" | "select" | "velocity" | "pan";
   x: number; y: number; base: PianoNote[]; ids: Set<string>; changed: boolean;
-  originals: PianoNote[]; pointer: number; scrollLeft?: number; scrollTop?: number;
+  originals: PianoNote[]; pointer: number; scrollLeft?: number; scrollTop?: number; preview?: string;
 };
-const ROW = 20, KEY = 58, TOP = 26;
+const KEY = 58, TOP = 26;
 const black = (note: number) => [1, 3, 6, 8, 10].includes(note % 12);
 export default function PianoRoll(p: Props) {
   const [selected, setSelected] = useState(new Set<string>());
+  const [rowHeight, setRowHeight] = useState(20), [fold, setFold] = useState(false);
+  const [toolDialog, setToolDialog] = useState<"generate" | "transform" | "humanize" | null>(null);
+  const closeTools = useCallback(() => setToolDialog(null), []);
   const [snap, setSnap] = useState(0.25), [zoom, setZoom] = useState(48);
   const [tool, setTool] = useState<"draw" | "select" | "erase" | "pan">("draw");
   const [defaultLength, setDefaultLength] = useState(1), [cursor, setCursor] = useState(0);
@@ -35,8 +41,50 @@ export default function PianoRoll(p: Props) {
   const gesture = useRef<Gesture | null>(null), draftRef = useRef<PianoNote[] | null>(null);
   const latest = useRef(p); latest.current = p;
   const notes = draft ?? p.pattern.notes;
+  const scale = p.pattern.scale;
+  const rows = useMemo(() => {
+    const used = new Set(p.pattern.notes.map((n) => n.note));
+    if (!used.size) used.add(scalePitch(60, scale));
+    return Array.from({ length: 128 }, (_, i) => 127 - i).filter((n) => !fold || used.has(n) || (scale.enabled && inScale(n, scale)));
+  }, [fold, p.pattern.notes, scale]);
+  const rowIndex = (note: number) => rows.indexOf(note);
+  const pitchAt = (y: number) => scalePitch(rows[clamp(Math.floor(y / rowHeight), 0, rows.length - 1)], scale);
+  const zoomAnchor = useRef<{ unit?: number; x?: number; row?: number; y?: number } | null>(null);
+  const rulerDrag = useRef<{ x: number; y: number; zoom: number; unit: number; changed: boolean } | null>(null);
+  const audition = (value: PianoNote[]) => { for (const n of value.slice(0, 8)) p.onAudition(n.note, n.velocity); };
+  const zoomAt = (next: number, x?: number, nextHeight?: number, y?: number) => {
+    const v = viewport.current; if (!v) return;
+    const ax = x ?? (v.clientWidth - KEY) / 2, ay = y ?? (v.clientHeight - TOP) / 2;
+    zoomAnchor.current = { unit: (v.scrollLeft + ax) / zoom, x: ax, row: (v.scrollTop + ay) / rowHeight, y: ay };
+    setZoom(clamp(next, 4, 240));
+    if (nextHeight !== undefined) setRowHeight(clamp(nextHeight, 10, 48));
+  };
+  useLayoutEffect(() => {
+    const v = viewport.current, anchor = zoomAnchor.current;
+    if (!v || !anchor) return;
+    if (anchor.unit !== undefined) v.scrollLeft = anchor.unit * zoom - anchor.x!;
+    if (anchor.row !== undefined) v.scrollTop = anchor.row * rowHeight - anchor.y!;
+    zoomAnchor.current = null;
+  }, [zoom, rowHeight]);
+  const fit = () => {
+    const v = viewport.current; if (!v) return;
+    zoomAnchor.current = { unit: 0, x: 0 };
+    const next = clamp((v.clientWidth - KEY - 18) / p.pattern.length, 4, 240);
+    setZoom(next); v.scrollLeft = 0;
+  };
+  useEffect(() => {
+    const v = viewport.current; if (!v) return;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) return;
+      e.preventDefault();
+      const rect = v.getBoundingClientRect(), factor = Math.exp(-e.deltaY * .008);
+      zoomAt(e.altKey ? zoom : zoom * factor, e.clientX - rect.left - KEY, e.altKey ? rowHeight * factor : undefined, e.clientY - rect.top - TOP);
+    };
+    v.addEventListener("wheel", wheel, { passive: false });
+    return () => v.removeEventListener("wheel", wheel);
+  }, [zoom, rowHeight]);
   const selection = notes.filter((n) => selected.has(n.id)), first = selection[0];
-  const units = Math.max(p.pattern.length, Math.ceil(Math.max(0, ...notes.map((n) => n.start + Math.min(n.duration, 64 - n.start)))));
+  const units = Math.max(p.pattern.length, Math.ceil(Math.max(0, ...notes.map((n) => n.start + Math.min(n.duration, MAX_STEPS - n.start)))));
   const width = units * zoom;
   const quantize = (value: number) => snap ? Math.round(value / snap) * snap : Math.round(value * 1000) / 1000;
   const minimum = snap || 0.01;
@@ -45,14 +93,18 @@ export default function PianoRoll(p: Props) {
     if (value.length > 4096) { setMessage("Maximal 4096 Noten pro Pattern."); return; }
     p.onChange(value); setMessage("");
   };
-  const editSelected = (partial: Partial<PianoNote>) => commit(notes.map((n) => selected.has(n.id) ? { ...n, ...partial } : n));
+  const editSelected = (partial: Partial<PianoNote>) => {
+    const value = notes.map((n) => selected.has(n.id) ? { ...n, ...partial } : n);
+    if (partial.note !== undefined || partial.start !== undefined) audition(value.filter((n) => selected.has(n.id)));
+    commit(value);
+  };
   const remove = () => { commit(notes.filter((n) => !selected.has(n.id))); setSelected(new Set()); };
   const copy = () => { p.onClipboard(clone(selection)); setMessage(`${selection.length} Noten kopiert.`); };
   const insert = (source: PianoNote[], at: number) => {
     if (!source.length) return;
     const origin = Math.min(...source.map((n) => n.start));
     const maxStart = Math.max(...source.map((n) => n.start));
-    const offset = clamp(at - origin, -origin, 63.999 - maxStart);
+    const offset = clamp(at - origin, -origin, (MAX_STEPS - .001) - maxStart);
     const groups = new Map<string, string>();
     const added = source.map((n) => {
       if (n.group && !groups.has(n.group)) groups.set(n.group, newNoteId());
@@ -64,11 +116,18 @@ export default function PianoRoll(p: Props) {
   const transpose = (semitones: number) => {
     if (!selection.length) return;
     const delta = clamp(semitones, -Math.min(...selection.map((n) => n.note)), 127 - Math.max(...selection.map((n) => n.note)));
-    commit(notes.map((n) => selected.has(n.id) ? { ...n, note: n.note + delta } : n));
+    const nextPitch = (pitch: number) => {
+      if (!scale.enabled || Math.abs(delta) !== 1) return scalePitch(pitch + delta, scale);
+      // Arrow keys advance to the next degree instead of getting stuck between tones.
+      for (let next = pitch + delta; next >= 0 && next <= 127; next += delta) if (inScale(next, scale)) return next;
+      return pitch;
+    };
+    const value = notes.map((n) => selected.has(n.id) ? { ...n, note: nextPitch(n.note) } : n);
+    audition(value.filter((n) => selected.has(n.id))); commit(value);
   };
   const point = (e: PointerEvent<HTMLElement>) => {
     const rect = grid.current!.getBoundingClientRect();
-    return { x: clamp(e.clientX - rect.left, 0, width), y: clamp(e.clientY - rect.top, 0, 128 * ROW - 1) };
+    return { x: clamp(e.clientX - rect.left, 0, width), y: clamp(e.clientY - rect.top, 0, rows.length * rowHeight - 1) };
   };
   const startGesture = (e: PointerEvent<HTMLElement>, kind: Gesture["kind"], ids: Set<string>, base = notes) => {
     e.preventDefault(); e.stopPropagation();
@@ -91,7 +150,7 @@ export default function PianoRoll(p: Props) {
       setBox({ x, y, w: 0, h: 0 }); return;
     }
     if (x / zoom >= p.pattern.length) { setMessage("Dieser Bereich liegt außerhalb der Pattern-Länge. Länge oben erweitern, um hier Noten zu zeichnen."); return; }
-    const n = makeNote(start, 127 - Math.floor(y / ROW), defaultLength);
+    const n = makeNote(start, pitchAt(y), defaultLength);
     const ids = new Set([n.id]); setSelected(ids);
     p.onAudition(n.note, n.velocity);
     startGesture(e, "draw", ids, [...notes, n]);
@@ -123,38 +182,43 @@ export default function PianoRoll(p: Props) {
       const rect = v.getBoundingClientRect();
       if (e.clientX > rect.right - 24) v.scrollLeft += 16;
       if (e.clientX < rect.left + KEY + 12) v.scrollLeft -= 16;
-      if (e.clientY > rect.bottom - 20) v.scrollTop += ROW;
-      if (e.clientY < rect.top + TOP + 12) v.scrollTop -= ROW;
+      if (e.clientY > rect.bottom - 20) v.scrollTop += rowHeight;
+      if (e.clientY < rect.top + TOP + 12) v.scrollTop -= rowHeight;
     }
     const { x, y } = point(e);
     if (g.kind === "select") {
       const rect = { x: Math.min(g.x, x), y: Math.min(g.y, y), w: Math.abs(x - g.x), h: Math.abs(y - g.y) };
       setBox(rect); const ids = new Set(g.ids);
       for (const n of notes) {
-        const nx = n.start * zoom, ny = (127 - n.note) * ROW;
-        if (nx < rect.x + rect.w && nx + n.duration * zoom > rect.x && ny < rect.y + rect.h && ny + ROW > rect.y) ids.add(n.id);
+        const nx = n.start * zoom, ny = rowIndex(n.note) * rowHeight;
+        if (nx < rect.x + rect.w && nx + n.duration * zoom > rect.x && ny < rect.y + rect.h && ny + rowHeight > rect.y) ids.add(n.id);
       }
       setSelected(ids); return;
     }
     const dx = x - g.x, dy = y - g.y;
     if (Math.abs(dx) + Math.abs(dy) < 3 && !g.changed) return;
     g.changed = true;
-    let delta = quantize(dx / zoom), pitch = Math.round(-dy / ROW);
+    let delta = quantize(dx / zoom), pitch = Math.round(-dy / rowHeight);
     if (g.kind === "move") {
-      delta = clamp(delta, -Math.min(...g.originals.map((n) => n.start)), 63.999 - Math.max(...g.originals.map((n) => n.start)));
-      pitch = clamp(pitch, -Math.min(...g.originals.map((n) => n.note)), 127 - Math.max(...g.originals.map((n) => n.note)));
+      delta = clamp(delta, -Math.min(...g.originals.map((n) => n.start)), (MAX_STEPS - .001) - Math.max(...g.originals.map((n) => n.start)));
+      pitch = clamp(pitch, Math.max(...g.originals.map((n) => rowIndex(n.note))) - rows.length + 1, Math.min(...g.originals.map((n) => rowIndex(n.note))));
     }
-    if (g.kind === "left") delta = clamp(delta, Math.max(-Math.min(...g.originals.map((n) => n.start)), Math.max(...g.originals.map((n) => n.duration - 256))), Math.min(...g.originals.map((n) => n.duration - minimum)));
+    if (g.kind === "left") delta = clamp(delta, Math.max(-Math.min(...g.originals.map((n) => n.start)), Math.max(...g.originals.map((n) => n.duration - 256))), Math.min(MAX_STEPS - .001 - Math.max(...g.originals.map((n) => n.start)), ...g.originals.map((n) => n.duration - minimum)));
     if (g.kind === "right") delta = Math.max(delta, minimum - Math.min(...g.originals.map((n) => n.duration)));
     const value = g.base.map((n) => {
       if (!g.ids.has(n.id)) return n;
-      if (g.kind === "move") return { ...n, start: n.start + delta, note: n.note + pitch };
+      if (g.kind === "move") return { ...n, start: n.start + delta, note: pitch ? scalePitch(rows[rowIndex(n.note) - pitch], scale) : n.note };
       if (g.kind === "left") return { ...n, start: n.start + delta, duration: n.duration - delta };
       if (g.kind === "right") return { ...n, duration: clamp(n.duration + delta, minimum, 256) };
-      if (g.kind === "draw") return { ...n, duration: clamp(quantize(x / zoom - n.start), minimum, 64 - n.start) };
+      if (g.kind === "draw") return { ...n, duration: clamp(quantize(x / zoom - n.start), minimum, MAX_STEPS - n.start) };
       if (g.kind === "velocity") return { ...n, velocity: clamp(n.velocity - (e.clientY - g.y) / 100, 0.01, 1) };
       return n;
     });
+    if (g.kind === "move") {
+      const moved = value.filter((n) => g.ids.has(n.id));
+      const signature = moved.map((n) => `${n.start}:${n.note}`).join("|");
+      if (g.preview !== signature) { audition(moved); g.preview = signature; }
+    }
     previewDraft(value);
   };
   const finish = (cancel = false) => {
@@ -172,7 +236,7 @@ export default function PianoRoll(p: Props) {
     gesture.current = null; previewDraft(null); setBox(null);
   };
   const keyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest("input,select")) return;
+    if ((e.target as HTMLElement).closest("input,select,[role=dialog]")) return;
     const mod = e.ctrlKey || e.metaKey, key = e.key.toLowerCase();
     if (key === "delete" || key === "backspace") { e.preventDefault(); e.stopPropagation(); remove(); }
     else if (mod && ["a", "c", "x", "v", "d", "z", "y"].includes(key)) {
@@ -187,16 +251,20 @@ export default function PianoRoll(p: Props) {
       e.preventDefault(); e.stopPropagation();
       if (key === "arrowup" || key === "arrowdown") transpose((key === "arrowup" ? 1 : -1) * (e.shiftKey ? 12 : 1));
       else if (selection.length) {
-        const delta = clamp((key === "arrowright" ? 1 : -1) * (snap || .01), -Math.min(...selection.map((n) => n.start)), 63.999 - Math.max(...selection.map((n) => n.start)));
-        commit(notes.map((n) => selected.has(n.id) ? { ...n, start: n.start + delta } : n));
+        const delta = clamp((key === "arrowright" ? 1 : -1) * (snap || .01), -Math.min(...selection.map((n) => n.start)), (MAX_STEPS - .001) - Math.max(...selection.map((n) => n.start)));
+        const value = notes.map((n) => selected.has(n.id) ? { ...n, start: n.start + delta } : n);
+        audition(value.filter((n) => selected.has(n.id))); commit(value);
       }
+    } else if (["+", "=", "-", "h"].includes(key)) {
+      e.preventDefault(); e.stopPropagation();
+      if (key === "h") fit(); else zoomAt(zoom * (key === "-" ? .8 : 1.25));
     } else if (key === "escape") { finish(true); setSelected(new Set()); }
   };
   useEffect(() => {
     const v = viewport.current; if (!v) return;
-    const pitch = p.pattern.notes.length ? p.pattern.notes[0].note : 60;
-    v.scrollTop = Math.max(0, (127 - pitch) * ROW - v.clientHeight / 2);
-  }, []);
+    const pitch = p.pattern.notes.length ? p.pattern.notes[0].note : scalePitch(60, scale);
+    v.scrollTop = Math.max(0, rowIndex(pitch) * rowHeight - v.clientHeight / 2);
+  }, [fold, scale.enabled, scale.root, scale.name]);
   useEffect(() => {
     let id = 0;
     const draw = () => {
@@ -207,7 +275,7 @@ export default function PianoRoll(p: Props) {
         playline.current.style.left = `${KEY + clamp(head, 0, latest.current.pattern.length) * zoom}px`;
       }
       const v = viewport.current;
-      if (follow && !gesture.current && latest.current.playing && v && head >= 0) {
+      if (follow && !gesture.current && !rulerDrag.current && latest.current.playing && v && head >= 0) {
         const x = head * zoom;
         if (x < v.scrollLeft || x > v.scrollLeft + v.clientWidth - KEY - 30) v.scrollLeft = Math.max(0, x - 50);
       }
@@ -218,41 +286,68 @@ export default function PianoRoll(p: Props) {
   const outOfRange = notes.filter((n) => n.start >= p.pattern.length).length;
   return <div className="piano-roll" onKeyDown={keyDown} data-piano-roll style={{ "--roll-color": p.color } as CSSProperties}>
     <div className="roll-toolbar">
+      <button className={`small-button ${scale.enabled ? "on" : ""}`} aria-pressed={scale.enabled} onClick={() => p.onScale({ ...scale, enabled: !scale.enabled })}>Scale</button>
+      <Select label="Skalen-Grundton" value={scale.root} onChange={(v) => p.onScale({ ...scale, root: +v })}>{["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"].map((n, i) => <option key={n} value={i}>{n}</option>)}</Select>
+      <Select label="Skala" value={scale.name} onChange={(v) => p.onScale({ ...scale, name: v as ScaleConfig["name"] })}>{Object.entries(SCALES).map(([key, value]) => <option key={key} value={key}>{value.label}</option>)}</Select>
+      <button className={`small-button ${fold ? "on" : ""}`} aria-pressed={fold} title="Nur verwendete Töne und aktive Skala anzeigen" onClick={() => setFold(!fold)}>Fold</button>
+      <button className="small-button" onClick={() => setToolDialog("generate")}>Generieren</button>
+      <button className="small-button" onClick={() => setToolDialog("transform")}>Transformieren</button>
+      <button className="small-button" onClick={() => setToolDialog("humanize")}>Humanize</button>
+      <span className="roll-toolbar-divider" />
       <div className="roll-tools" aria-label="Piano-Roll-Werkzeug">
         {(["draw", "select", "erase", "pan"] as const).map((t) => <button key={t} className={tool === t ? "active" : ""} aria-pressed={tool === t} onClick={() => setTool(t)}>{t === "draw" ? "Zeichnen" : t === "select" ? "Auswahl" : t === "pan" ? "Hand" : "Radieren"}</button>)}
       </div>
       <label>Raster <Select label="Piano-Roll-Raster" value={snap} onChange={(v) => setSnap(+v)}>{[0, .125, .25, .5, 1, 2, 4].map((v) => <option key={v} value={v}>{v ? `1/${p.pattern.division / v}` : "Frei"}</option>)}</Select></label>
       <label>Länge <input aria-label="Neue Notenlänge in Steps" type="number" min=".01" max="256" step={snap || .01} value={defaultLength} onChange={(e) => setDefaultLength(clamp(+e.target.value || .01, .01, 256))} /></label>
-      <button className="small-button" onClick={() => { const n = makeNote(clamp(cursor, 0, p.pattern.length - .001), first?.note ?? 60, defaultLength); commit([...notes, n]); setSelected(new Set([n.id])); }}>+ Note</button>
+      <button className="small-button" onClick={() => { const n = makeNote(clamp(cursor, 0, p.pattern.length - .001), scalePitch(first?.note ?? 60, scale), defaultLength); commit([...notes, n]); setSelected(new Set([n.id])); p.onAudition(n.note, n.velocity); }}>+ Note</button>
       <IconButton label="Noten kopieren (Ctrl+C)" disabled={!selection.length} onClick={copy}><Copy size={14} /></IconButton>
       <IconButton label="Noten am Cursor einfügen (Ctrl+V)" disabled={!p.clipboard.length} onClick={() => insert(p.clipboard, cursor)}><ClipboardPaste size={14} /></IconButton>
       <button className="small-button" disabled={!selection.length} onClick={duplicate}>Duplizieren</button>
-      <button className="small-button" disabled={!selection.length || !snap} onClick={() => commit(notes.map((n) => selected.has(n.id) ? { ...n, start: clamp(quantize(n.start + n.micro), 0, 63.999), duration: Math.max(minimum, quantize(n.duration)), micro: 0 } : n))}>Quantisieren</button>
+      <button className="small-button" disabled={!selection.length || !snap} onClick={() => commit(notes.map((n) => selected.has(n.id) ? { ...n, start: clamp(quantize(n.start + n.micro), 0, (MAX_STEPS - .001)), duration: Math.max(minimum, quantize(n.duration)), micro: 0 } : n))}>Quantisieren</button>
       <IconButton label="Auswahl löschen" disabled={!selection.length} onClick={remove}><Trash2 size={14} /></IconButton>
       <IconButton label="Rückgängig (Ctrl+Z)" disabled={!p.canUndo} onClick={p.onUndo}><Undo2 size={14} /></IconButton>
       <IconButton label="Wiederholen (Ctrl+Shift+Z)" disabled={!p.canRedo} onClick={p.onRedo}><Redo2 size={14} /></IconButton>
-      <IconButton label="Horizontal herauszoomen" disabled={zoom <= 16} onClick={() => setZoom(Math.max(16, zoom - 16))}><Minus size={14} /></IconButton>
-      <IconButton label="Horizontal hineinzoomen" disabled={zoom >= 160} onClick={() => setZoom(Math.min(160, zoom + 16))}><Plus size={14} /></IconButton>
+      <IconButton label="Horizontal herauszoomen" disabled={zoom <= 4} onClick={() => zoomAt(zoom / 1.25)}><Minus size={14} /></IconButton>
+      <IconButton label="Horizontal hineinzoomen" disabled={zoom >= 240} onClick={() => zoomAt(zoom * 1.25)}><Plus size={14} /></IconButton>
+      <button className="small-button" title="Pattern in Fenster einpassen (H)" onClick={fit}>Fit</button>
       <button className={`small-button ${follow ? "on" : ""}`} aria-pressed={follow} onClick={() => setFollow(!follow)}>Follow</button>
     </div>
     <div className="roll-viewport" ref={viewport} onScroll={() => { if (velocityViewport.current && viewport.current) velocityViewport.current.scrollLeft = viewport.current.scrollLeft; }}>
-      <div className="roll-content" style={{ width: KEY + width, height: TOP + 128 * ROW }}>
-        <div className="roll-ruler" style={{ width: KEY + width }}>
+      <div className="roll-content" style={{ width: KEY + width, height: TOP + rows.length * rowHeight }}>
+        <div className="roll-ruler" style={{ width: KEY + width }} title="Ziehen: vertikal zoomen, horizontal verschieben · Doppelklick: einpassen"
+          onDoubleClick={fit}
+          onPointerDown={(e) => {
+            if (e.button !== 0 || !viewport.current) return;
+            e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId);
+            const rect = viewport.current.getBoundingClientRect(), x = e.clientX - rect.left - KEY;
+            rulerDrag.current = { x: e.clientX, y: e.clientY, zoom, unit: (viewport.current.scrollLeft + x) / zoom, changed: false };
+          }}
+          onPointerMove={(e) => {
+            const g = rulerDrag.current, v = viewport.current; if (!g || !v) return;
+            if (!g.changed && Math.abs(e.clientX - g.x) + Math.abs(e.clientY - g.y) < 3) return;
+            g.changed = true;
+            const next = clamp(g.zoom * Math.exp((e.clientY - g.y) * .015), 4, 240);
+            const x = e.clientX - v.getBoundingClientRect().left - KEY;
+            zoomAnchor.current = { unit: g.unit, x }; setZoom(next);
+            v.scrollLeft = g.unit * next - x;
+          }}
+          onPointerUp={() => { const g = rulerDrag.current; if (g && !g.changed) setCursor(clamp(quantize(g.unit), 0, p.pattern.length - .001)); rulerDrag.current = null; }}
+          onPointerCancel={() => { rulerDrag.current = null; }} onLostPointerCapture={() => { rulerDrag.current = null; }}>
           <span className="roll-ruler-corner">NOTE</span>
-          {Array.from({ length: units }, (_, i) => <button key={i} style={{ left: KEY + i * zoom, width: zoom }} className={i % (p.pattern.division / 4) === 0 ? "beat" : ""} onClick={() => setCursor(i)} aria-label={`Einfügeposition Step ${i + 1}`}>{i % p.pattern.division === 0 ? `${Math.floor(i / p.pattern.division) + 1}.1` : zoom >= 40 ? i + 1 : "·"}</button>)}
+          {Array.from({ length: units }, (_, i) => <button key={i} style={{ left: KEY + i * zoom, width: zoom }} className={i % (p.pattern.division / 4) === 0 ? "beat" : ""} aria-label={`Einfügeposition Step ${i + 1}`}>{i % p.pattern.division === 0 ? `${Math.floor(i / p.pattern.division) + 1}.1` : zoom >= 40 ? i + 1 : "·"}</button>)}
         </div>
         <div className="roll-keys">
-          {Array.from({ length: 128 }, (_, i) => 127 - i).map((n) => <button key={n} className={black(n) ? "black" : "white"} style={{ height: ROW }} onPointerDown={(e) => { e.preventDefault(); p.onAudition(n, .8); }} aria-label={`Vorhören ${noteName(n)}`}>{noteName(n)}</button>)}
+          {rows.map((n) => <button key={n} className={black(n) ? "black" : "white"} style={{ height: rowHeight }} onPointerDown={(e) => { e.preventDefault(); p.onAudition(n, .8); }} aria-label={`Vorhören ${noteName(n)}`}>{noteName(n)}</button>)}
         </div>
         <div className="roll-grid" tabIndex={0} role="group" aria-label="Piano Roll: Noten zeichnen, auswählen und mit Pfeiltasten bearbeiten" ref={grid}
-          style={{ left: KEY, top: TOP, width, height: 128 * ROW, "--grid-unit": `${zoom}px`, "--snap-unit": `${zoom * (snap || 1)}px`, "--bar-unit": `${zoom * p.pattern.division}px` } as CSSProperties}
+          style={{ left: KEY, top: TOP, width, height: rows.length * rowHeight, "--grid-unit": `${zoom}px`, "--snap-unit": `${zoom * (snap || 1)}px`, "--bar-unit": `${zoom * p.pattern.division}px` } as CSSProperties}
           onPointerDown={backgroundDown} onPointerMove={move} onPointerUp={() => finish()} onPointerCancel={() => finish(true)} onLostPointerCapture={() => finish(true)} onContextMenu={(e) => e.preventDefault()}>
-          {Array.from({ length: 128 }, (_, i) => <div key={i} className={`roll-row ${black(127 - i) ? "black" : ""} ${(127 - i) % 12 === 0 ? "c-row" : ""}`} style={{ top: i * ROW, height: ROW }} />)}
+          {rows.map((n, i) => <div key={n} className={`roll-row ${black(n) ? "black" : ""} ${n % 12 === 0 ? "c-row" : ""} ${scale.enabled && inScale(n, scale) ? "in-scale" : ""} ${scale.enabled && n % 12 === scale.root ? "scale-root" : ""}`} style={{ top: i * rowHeight, height: rowHeight }} />)}
           <div className="roll-outside" style={{ left: p.pattern.length * zoom, width: Math.max(0, width - p.pattern.length * zoom) }} />
           <div className="roll-cursor" style={{ left: cursor * zoom }} />
           {notes.map((n) => <div key={n.id} role="button" tabIndex={-1} aria-label={`${noteName(n.note)}, Step ${(n.start + 1).toFixed(2)}, Länge ${n.duration.toFixed(2)}, Velocity ${Math.round(n.velocity * 100)}%`} aria-pressed={selected.has(n.id)}
             className={`roll-note ${selected.has(n.id) ? "selected" : ""} ${n.start >= p.pattern.length ? "outside" : ""}`}
-            style={{ left: n.start * zoom, top: (127 - n.note) * ROW + 1, width: Math.max(5, Math.min(n.duration, units - n.start) * zoom), height: ROW - 2, opacity: .5 + n.velocity * .5 }}
+            style={{ left: n.start * zoom, top: rowIndex(n.note) * rowHeight + 1, width: Math.max(5, Math.min(n.duration, units - n.start) * zoom), height: rowHeight - 2, opacity: .5 + n.velocity * .5 }}
             onPointerDown={(e) => noteDown(e, n)} onDoubleClick={() => commit(notes.filter((x) => x.id !== n.id))}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); commit(notes.filter((x) => x.id !== n.id)); }} title={`${noteName(n.note)} · ${n.duration.toFixed(2)} Steps · ${Math.round(n.velocity * 100)}%${n.micro ? ` · Micro ${n.micro.toFixed(2)}` : ""}`}>
             <span className="roll-resize left" onPointerDown={(e) => noteDown(e, n, "left")} />
@@ -276,13 +371,14 @@ export default function PianoRoll(p: Props) {
           onPointerDown={(e) => { const ids = selected.has(n.id) ? new Set(selected) : new Set([n.id]); setSelected(ids); startGesture(e, "velocity", ids); gesture.current!.y = e.clientY; }} />)}
       </div>
     </div>
-    <div className="roll-inspector">
+    <div className="roll-inspector" aria-label="Noten-Inspector und Parameter-Locks">
       <strong>{selection.length ? `${selection.length} ${selection.length === 1 ? "Note" : "Noten"}` : "Keine Auswahl"}</strong>
       {first && <>
         <label>Note <Select label="Piano-Note" value={first.note} onChange={(v) => transpose(+v - first.note)}>{Array.from({ length: 128 }, (_, n) => <option key={n} value={n}>{noteName(n)}</option>)}</Select></label>
-        <label>Start <input aria-label="Notenstart in Steps (ab 1)" type="number" min="1" max="64.999" step={snap || .01} value={+(first.start + 1).toFixed(3)} onChange={(e) => {
-          const delta = clamp((+e.target.value || 1) - 1 - first.start, -Math.min(...selection.map((n) => n.start)), 63.999 - Math.max(...selection.map((n) => n.start)));
-          commit(notes.map((n) => selected.has(n.id) ? { ...n, start: n.start + delta } : n));
+        <label>Start <input aria-label="Notenstart in Steps (ab 1)" type="number" min="1" max={MAX_STEPS + .999} step={snap || .01} value={+(first.start + 1).toFixed(3)} onChange={(e) => {
+          const delta = clamp((+e.target.value || 1) - 1 - first.start, -Math.min(...selection.map((n) => n.start)), (MAX_STEPS - .001) - Math.max(...selection.map((n) => n.start)));
+          const value = notes.map((n) => selected.has(n.id) ? { ...n, start: n.start + delta } : n);
+        audition(value.filter((n) => selected.has(n.id))); commit(value);
         }} /></label>
         <label>Länge <input aria-label="Notendauer in Steps" type="number" min=".01" max="256" step={snap || .01} value={+first.duration.toFixed(3)} onChange={(e) => editSelected({ duration: clamp(+e.target.value || .01, .01, 256) })} /></label>
         <label>Velocity <input aria-label="Noten-Velocity" type="number" min="1" max="100" value={Math.round(first.velocity * 100)} onChange={(e) => editSelected({ velocity: clamp(+e.target.value / 100, .01, 1) })} /></label>
@@ -290,12 +386,14 @@ export default function PianoRoll(p: Props) {
         <label>Micro <input aria-label="Noten-Microtiming in Steps" type="number" min="-3.6" max="3.6" step=".01" value={+first.micro.toFixed(3)} onChange={(e) => editSelected({ micro: clamp(+e.target.value, -3.6, 3.6) })} /></label>
         <label>Bedingung <Select label="Noten-Bedingung" value={first.condition} onChange={(v) => editSelected({ condition: v as Condition, group: undefined })}>{["always", "1:2", "2:2", "1:4", "fill", "!fill"].map((v) => <option key={v} value={v}>{v}</option>)}</Select></label>
       </>}
-    </div>
-    {first && <div className="roll-locks">
-      <span>NOTEN-LOCKS</span><Select label="Noten-Lock-Parameter" value={lock} onChange={(v) => setLock(v as Param)}>{LOCK_PARAMS.map((v) => <option key={v} value={v}>{v}</option>)}</Select>
+    {first && <>
+      <span className="inspector-divider" /><Select label="Noten-Lock-Parameter" value={lock} onChange={(v) => setLock(v as Param)}>{LOCK_PARAMS.map((v) => <option key={v} value={v}>{v}</option>)}</Select>
       <button className="small-button" onClick={() => commit(notes.map((n) => selected.has(n.id) ? { ...n, locks: { ...n.locks, [lock]: p.patch[lock] } } : n))}>+ Lock</button>
       {Object.entries(first.locks).map(([key, value]) => <label key={key}>{key}<input aria-label={`Noten-Lock ${key}`} type="number" step="any" min={PARAMS[key as Param][0]} max={PARAMS[key as Param][1]} value={+value.toFixed(3)} onChange={(e) => commit(notes.map((n) => selected.has(n.id) ? { ...n, locks: { ...n.locks, [key]: clamp(+e.target.value, PARAMS[key as Param][0], PARAMS[key as Param][1]) } } : n))} /><button aria-label={`Noten-Lock ${key} entfernen`} onClick={() => commit(notes.map((n) => { if (!selected.has(n.id)) return n; const locks = { ...n.locks }; delete locks[key as Param]; return { ...n, locks }; }))}>×</button></label>)}
-    </div>}
-    <div className="roll-help" role="status">{message || (outOfRange ? `${outOfRange} Noten außerhalb der Loop-Länge bleiben gespeichert. ` : "") + "Ziehen: verschieben · Ränder: Länge · Shift: Mehrfachauswahl · Alt+Ziehen: Kopie · Rechtsklick: löschen · Ctrl/Cmd+C/V/D/Z · Pfeile: bewegen · Shift+↑↓: Oktave"}</div>
+    </>}
+    </div>
+    {(message || outOfRange > 0) && <div className="roll-status" role="status"><span>{message || `${outOfRange} Noten außerhalb der Loop-Länge bleiben gespeichert.`}</span>{message && <button aria-label="Hinweis schließen" onClick={() => setMessage("")}>×</button>}</div>}
+    {toolDialog && <PianoTools pattern={p.pattern} selection={selected} page={toolDialog} onClose={closeTools} onApply={commit} />}
+
   </div>;
 }

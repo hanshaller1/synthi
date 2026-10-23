@@ -120,7 +120,11 @@ Regler ziehen; **Shift** für Feineinstellung. Mit den Pfeiltasten lassen sich f
 
 Alle drei Panels verwenden denselben kompakten Header mit Titel, Kontext und Aktionen nach dem Sequencer-Aufbau. Hintergrund, Rahmen, Schrift und Akzente folgen gemeinsam dem Synthesizer-Design; Master FX besitzt keine eigene gelb-grüne Gestaltung oder kursive Titelzeile mehr.
 
-**Synthesizer**, **Sequencer** und **Master FX** sind getrennte Hauptregister; nur der ausgewählte Editor ist sichtbar. Die Wiedergabe läuft beim Umschalten weiter. Swing, Pattern-Duplizieren und Keyboard ein-/ausblenden stehen gemeinsam in der Hauptleiste. Das Layout nutzt die Browserhöhe ohne Seiten-Scrollleiste. Texte und Bedienelemente sind bei normalem Browserzoom größer ausgelegt. Hilfe, Einstellungen und Speicherstatus stehen in der Topbar; eine zusätzliche Workspace-Bar entfällt. Auf schmalen Displays haben Klangquelle, Character / Unison, Filter, Amp, LFOs/Matrix und FX-Slots eigene Unterregister; die Modulationsmatrix zeigt dort vier Routen pro Seite. Das Keyboard zeigt auf Smartphones zwei Oktaven mit 25 Tasten, auch im Touch-Querformat; auf größeren Bildschirmen vier Oktaven mit 49 Tasten, jeweils einschließlich des abschließenden C. Die Anzeige passt sich beim Drehen oder Ändern der Fenstergröße automatisch an. Über −/+ oder Z/X lässt sich der angezeigte Bereich verschieben.
+**Synthesizer**, **Sequencer** und **Master FX** sind getrennte Hauptregister; die Wiedergabe läuft beim Umschalten weiter. Das Studio ist für Desktop ab 1280 × 600 CSS-Pixeln ausgelegt. Auf kleineren Fenstern bleibt die Desktop-Struktur erhalten. Smartphone-Layouts, Touch-Anpassungen und mobile Unterregister sind entfernt. Die Panels nutzen die frei gewordene Fläche ohne Studio-/Sequencer-Footer. Alle Shortcuts stehen im **?** in der Topbar; MIDI steht direkt vor den Studio-Einstellungen.
+
+Synthesis, Modulation und Effects stehen direkt im Synthesizer-Header. Modulation zeigt alle drei LFOs und die Matrix gleichzeitig im gemeinsamen Moduldesign. Master-FX zeigt Drive, EQ, Dynamics/Stereo und Space nebeneinander, mit Echo und Hall untereinander. Filter- und Amp-Hüllkurve teilen Geometrie und Höhe; 20 % der Filter-Hüllkurvenhöhe stehen zusätzlich der Response-Anzeige zur Verfügung.
+
+Das Keyboard zeigt vier Oktaven mit 49 Tasten. Ein Button in seinen Controls halbiert die Höhe; der Editor darüber wächst entsprechend. Über −/+ oder Z/X lässt sich der angezeigte Bereich verschieben. **BPM** per Maus vertikal ziehen (Shift: fein), oder den Wert anklicken, löschen und neu eingeben; Enter übernimmt, Esc verwirft die Texteingabe.
 
 Bestehende Projekte mit vier oder acht Tracks werden beim Laden auf zwölf Tracks mit zusätzlichen leeren Patterns erweitert. Neue Projektdateien verwenden Version 2 und speichern auch Editortyp, Piano-Roll-Noten und gegebenenfalls das Original einer Migration; Version-1-Projekte bleiben importierbar. Bestehende Presets erhalten fehlende LFO-Modi, Klangparameter und FX-Einstellungen. Ältere Steps erhalten die bisherige Standardlänge; ältere Projekte starten mit neutralen Master-FX. Die nun serielle Track-FX-Kette kann den Klang bestehender Patches gegenüber der früheren parallelen Anordnung verändern.
 
@@ -128,7 +132,7 @@ Bestehende Projekte mit vier oder acht Tracks werden beim Laden auf zwölf Track
 
 Acht Pattern-Speicher **A01–A08**, jeder mit zwölf Tracks. Pro Track unabhängig:
 
-- 1–64 Steps; vier Seiten mit jeweils 16 Steps.
+- 1–128 Steps; acht Seiten mit jeweils 16 Steps.
 - Auflösung 1/8, 1/16 oder 1/32; Forward, Reverse, Ping-pong oder Random.
 - Notenname je Step über eine Auswahl im vollständigen MIDI-Bereich (0–127), Single/Major/Minor/Fifth/Seventh-Akkord, Velocity und Gate. Auch sehr tiefe oder hohe Live-Rec-Noten bleiben beim Speichern und Import erhalten.
 - Individuelle Step-Länge: ½, 1, 1½, 2, 3, 4, 6 oder 8 Rastereinheiten. Die Pattern-Länge zählt feste Rasterpositionen. Ein 1/8-Step auf Position 1 im 1/16-Raster belegt die Positionen 1 und 2; danach folgt Position 3. Die folgenden Noten verschieben sich nicht und das Pattern wird nicht länger. Überdeckte Steps bleiben gespeichert und werden nach dem Verkürzen wieder sichtbar; sie lösen während der Überdeckung keine Noten oder Locks aus. Kürzere und punktierte Längen lassen gegebenenfalls eine Pause bis zur nächsten freien Rasterposition. Gate skaliert die Notendauer. Längen am Pattern-Ende werden auf den verfügbaren Platz begrenzt.
@@ -151,12 +155,18 @@ Die Wiedergabe verwendet einen Lookahead-Scheduler auf der AudioContext-Zeitachs
 Im Sequencer gibt es die Register **Step-Sequencer** und **Piano Roll**. Jedes zeigt ausschließlich Tracks mit diesem Editortyp; beide Gruppen laufen gemeinsam im Transport. Track im Rack auswählen und den Editor über die Auswahl im Sequencer umstellen. Jeder der zwölf Tracks besitzt weiterhin acht eigene Patterns, Instrument, Mute/Solo und Effekte.
 
 - Polyphone Noten im gesamten MIDI-Bereich 0–127; unabhängige Startzeit, Dauer und Velocity. Bis zu 4096 Noten pro Pattern.
-- Zeichnen, Verschieben, linke/rechte Notenkante skalieren, Radieren, Rechteck- und Shift-Mehrfachauswahl. **Hand** verschiebt den Ausschnitt mit Maus oder Touch; Zoom, Scrollen, Playhead und optionales Follow sind verfügbar.
+- Zeichnen, Verschieben, linke/rechte Notenkante skalieren, Radieren, Rechteck- und Shift-Mehrfachauswahl. **Hand** verschiebt den Ausschnitt mit der Maus; Zoom, Scrollen, Playhead und optionales Follow sind verfügbar.
 - Frei oder gerastert bearbeiten, ausgewählte Noten quantisieren, transponieren und duplizieren. Start und Dauer werden im Inspector in Track-Rastereinheiten angezeigt; Start zählt ab 1.
 - Velocity-Spuren und numerischer Inspector; Wahrscheinlichkeit, Microtiming, Bedingungen und Parameter-Locks pro Note. Track-FX bleiben für alle Stimmen gemeinsam: Gleichzeitige widersprüchliche FX-Locks werden in Notenreihenfolge angewendet.
 - **Ctrl/Cmd+A/C/X/V/D:** alles auswählen, kopieren, ausschneiden, am Lineal-Cursor einfügen und duplizieren. **Entf/Backspace** löscht die Auswahl. **Ctrl/Cmd+Z / Shift+Z** oder die Toolbar bieten Undo/Redo. Pfeile verschieben die Auswahl; **Shift+↑/↓** transponiert um eine Oktave.
 - Pattern-Länge bestimmt den Loop. Außerhalb liegende Noten bleiben sichtbar und gespeichert, lösen aber nicht aus. Noten dürfen über die Loop-Grenze hinaus klingen. Eine verkürzte Ansicht löscht keine Noten.
 - Projekt-JSON, Autosave, Pattern-Kopieren/Generieren/Duplizieren, Live Rec, MIDI-Ausgabe und WAV-Export berücksichtigen den jeweiligen Editor. Vorhören zeichnet keine Noten auf.
+
+**Skalen und Fold:** Grundton plus Major, Minor, Kirchentonarten, harmonisch/melodisch Moll, Pentatonik, Blues oder Chromatik wählen. Bei aktiver Skala werden Zeichnen und vertikales Verschieben auf Skalentöne gerastert; Pfeiltasten wechseln zum nächsten Skalenton. Die Skala wird pro Pattern gespeichert. Fold zeigt benutzte Tonhöhen und, bei aktiver Skala, deren Töne. Vorhandene Noten außerhalb der Skala bleiben erhalten. Beim Verschieben werden die Noten vorgehört; bei Mehrfachauswahl maximal acht gleichzeitig.
+
+**Generieren / Transformieren / Humanize:** Ein Dialog bietet Melodie, Euclid-Rhythmus und Arpeggio (aus Auswahl bzw. vorhandenen Noten), jeweils mit Raster, Bereich, Gate, Velocity und passenden Zusatzparametern. Ersetzen betrifft nur den angegebenen Zeitbereich und die gewählte Auswahl; alternativ lassen sich Noten ergänzen. Transformationen umfassen Spiegeln der Zeit/Tonhöhe, Legato, Zeit ×2/÷2, Rotation, Quantisierung und Skalenanpassung. Humanize variiert Timing, Velocity und Länge mit einstellbaren Grenzen. Vorschau erzeugen und **Übernehmen** anwenden; jede Anwendung erzeugt einen Undo-Schritt. Überschreitungen der 128-Step-Grenze werden bei Transformationen mit einem Hinweis abgelehnt.
+
+**Zoom:** Zeitlineal vertikal ziehen zum Zoomen und horizontal zum Verschieben; Ctrl/Cmd + Mausrad zoomt die Zeitachse am Zeiger, Alt + Mausrad die Tonhöhenachse. Doppelklick aufs Lineal, **Fit** oder **H** passt die Loop-Länge ein; **+/−** zoomt zur Mitte. Die Track-Auswahl samt Mute/Solo steht in der Pattern-Toolbar; Parameter-Locks sind Teil des Noten-Inspectors.
 
 **Step → Piano Roll** übernimmt automatisch alle acht Patterns einschließlich Akkorden, Ratchets, Microtiming, Bedingungen, gemeinsamer Wahrscheinlichkeit und Locks. Nicht aktive bzw. durch lange Steps verdeckte Step-Daten bleiben im Projekt. Unveränderte Übertragungen behalten auch spezielle Step-Belegung und Abspielrichtungen.
 
@@ -214,6 +224,8 @@ Die Anwendung wurde als Produktions-Bundle kompiliert; es wurden keine Tests aus
 
 - `src/model.ts`: Datenmodell, Factory-Presets, Importvalidierung und WAV-Codierung.
 - `src/sequence.ts`: gemeinsame musikalische Ereignisse, verlustfreie Übernahme und bestätigte Rückmigration.
+- `src/PianoTools.tsx`, `src/piano-tools.ts`: Generatoren, Transformationen und Humanize mit Vorschau.
+- `src/desktop.css`: Desktop-Layout und gemeinsame Modulgestaltung.
 - `src/PianoRoll.tsx`, `src/piano.css`: Piano-Roll-Bearbeitung, Auswahl, Zwischenablage und Inspector.
 - `src/audio.ts`: Stimmen, Synthese, Filter/Envelopes/FX, Transport und Offline-Rendering.
 - `src/midi.ts`: Web-MIDI-Verbindungen, Nachrichten und Ausgabe.
@@ -226,6 +238,6 @@ Die Anwendung wurde als Produktions-Bundle kompiliert; es wurden keine Tests aus
 - `src/modulation.ts`, `src/spectral-worklet.ts`: Modulationsauswertung und laufende spektrale Klangerzeugung.
 - `src/panels.css`: gemeinsame Gestaltung aller drei Panels und gemeinsames Step-Zeitraster.
 - `src/studio.css`: größere Bedienelemente und Layout der erweiterten Bereiche.
-- `src/synthesis.css`: vier Synthese-Spalten, einheitliche Quellenanzeigen und mobile Modulreiter.
+- `src/synthesis.css`: vier Synthese-Spalten und einheitliche Quellenanzeigen.
 - `src/App.tsx`: Session-Verwaltung, Routing und Dialoge.
-- `src/styles.css`: Responsives Studio-Design und barrierearme Fokuszustände.
+- `src/styles.css`: Grundgestaltung des Studios und barrierearme Fokuszustände.

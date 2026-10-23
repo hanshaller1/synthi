@@ -76,16 +76,6 @@ body,
   width: 10px;
   height: 10px;
 }
-.studio-viewport .library-button {
-  flex: 0 0 46px;
-  margin: 0;
-  padding: 9px 2px;
-  font-size: 10px;
-}
-.studio-viewport .library-button small {
-  font-size: 7px;
-  margin-top: 3px;
-}
 .studio-viewport .sidebar-bottom {
   margin: 0;
   padding-top: 10px;
@@ -167,12 +157,6 @@ body,
 .studio-viewport .patch-name {
   font-size: 17px;
   margin-top: 3px;
-}
-.studio-viewport .instrument-toolbar {
-  flex: 0 0 38px;
-  height: 38px;
-  min-height: 38px;
-  padding: 0 15px;
 }
 .studio-viewport .tabs {
   gap: 22px;
@@ -316,10 +300,6 @@ body,
 .studio-viewport .modulation-strip b,
 .studio-viewport .modulation-strip em {
   font-size: 8px;
-}
-.module-switch,
-.lfo-switch {
-  display: none;
 }
 .studio-viewport .modulation-layout {
   flex: 1;
@@ -549,15 +529,6 @@ body,
   gap: 5px;
   flex-shrink: 0;
 }
-.studio-viewport .sequencer-footer {
-  flex: 0 0 26px;
-  min-height: 26px;
-  padding: 0 12px;
-  font-size: 7px;
-}
-.studio-viewport .sequencer-footer > span:nth-child(3) {
-  font-size: 6px;
-}
 .studio-viewport .keyboard-section {
   --keyboard-base-height: clamp(64px, 10vh, 100px);
   order: 3;
@@ -577,10 +548,6 @@ body,
   margin-top: 7px;
   gap: 8px;
 }
-.studio-viewport .keyboard-hint {
-  margin-top: 7px;
-  font-size: 4px;
-}
 .studio-viewport .keyboard {
   min-width: 0;
 }
@@ -595,15 +562,6 @@ body,
 }
 .studio-viewport .piano-key.white > span {
   font-size: 8px;
-}
-.studio-viewport .studio-footer {
-  order: 4;
-  flex: 0 0 25px;
-  height: 25px;
-  min-height: 0;
-  padding: 0;
-  margin: 0;
-  font-size: 7px;
 }
 @media (max-height: 780px) {
   .studio-viewport .topbar {
@@ -631,11 +589,6 @@ body,
   .studio-viewport .instrument-header {
     flex-basis: 50px;
     height: 50px;
-  }
-  .studio-viewport .instrument-toolbar {
-    flex-basis: 34px;
-    height: 34px;
-    min-height: 34px;
   }
   .studio-viewport .module {
     padding: 9px 11px;
@@ -680,13 +633,6 @@ body,
     margin-top: 7px;
     --keyboard-base-height: 68px;
   }
-  .studio-viewport .keyboard-hint {
-    display: none;
-  }
-  .studio-viewport .studio-footer {
-    flex-basis: 20px;
-    height: 20px;
-  }
 }
 @media (max-width: 1150px) {
   .studio-viewport .studio-body {
@@ -701,9 +647,6 @@ body,
     gap: 10px;
   }
   .studio-viewport .main-heading-actions .text-button {
-    display: none;
-  }
-  .studio-viewport .voice-badge {
     display: none;
   }
   .studio-viewport .modulation-layout {
@@ -777,596 +720,7 @@ body,
     height: 36px;
   }
 }
-@media (max-width: 850px) {
-  .studio-viewport .studio-body {
-    display: flex;
-    flex-direction: column;
-  }
-  .studio-viewport .rack-sidebar {
-    padding: 6px 10px;
-    flex: 0 0 55px;
-    border-bottom: 1px solid #3a4139;
-    border-right: 0;
-  }
-  .studio-viewport .rack-heading,
-  .studio-viewport .library-button,
-  .studio-viewport .sidebar-bottom {
-    display: none;
-  }
-  .studio-viewport .rack-tracks {
-    display: grid;
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-    grid-template-rows: 1fr;
-    gap: 5px;
-    width: 100%;
-  }
-  .studio-viewport .rack-track {
-    padding: 4px 6px;
-    border-radius: 3px;
-  }
-  .studio-viewport .rack-track-top {
-    gap: 4px;
-  }
-  .studio-viewport .rack-track-top > span:nth-child(2) {
-    display: none;
-  }
-  .studio-viewport .rack-track strong {
-    margin: 3px 0 0;
-    font-size: 8px;
-    width: 100%;
-  }
-  .studio-viewport .rack-track-bottom {
-    display: none;
-  }
-  .studio-viewport .studio-main {
-    flex: 1;
-  }
-  .studio-viewport .module {
-    padding: 10px;
-  }
-  .studio-viewport .knob-label {
-    font-size: 9px;
-  }
-  .studio-viewport .pattern-settings > label {
-    font-size: 6px;
-  }
-  .studio-viewport .pattern-settings select {
-    font-size: 8px;
-  }
-  .studio-viewport .modulation-strip .mod-route {
-    margin-left: 0;
-  }
-  .studio-viewport .modulation-strip > span:last-child {
-    display: none;
-  }
-}
-@media (max-width: 620px) {
-  .studio-viewport .topbar {
-    flex: 0 0 86px;
-    height: 86px;
-    padding: 7px 10px;
-    gap: 6px 10px;
-    flex-wrap: wrap;
-  }
-  .studio-viewport .brand {
-    order: 0;
-  }
-  .studio-viewport .brand > span:nth-child(2) {
-    font-size: 20px;
-  }
-  .studio-viewport .brand-mark {
-    width: 25px;
-    height: 25px;
-  }
-  .studio-viewport .brand-tagline,
-  .studio-viewport .topbar-divider {
-    display: none;
-  }
-  .studio-viewport .project-switch {
-    order: 1;
-    flex: 1;
-    min-width: 0;
-    width: auto;
-    margin: 0;
-  }
-  .studio-viewport .transport {
-    order: 3;
-    margin: 0;
-    flex: 1;
-    justify-content: flex-start;
-    gap: 8px;
-  }
-  .studio-viewport .topbar-actions {
-    order: 4;
-    gap: 3px;
-    margin: 0;
-  }
-  .studio-viewport .workspace-bar {
-    flex-basis: 23px;
-    height: 23px;
-    padding: 0 10px;
-  }
-  .studio-viewport .workspace-subtitle,
-  .studio-viewport .workspace-separator {
-    display: none;
-  }
-  .studio-viewport .rack-sidebar {
-    flex-basis: 72px;
-    padding: 5px 8px;
-  }
-  .studio-viewport .rack-tracks {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-    gap: 4px;
-  }
-  .studio-viewport .rack-track {
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 5px;
-    padding: 3px 5px;
-  }
-  .studio-viewport .rack-track strong {
-    margin: 0;
-    font-size: 8px;
-  }
-  .studio-viewport .rack-track-top {
-    flex: 0 0 auto;
-  }
-  .studio-viewport .rack-track-top > i {
-    display: none;
-  }
-  .studio-viewport .rack-number {
-    font-size: 8px;
-  }
-  .studio-viewport .studio-main {
-    padding: 4px 8px 0;
-  }
-  .studio-viewport .main-heading {
-    min-height: 34px;
-    flex-basis: 34px;
-    margin-bottom: 0;
-  }
-  .workspace-tabs {
-    gap: 2px;
-    padding: 2px;
-  }
-  .workspace-tabs > button {
-    padding: 7px 13px;
-    font-size: 11px;
-    gap: 6px;
-  }
-  .workspace-tabs > button > span {
-    font-size: 6px;
-  }
-  .studio-viewport .main-heading-actions {
-    gap: 0;
-  }
-  .studio-viewport .swing-control {
-    gap: 3px;
-  }
-  .studio-viewport .swing-control input {
-    width: 35px;
-  }
-  .studio-viewport .swing-control > label,
-  .studio-viewport .swing-control output {
-    font-size: 7px;
-    gap: 4px;
-  }
-  .studio-viewport .instrument-header {
-    flex-basis: 43px;
-    height: 43px;
-    padding: 0 8px;
-  }
-  .studio-viewport .instrument-identity {
-    gap: 6px;
-  }
-  .studio-viewport .track-badge {
-    width: 27px;
-    height: 27px;
-    font-size: 10px;
-  }
-  .studio-viewport .instrument-identity .eyebrow {
-    font-size: 6px;
-  }
-  .studio-viewport .patch-name {
-    font-size: 13px;
-    gap: 6px;
-  }
-  .studio-viewport .patch-actions {
-    gap: 2px;
-  }
-  .studio-viewport .patch-actions .icon-button {
-    width: 23px;
-    height: 23px;
-  }
-  .studio-viewport .patch-actions .button-pair {
-    margin-right: 0;
-  }
-  .studio-viewport .instrument-toolbar {
-    flex-basis: 32px;
-    height: 32px;
-    min-height: 32px;
-    padding: 0 8px;
-    gap: 7px;
-  }
-  .studio-viewport .tabs {
-    gap: 14px;
-  }
-  .studio-viewport .tabs button {
-    font-size: 9px;
-    gap: 4px;
-  }
-  .studio-viewport .tabs small {
-    display: none;
-  }
-  .studio-viewport .voice-mode {
-    gap: 0;
-  }
-  .studio-viewport .voice-mode > span {
-    display: none;
-  }
-  .studio-viewport .voice-mode select {
-    font-size: 8px;
-    padding-left: 4px;
-  }
-  .module-switch,
-  .lfo-switch {
-    display: flex;
-    gap: 4px;
-    padding: 5px 8px;
-    background: #242924;
-  }
-  .module-switch {
-    flex: 0 0 30px;
-  }
-  .module-switch button,
-  .lfo-switch button {
-    flex: 1;
-    border: 1px solid #465140;
-    border-radius: 3px;
-    font-size: 9px;
-    padding: 3px;
-    color: #9ca593;
-  }
-  .module-switch button.active,
-  .lfo-switch button.active {
-    background: #a4b29025;
-    color: #ead8b7;
-    border-color: #89916e;
-  }
-  .studio-viewport .synth-grid {
-    grid-template-columns: 1fr;
-  }
-  .studio-viewport .synth-grid > .module {
-    display: none;
-    padding: 10px 14px;
-    border: 0;
-  }
-  .studio-viewport .instrument[data-section="oscillator"] .oscillator-module,
-  .studio-viewport .instrument[data-section="filter"] .filter-module,
-  .studio-viewport .instrument[data-section="amp"] .amp-module {
-    display: block;
-  }
-  .studio-viewport .module-title h3 {
-    font-size: 11px;
-  }
-  .studio-viewport .osc-display > .waveform {
-    height: 35px;
-  }
-  .studio-viewport .osc-display {
-    padding: 5px 9px;
-  }
-  .studio-viewport .osc-waves {
-    margin: 6px 0;
-  }
-  .studio-viewport .knob {
-    width: 40px;
-    height: 40px;
-  }
-  .studio-viewport .knob-control output {
-    font-size: 8px;
-  }
-  .studio-viewport .osc-bottom {
-    margin-top: 8px;
-    padding-top: 7px;
-  }
-  .studio-viewport .modulation-strip {
-    min-height: 24px;
-    flex-basis: 24px;
-    padding: 3px 10px;
-    font-size: 7px;
-  }
-  .studio-viewport .modulation-strip > span {
-    gap: 4px;
-  }
-  .studio-viewport .modulation-strip > span:first-child > span {
-    display: none;
-  }
-  .studio-viewport .modulation-strip .mod-route {
-    font-size: 7px;
-  }
-  .studio-viewport .modulation-layout {
-    display: flex;
-    flex-direction: column;
-    padding: 7px;
-    gap: 5px;
-  }
-  .studio-viewport .lfo-switch {
-    padding: 0;
-    background: none;
-    flex: 0 0 23px;
-  }
-  .studio-viewport .lfo-grid {
-    display: block;
-    flex: 0 0 100px;
-  }
-  .studio-viewport .lfo-module {
-    display: none;
-    height: 100%;
-    grid-template-columns: 1fr 1fr;
-    padding: 7px 10px;
-  }
-  .studio-viewport .instrument[data-lfo="0"] .lfo-module[data-lfo="0"],
-  .studio-viewport .instrument[data-lfo="1"] .lfo-module[data-lfo="1"],
-  .studio-viewport .instrument[data-lfo="2"] .lfo-module[data-lfo="2"] {
-    display: grid;
-  }
-  .studio-viewport .matrix-module {
-    flex: 1;
-    min-height: 0;
-    padding: 7px;
-  }
-  .studio-viewport .matrix-module .module-title {
-    margin-bottom: 3px;
-  }
-  .studio-viewport .matrix-heading {
-    padding: 3px 0;
-    font-size: 6px;
-  }
-  .studio-viewport .matrix-row {
-    margin-bottom: 3px;
-  }
-  .studio-viewport .matrix-row .select-wrap select {
-    padding: 3px 15px 3px 3px;
-    font-size: 8px;
-  }
-  .studio-viewport .matrix-row .icon-button {
-    height: 20px;
-  }
-  .studio-viewport .matrix-module .module-note {
-    display: none;
-  }
-  .studio-viewport .add-route {
-    padding: 4px;
-    margin-top: 4px;
-    font-size: 8px;
-  }
-  .studio-viewport .effects-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-  }
-  .studio-viewport .effect-module {
-    padding: 8px;
-    gap: 5px;
-    border-bottom: 1px solid #4a4d47;
-  }
-  .studio-viewport .effect-module > .select-wrap select {
-    font-size: 10px;
-    padding: 5px 21px 5px 6px;
-  }
-  .studio-viewport .effect-description,
-  .studio-viewport .effect-visual {
-    display: none;
-  }
-  .studio-viewport .effect-module .knob-row {
-    flex: 1;
-    align-items: center;
-  }
-  .studio-viewport .effect-module .knob {
-    width: 32px;
-    height: 32px;
-  }
-  .studio-viewport .effect-module .knob-label {
-    font-size: 7px;
-  }
-  .studio-viewport .effect-module .knob-control output {
-    font-size: 7px;
-  }
-  .studio-viewport .delay-sync .small-button {
-    font-size: 6px;
-    padding: 2px 4px;
-  }
-  .studio-viewport .sequencer-header {
-    flex-basis: 34px;
-    height: 34px;
-    padding: 0 8px;
-  }
-  .studio-viewport .section-heading {
-    gap: 5px;
-  }
-  .studio-viewport .section-heading h2 {
-    font-size: 11px;
-  }
-  .studio-viewport .section-heading .tag {
-    display: none;
-  }
-  .studio-viewport .sequencer-actions {
-    gap: 2px;
-  }
-  .studio-viewport .sequencer-actions .icon-button {
-    height: 23px;
-    width: 23px;
-  }
-  .studio-viewport .pattern-toolbar {
-    flex: 0 0 64px;
-    flex-direction: column;
-    padding: 5px 8px;
-    gap: 5px;
-    align-items: stretch;
-  }
-  .studio-viewport .pattern-bank {
-    justify-content: space-between;
-    gap: 3px;
-  }
-  .studio-viewport .pattern-bank > button {
-    flex: 1;
-    padding: 4px;
-    font-size: 8px;
-  }
-  .studio-viewport .pattern-settings {
-    justify-content: space-between;
-    gap: 4px;
-  }
-  .studio-viewport .pattern-settings input {
-    font-size: 8px;
-  }
-  .studio-viewport .sequence-grid {
-    grid-template-rows: 18px repeat(8, minmax(0, 1fr));
-    padding: 0 7px 6px;
-    gap: 3px;
-  }
-  .studio-viewport .step-numbers,
-  .studio-viewport .sequence-track {
-    grid-template-columns: 23px minmax(0, 1fr) 32px;
-    gap: 4px;
-  }
-  .studio-viewport .sequence-track-label {
-    gap: 0;
-    justify-content: center;
-  }
-  .studio-viewport .sequence-track-label > i,
-  .studio-viewport .sequence-track-label > b {
-    display: none;
-  }
-  .studio-viewport .sequence-track-label > span {
-    display: block;
-    color: var(--step-color);
-    font-size: 9px;
-  }
-  .studio-viewport .step-numbers {
-    font-size: 6px;
-    padding: 4px 0 0;
-  }
-  .studio-viewport .step-numbers > span:first-child {
-    font-size: 0;
-  }
-  .studio-viewport .steps,
-  .studio-viewport .step-numbers > div {
-    gap: 2px;
-  }
-  .studio-viewport .step > span {
-    font-size: 6px;
-    letter-spacing: -0.6px;
-  }
-  .studio-viewport .track-switches {
-    gap: 2px;
-  }
-  .studio-viewport .track-switches > button {
-    height: 18px;
-    width: 15px;
-    font-size: 7px;
-  }
-  .studio-viewport .step-editor {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    padding: 6px 8px;
-    gap: 5px 8px;
-  }
-  .studio-viewport .step-editor > label {
-    min-width: 0;
-    max-width: none;
-    font-size: 6px;
-    height: 33px;
-    gap: 5px;
-    width: 100%;
-  }
-  .studio-viewport .step-editor > label:nth-child(2) {
-    height: 33px;
-    min-width: 0;
-    max-width: none;
-  }
-  .studio-viewport .step-editor .select-wrap {
-    max-width: 100%;
-    width: 100%;
-  }
-  .studio-viewport .step-editor .select-wrap select {
-    font-size: 7px;
-    padding: 4px 14px 4px 3px;
-  }
-  .studio-viewport .step-editor > label > input[type="number"] {
-    width: 25px;
-    margin: 0;
-    font-size: 8px;
-    padding: 3px;
-  }
-  .studio-viewport .step-editor > label > output {
-    font-size: 7px;
-  }
-  .studio-viewport .step-editor > label:nth-child(2) > output {
-    font-size: 7px;
-  }
-  .studio-viewport .lock-mode {
-    height: 29px;
-    padding: 0 4px;
-    font-size: 6px;
-    gap: 2px;
-  }
-  .studio-viewport .lock-mode > i {
-    display: none;
-  }
-  .studio-viewport .sequencer-footer {
-    flex-basis: 22px;
-    min-height: 22px;
-    padding: 0 8px;
-    font-size: 6px;
-  }
-  .studio-viewport .sequencer-footer > span:nth-child(2),
-  .studio-viewport .sequencer-footer > span:nth-child(3) {
-    display: none;
-  }
-  .studio-viewport .sequencer-footer button {
-    font-size: 6px;
-  }
-  .studio-viewport .keyboard-section {
-    --keyboard-base-height: 57px;
-    margin-top: 5px;
-  }
-  .studio-viewport .keyboard-controls {
-    width: 67px;
-    padding: 6px;
-  }
-  .studio-viewport .keyboard-controls .eyebrow {
-    font-size: 6px;
-    letter-spacing: 0.3px;
-  }
-  .studio-viewport .octave-buttons {
-    gap: 3px;
-    margin-top: 5px;
-  }
-  .studio-viewport .octave-buttons button {
-    width: 15px;
-    height: 15px;
-  }
-  .studio-viewport .octave-buttons span {
-    font-size: 7px;
-  }
-  .studio-viewport .keyboard-hint,
-  .studio-viewport .piano-key.white > small {
-    display: none;
-  }
-  .studio-viewport .piano-key.white > span {
-    font-size: 5px;
-  }
-  .studio-viewport .studio-footer {
-    flex-basis: 18px;
-    height: 18px;
-    font-size: 6px;
-  }
-  .studio-viewport .studio-footer > span:nth-child(2) {
-    display: none;
-  }
-}
+
 .studio-viewport .step-numbers,
 .studio-viewport .sequence-track {
   min-width: 0;
@@ -1380,122 +734,7 @@ body,
   padding: 3px 7px;
   border-radius: 3px;
 }
-.route-pages {
-  display: none;
-}
-@media (max-width: 760px) {
-  .studio-viewport .topbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-    grid-template-rows: 31px 32px;
-    grid-template-areas: "brand project" "transport actions";
-    flex: 0 0 83px;
-    height: 83px;
-    min-height: 0;
-    padding: 6px 10px;
-    gap: 5px 8px;
-  }
-  .studio-viewport .brand {
-    grid-area: brand;
-  }
-  .studio-viewport .project-switch {
-    grid-area: project;
-    min-width: 0;
-    width: 100%;
-    padding-right: 13px;
-  }
-  .studio-viewport .project-switch > span {
-    display: block;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 10px;
-  }
-  .studio-viewport .project-switch i {
-    display: none;
-  }
-  .studio-viewport .project-switch small {
-    margin: 3px 0 0;
-    font-size: 5px;
-  }
-  .studio-viewport .transport {
-    grid-area: transport;
-    flex: none;
-    gap: 8px;
-    margin: 0;
-  }
-  .studio-viewport .tempo-control {
-    gap: 4px;
-  }
-  .studio-viewport .tempo-control label {
-    font-size: 6px;
-    gap: 3px;
-  }
-  .studio-viewport .tempo-control input {
-    width: 31px;
-    font-size: 15px;
-  }
-  .studio-viewport .tempo-control > button {
-    margin: 0;
-    padding: 3px;
-    font-size: 5px;
-  }
-  .studio-viewport .transport-buttons {
-    gap: 2px;
-  }
-  .studio-viewport .play-button {
-    width: 31px;
-    height: 27px;
-  }
-  .studio-viewport .transport-buttons .icon-button {
-    width: 21px;
-    height: 26px;
-  }
-  .studio-viewport .topbar-actions {
-    grid-area: actions;
-    justify-content: flex-end;
-    gap: 2px;
-    margin: 0;
-  }
-  .studio-viewport .topbar-actions > .icon-button {
-    width: 22px;
-  }
-  .studio-viewport .audio-button {
-    margin-left: 3px;
-    padding: 0 6px;
-    height: 27px;
-  }
-}
-@media (max-width: 620px) {
-  .route-pages {
-    display: flex;
-    gap: 4px;
-    margin-left: auto;
-  }
-  .route-pages button {
-    font: 7px var(--mono);
-    border: 1px solid #56624b;
-    border-radius: 2px;
-    padding: 3px 5px;
-    color: #a9b79b;
-  }
-  .route-pages button.active {
-    color: #efd2ae;
-    background: #baa37d20;
-    border-color: #a18f6a;
-  }
-  .studio-viewport .matrix-module .module-index {
-    font-size: 6px;
-  }
-  .studio-viewport
-    .instrument[data-route-page="0"]
-    .matrix-row[data-route-page="1"],
-  .studio-viewport
-    .instrument[data-route-page="1"]
-    .matrix-row[data-route-page="0"] {
-    display: none;
-  }
-}
+
 @media (max-height: 680px) and (min-width: 761px) {
   .studio-viewport .topbar {
     flex-basis: 48px;
@@ -1511,12 +750,6 @@ body,
   .studio-viewport .sidebar-bottom {
     padding-top: 7px;
   }
-  .studio-viewport .library-button {
-    flex-basis: 35px;
-  }
-  .studio-viewport .library-button small {
-    display: none;
-  }
   .studio-viewport .keyboard-section {
     --keyboard-base-height: 54px;
     margin-top: 5px;
@@ -1526,10 +759,6 @@ body,
   }
   .studio-viewport .octave-buttons {
     margin-top: 5px;
-  }
-  .studio-viewport .studio-footer {
-    flex-basis: 17px;
-    height: 17px;
   }
   .studio-viewport .main-heading {
     flex-basis: 33px;

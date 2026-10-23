@@ -386,6 +386,23 @@ export const CHORDS: Record<Step["chord"], number[]> = {
   fifth: [0, 7],
   seventh: [0, 3, 7, 10],
 };
+export const MAX_STEPS = 128;
+export const SCALES = {
+  major: { label: "Major", intervals: [0, 2, 4, 5, 7, 9, 11] },
+  minor: { label: "Natural minor", intervals: [0, 2, 3, 5, 7, 8, 10] },
+  dorian: { label: "Dorian", intervals: [0, 2, 3, 5, 7, 9, 10] },
+  phrygian: { label: "Phrygian", intervals: [0, 1, 3, 5, 7, 8, 10] },
+  lydian: { label: "Lydian", intervals: [0, 2, 4, 6, 7, 9, 11] },
+  mixolydian: { label: "Mixolydian", intervals: [0, 2, 4, 5, 7, 9, 10] },
+  locrian: { label: "Locrian", intervals: [0, 1, 3, 5, 6, 8, 10] },
+  harmonicMinor: { label: "Harmonic minor", intervals: [0, 2, 3, 5, 7, 8, 11] },
+  melodicMinor: { label: "Melodic minor", intervals: [0, 2, 3, 5, 7, 9, 11] },
+  majorPentatonic: { label: "Major pentatonic", intervals: [0, 2, 4, 7, 9] },
+  minorPentatonic: { label: "Minor pentatonic", intervals: [0, 3, 5, 7, 10] },
+  blues: { label: "Blues", intervals: [0, 3, 5, 6, 7, 10] },
+  chromatic: { label: "Chromatic", intervals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
+};
+export type ScaleConfig = { enabled: boolean; root: number; name: keyof typeof SCALES };
 export type EditorMode = "step" | "piano";
 export type PianoNote = {
   id: string;
@@ -406,6 +423,7 @@ export type Pattern = {
   direction: "forward" | "reverse" | "pingpong" | "random";
   steps: Step[];
   notes: PianoNote[];
+  scale: ScaleConfig;
   pianoBackup?: { notes: PianoNote[]; steps: Step[]; length: number; division: number; direction: Pattern["direction"] };
 };
 export type Track = {
@@ -653,8 +671,9 @@ export const makePattern = (): Pattern => ({
   length: 16,
   division: 16,
   direction: "forward",
-  steps: Array.from({ length: 64 }, makeStep),
+  steps: Array.from({ length: MAX_STEPS }, makeStep),
   notes: [],
+  scale: { enabled: false, root: 0, name: "minor" },
 });
 export function makePatch(overrides: Partial<Patch> = {}): Patch {
   const numbers = Object.fromEntries(
@@ -1125,8 +1144,8 @@ export function sanitizePatch(value: unknown): Patch {
   return p;
 }
 function sanitizeSteps(value: unknown): Step[] {
-  if (!Array.isArray(value)) return Array.from({ length: 64 }, makeStep);
-  return Array.from({ length: 64 }, makeStep).map((s, k) => {
+  if (!Array.isArray(value)) return Array.from({ length: MAX_STEPS }, makeStep);
+  return Array.from({ length: MAX_STEPS }, makeStep).map((s, k) => {
     const q = value[k];
     if (!isRecord(q)) return s;
     s.on = q.on === true;
@@ -1170,7 +1189,7 @@ function sanitizeNotes(value: unknown): PianoNote[] {
       if (key in n.locks) locks[key] = num(n.locks[key], PARAMS[key][0], PARAMS[key][1], PARAMS[key][2]);
     return {
       id,
-      start: num(n.start, 0, 63.999, 0),
+      start: num(n.start, 0, MAX_STEPS - .001, 0),
       duration: num(n.duration, 0.001, 256, 1),
       note: Math.round(num(n.note, 0, 127, 60)),
       velocity: num(n.velocity, 0.01, 1, 0.8),
@@ -1261,7 +1280,7 @@ export function sanitizeProject(value: unknown): Project {
       base.patterns = base.patterns.map((pat, j) => {
         const item = (v.patterns as unknown[])[j];
         if (!isRecord(item)) return pat;
-        pat.length = Math.round(num(item.length, 1, 64, 16));
+        pat.length = Math.round(num(item.length, 1, MAX_STEPS, 16));
         pat.division = [8, 16, 32].includes(Number(item.division))
           ? Number(item.division)
           : 16;
@@ -1273,11 +1292,16 @@ export function sanitizeProject(value: unknown): Project {
           pat.direction = item.direction as Pattern["direction"];
         pat.steps = sanitizeSteps(item.steps);
         pat.notes = sanitizeNotes(item.notes);
+        if (isRecord(item.scale)) pat.scale = {
+          enabled: item.scale.enabled === true,
+          root: Math.round(num(item.scale.root, 0, 11, 0)),
+          name: typeof item.scale.name === "string" && Object.hasOwn(SCALES, item.scale.name) ? item.scale.name as ScaleConfig["name"] : "minor",
+        };
         if (isRecord(item.pianoBackup)) {
           const saved = item.pianoBackup;
           pat.pianoBackup = {
             notes: sanitizeNotes(saved.notes), steps: sanitizeSteps(saved.steps),
-            length: Math.round(num(saved.length, 1, 64, pat.length)),
+            length: Math.round(num(saved.length, 1, MAX_STEPS, pat.length)),
             division: [8, 16, 32].includes(Number(saved.division)) ? Number(saved.division) : pat.division,
             direction: ["forward", "reverse", "pingpong", "random"].includes(String(saved.direction)) ? saved.direction as Pattern["direction"] : pat.direction,
           };

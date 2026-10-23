@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import {
   IconButton,
+  TempoInput,
   Keyboard,
   LevelMeter,
   Modal,
@@ -46,11 +47,14 @@ import {
 import Instrument from "./Instrument";
 import Sequencer from "./Sequencer";
 import { makeNote, migrateToSteps, stepsToNotes } from "./sequence";
+import { generateNotes } from "./piano-tools";
 import type { MigrationReport } from "./sequence";
 import { SynthEngine, Transport, renderProject } from "./audio";
 import { MidiController } from "./midi";
 import {
   TRACK_COUNT,
+  MAX_STEPS,
+  SCALES,
   ENGINES,
   LOCK_PARAMS,
   PARAMS,
@@ -941,9 +945,16 @@ export default function App() {
   };
   const randomPattern = () => {
     checkpoint();
+    if (current.mode === "piano") {
+      const scale = currentPattern.scale.enabled ? currentPattern.scale : { enabled: true, root: 0, name: "minorPentatonic" as const };
+      const notes = generateNotes({ kind: "melody", from: 0, to: currentPattern.length, grid: 1, density: .45, pulses: 5, cycle: 16, octave: 3, octaves: 2, gate: .8, velocity: .8, order: "up" }, scale, []);
+      changePattern(track, { notes });
+      notify(`Pattern generiert · ${["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"][scale.root]} ${SCALES[scale.name].label}.`);
+      return;
+    }
     const scale = [0, 3, 5, 7, 10],
       root = track === 1 ? 36 : track === 2 ? 72 : 48;
-    const generated = Array.from({ length: 64 }, (_, i) => ({
+    const generated = Array.from({ length: MAX_STEPS }, (_, i) => ({
         ...makeStep(),
         on:
           i < currentPattern.length &&
@@ -957,7 +968,7 @@ export default function App() {
         velocity: 0.45 + Math.random() * 0.5,
         probability: Math.random() > 0.8 ? 0.7 : 1,
       }));
-    changePattern(track, current.mode === "piano" ? { notes: stepsToNotes({ ...currentPattern, steps: generated }) } : { steps: generated });
+    changePattern(track, { steps: generated });
     notify("Pattern generiert · C-Moll-Pentatonik.");
   };
   const allPresets = [...PRESETS, ...userPresets].filter(
@@ -1012,22 +1023,7 @@ export default function App() {
         </button>
         <div className="transport">
           <div className="tempo-control">
-            <label>
-              BPM
-              <input
-                aria-label="Tempo BPM"
-                type="number"
-                min="40"
-                max="240"
-                value={project.tempo}
-                onChange={(e) =>
-                  updateProject((p) => ({
-                    ...p,
-                    tempo: clamp(+e.target.value || 40, 40, 240),
-                  }))
-                }
-              />
-            </label>
+            <TempoInput value={project.tempo} onChange={(tempo) => updateProject((p) => ({ ...p, tempo }))} />
             <button
               onClick={() => {
                 const now = performance.now();
@@ -1091,13 +1087,7 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-actions">
-          <IconButton
-            label="MIDI-Einstellungen"
-            active={midiConnected}
-            onClick={() => setModal("midi")}
-          >
-            <PlugZap size={16} />
-          </IconButton>
+
           <IconButton label="Projekt speichern" onClick={() => void saveNow()}>
             <Save size={16} />
           </IconButton>
@@ -1165,6 +1155,13 @@ export default function App() {
             <CircleHelp size={14} />
           </IconButton>
           <IconButton
+            label="MIDI-Einstellungen"
+            active={midiConnected}
+            onClick={() => setModal("midi")}
+          >
+            <PlugZap size={16} />
+          </IconButton>
+          <IconButton
             label="Studio-Einstellungen"
             onClick={() => setModal("settings")}
           >
@@ -1213,19 +1210,6 @@ export default function App() {
               </button>
             ))}
           </div>
-          <button
-            className="library-button"
-            onClick={() => setModal("library")}
-          >
-            <FolderOpen size={15} />
-            <span>
-              Sound library
-              <small>
-                {PRESETS.length + userPresets.length} patches to explore
-              </small>
-            </span>
-            <ArrowRight size={13} />
-          </button>
           <div className="sidebar-bottom">
             <div className="master-heading">
               <span className="eyebrow">MASTER OUTPUT</span>
@@ -1455,7 +1439,7 @@ export default function App() {
               }}
               onClear={() => {
                 checkpoint();
-                changePattern(track, current.mode === "piano" ? { notes: [] } : { steps: Array.from({ length: 64 }, makeStep) });
+                changePattern(track, current.mode === "piano" ? { notes: [] } : { steps: Array.from({ length: MAX_STEPS }, makeStep) });
                 notify(
                   `Pattern von Track ${track + 1} geleert. Undo ist verfügbar.`,
                 );
@@ -1473,15 +1457,7 @@ export default function App() {
               setOctave={setOctave}
             />
           )}
-          <footer className="studio-footer">
-            <span className="footer-brand">
-              PHASE <span>01</span>
-            </span>
-            <span>BUILT FOR THE MOMENTS BETWEEN THE NOTES.</span>
-            <button onClick={() => setModal("help")}>
-              SHORTCUTS <KeyboardIcon size={12} />
-            </button>
-          </footer>
+
         </main>
       </div>
 
@@ -1995,7 +1971,7 @@ export default function App() {
             <span>
               <strong>On-screen keyboard</strong>
               <small>
-                Vier Oktaven, auf Smartphones zwei · Touch und Computer-Tastatur
+                Vier Oktaven · Maus und Computer-Tastatur
               </small>
             </span>
             <input
@@ -2070,6 +2046,8 @@ export default function App() {
                 <kbd>Shift</kbd> + Regler ziehen: fein einstellen
               </p>
               <p>Doppelklick auf Regler: Standardwert</p>
+              <p>BPM ziehen: Tempo ändern; Shift für feine Schritte. Den Wert anklicken, löschen und neu eingeben; Enter übernimmt, Esc verwirft.</p>
+              <p>Der Button im Keyboard halbiert seine Höhe und gibt dem Editor mehr Platz.</p>
               <p>Rechtsklick auf Regler: MIDI Learn</p>
             </section>
             <section>
@@ -2087,7 +2065,7 @@ export default function App() {
                 Trig-Editor bearbeiten.
               </p>
               <p>
-                Jeder Track hat eigene Länge (1–64), Geschwindigkeit und
+                Jeder Track hat eigene Länge (1–128), Geschwindigkeit und
                 Richtung. Acht Pattern-Speicher enthalten jeweils alle zwölf
                 Tracks.
               </p>
@@ -2100,8 +2078,12 @@ export default function App() {
             <section>
               <h3>Piano Roll</h3>
               <p>Den Editortyp pro Track im Sequencer wählen. Die zwei Unterregister zeigen jeweils die passenden Tracks.</p>
-              <p>Zeichnen: Note setzen und Länge ziehen. Noten verschieben, an beiden Rändern skalieren, mit Shift mehrfach auswählen. Das Hand-Werkzeug verschiebt den Ausschnitt auch per Touch.</p>
+              <p>Zeichnen: Note setzen und Länge ziehen. Noten verschieben, an beiden Rändern skalieren, mit Shift mehrfach auswählen. Das Hand-Werkzeug verschiebt den Ausschnitt.</p>
               <p>Velocity unten ziehen; genaue Werte, Chance, Microtiming, Bedingungen und Noten-Locks im Inspector bearbeiten. Ctrl/Cmd+C/V/D kopiert, fügt am Cursor ein und dupliziert; Ctrl/Cmd+Z macht rückgängig. Shift+Pfeile oben/unten transponieren um eine Oktave.</p>
+              <p><b>Scale:</b> Grundton und Skala wählen; neue und vertikal verschobene Noten rasten in der Skala ein. Fold zeigt verwendete Noten und bei aktiver Skala deren Töne. Bestehende Noten bleiben erhalten.</p>
+              <p><b>Zoom:</b> Im Zeitlineal vertikal ziehen zum Zoomen, horizontal zum Verschieben. Ctrl/Cmd + Mausrad zoomt die Zeitachse am Mauszeiger, Alt + Mausrad die Tonhöhenachse. Doppelklick auf das Lineal oder H passt das Pattern ein; +/− zoomt zur Mitte.</p>
+              <p><b>Werkzeuge:</b> Melodie, Euclid-Rhythmus und Arpeggio generieren; Zeit/Tonhöhen spiegeln, Legato, Zeit strecken/stauchen, rotieren und quantisieren. Humanize variiert Timing, Velocity und Länge. Bereich wählen, Vorschau erzeugen, übernehmen; jede Anwendung lässt sich mit Undo zurücknehmen.</p>
+              <p>Rechtsklick oder Doppelklick löscht eine Note, Alt + Ziehen kopiert sie. Ctrl/Cmd+A wählt alle Noten, Ctrl/Cmd+X schneidet aus, Ctrl/Cmd+Shift+Z wiederholt. Ränder ziehen ändert die Länge. Alle Änderungen der Notenposition werden vorgehört.</p>
               <p>Step → Piano Roll übernimmt alle Patterns. Piano Roll → Step zeigt vorab mögliche Verluste und verlangt eine Bestätigung. Die ursprünglichen Patterns bleiben wiederherstellbar.</p>
             </section>
             <section>

@@ -69,12 +69,6 @@
 .studio-viewport .rack-heading .eyebrow {
   font-size: 10px;
 }
-.studio-viewport .library-button {
-  font-size: 12px;
-}
-.studio-viewport .library-button small {
-  font-size: 8px;
-}
 .studio-viewport .master-heading .eyebrow {
   font-size: 9px;
 }
@@ -109,11 +103,6 @@
 }
 .studio-viewport .instrument-identity .eyebrow {
   font-size: 9px;
-}
-.studio-viewport .instrument-toolbar {
-  flex-basis: 40px;
-  height: 40px;
-  min-height: 40px;
 }
 .studio-viewport .tabs button {
   font-size: 13px;
@@ -381,10 +370,6 @@
 .studio-viewport .module-note {
   font-size: 9px;
 }
-.mod-mobile-tabs,
-.fx-mobile-tabs {
-  display: none;
-}
 .studio-viewport .serial-fx .effect-module {
   gap: 8px;
   padding: 12px;
@@ -598,10 +583,6 @@
 .studio-viewport .piano-key.white > span {
   font-size: 10px;
 }
-.studio-viewport .studio-footer,
-.studio-viewport .studio-footer button {
-  font-size: 8px;
-}
 .master-panel {
   order: 2;
   flex: 1;
@@ -612,30 +593,6 @@
   border-radius: 7px;
   background: #282d27;
   overflow: hidden;
-}
-.master-panel-header {
-  padding: 15px 20px;
-  flex: 0 0 76px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: linear-gradient(110deg, #39372b, #282d27);
-  border-bottom: 1px solid #555a4c;
-}
-.master-panel-header .eyebrow {
-  font-size: 9px;
-}
-.master-panel-header h2 {
-  font-size: 21px;
-  margin: 3px 0 0;
-  font-weight: 500;
-}
-.master-panel-header h2 span {
-  color: #c5b08b;
-  margin-left: 12px;
-  font:
-    italic 15px Georgia,
-    serif;
 }
 .master-toggle {
   display: inline-flex;
@@ -651,25 +608,6 @@
   color: #e2c69d;
   background: #d7b77f16;
   border-color: #9a8e67;
-}
-.master-tabs {
-  display: flex;
-  flex: 0 0 43px;
-  border-bottom: 1px solid #4e5945;
-  padding: 0 20px;
-  gap: 27px;
-}
-.master-tabs button {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  border-bottom: 2px solid transparent;
-  color: #a2af98;
-}
-.master-tabs button.active {
-  color: #e7cfaa;
-  border-color: #d1b88c;
 }
 .master-editor {
   flex: 1;
@@ -695,32 +633,6 @@
   color: #a2ae98;
   line-height: 1.5;
   margin: 0;
-}
-.heat-modes {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 5px;
-}
-.heat-modes button {
-  display: flex;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 5px;
-  padding: 9px;
-  text-align: left;
-  font-size: 12px;
-  border: 1px solid #4a5742;
-  border-radius: 4px;
-  color: #9fac96;
-}
-.heat-modes button small {
-  font: 8px var(--mono);
-  color: #7c8b71;
-}
-.heat-modes button.active {
-  border-color: #b39e71;
-  color: #ecd1a5;
-  background: #d4b37c14;
 }
 .master-editor svg {
   color: #d7bd8e;
@@ -861,11 +773,6 @@
     flex-basis: 52px;
     height: 52px;
   }
-  .studio-viewport .instrument-toolbar {
-    flex-basis: 37px;
-    height: 37px;
-    min-height: 37px;
-  }
   .studio-viewport .knob {
     width: 49px;
     height: 49px;
@@ -906,20 +813,9 @@
     width: 43px;
     height: 43px;
   }
-  .master-panel-header {
-    flex-basis: 64px;
-    padding: 10px 17px;
-  }
-  .master-tabs {
-    flex-basis: 38px;
-  }
   .master-editor {
     padding: 13px 17px;
     gap: 9px;
-  }
-  .heat-modes button {
-    padding: 7px;
-    font-size: 11px;
   }
   .master-editor .master-knobs .knob {
     width: 55px;
@@ -980,27 +876,6 @@
     grid-template-columns: 1fr 1.3fr;
     grid-template-rows: 27px minmax(0, 1fr);
   }
-  .studio-viewport .lfo-switch {
-    grid-column: 1;
-    grid-row: 1;
-    display: flex;
-    gap: 5px;
-    padding: 0;
-    background: none;
-  }
-  .lfo-switch button {
-    flex: 1;
-    padding: 4px;
-    border: 1px solid #53604a;
-    border-radius: 3px;
-    font-size: 11px;
-    color: #9fae93;
-  }
-  .lfo-switch button.active {
-    color: #e9d1ac;
-    border-color: #b6a077;
-    background: #c9b48316;
-  }
   .studio-viewport .lfo-grid {
     grid-column: 1;
     grid-row: 2;
@@ -1010,11 +885,6 @@
     display: none;
     height: 100%;
     padding: 12px;
-  }
-  .studio-viewport .instrument[data-lfo="0"] .lfo-module[data-lfo="0"],
-  .studio-viewport .instrument[data-lfo="1"] .lfo-module[data-lfo="1"],
-  .studio-viewport .instrument[data-lfo="2"] .lfo-module[data-lfo="2"] {
-    display: block;
   }
   .studio-viewport .lfo-grid .lfo-module .waveform {
     height: 50px;
@@ -1033,29 +903,6 @@
     grid-column: 2;
     grid-row: 1 / 3;
   }
-  .route-pages {
-    display: flex;
-    gap: 4px;
-    margin-left: auto;
-  }
-  .route-pages button {
-    padding: 4px 6px;
-    border: 1px solid #53634a;
-    border-radius: 3px;
-    font: 9px var(--mono);
-  }
-  .route-pages button.active {
-    border-color: #baa274;
-    color: #ead0a6;
-  }
-  .studio-viewport
-    .instrument[data-route-page="0"]
-    .matrix-row[data-route-page="1"],
-  .studio-viewport
-    .instrument[data-route-page="1"]
-    .matrix-row[data-route-page="0"] {
-    display: none;
-  }
   .studio-viewport .matrix-module .module-index {
     display: none;
   }
@@ -1064,15 +911,6 @@
   }
   .studio-viewport .step-editor > label {
     font-size: 8px;
-  }
-  .heat-modes {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .heat-modes button {
-    flex-direction: row;
-    align-items: center;
-    gap: 7px;
-    font-size: 12px;
   }
   .master-knobs {
     gap: 5px;
@@ -1093,11 +931,6 @@
   }
   .studio-viewport .patch-name {
     font-size: 17px;
-  }
-  .studio-viewport .instrument-toolbar {
-    flex-basis: 32px;
-    height: 32px;
-    min-height: 32px;
   }
   .studio-viewport .module {
     padding: 7px 10px;
@@ -1216,9 +1049,6 @@
     grid-template-rows: 1fr;
     padding: 7px;
   }
-  .studio-viewport .modulation-layout .lfo-switch {
-    display: none;
-  }
   .studio-viewport .modulation-layout .lfo-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1274,27 +1104,6 @@
   .studio-viewport .matrix-module .module-note {
     display: none;
   }
-  .studio-viewport .route-pages {
-    display: flex;
-  }
-  .studio-viewport
-    .instrument[data-route-page="0"]
-    .matrix-row[data-route-page="1"],
-  .studio-viewport
-    .instrument[data-route-page="1"]
-    .matrix-row[data-route-page="0"] {
-    display: none;
-  }
-  .master-panel-header {
-    flex-basis: 48px;
-    padding: 7px 14px;
-  }
-  .master-panel-header h2 {
-    font-size: 18px;
-  }
-  .master-tabs {
-    flex-basis: 32px;
-  }
   .master-editor {
     padding: 8px 14px;
     gap: 7px;
@@ -1304,10 +1113,6 @@
   }
   .master-description {
     display: none;
-  }
-  .heat-modes button {
-    padding: 5px 7px;
-    font-size: 10px;
   }
   .master-editor .master-knobs .knob {
     width: 43px;
@@ -1321,711 +1126,7 @@
     gap: 7px;
   }
 }
-@media (max-width: 850px) {
-  .studio-viewport .topbar {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-rows: 30px 32px;
-    grid-template-areas: "brand project utilities" "transport actions actions";
-    flex: 0 0 84px;
-    height: 84px;
-    min-height: 0;
-    padding: 6px 12px;
-    gap: 5px 10px;
-  }
-  .studio-viewport .brand {
-    grid-area: brand;
-  }
-  .studio-viewport .brand > span:nth-child(2) {
-    font-size: 23px;
-  }
-  .studio-viewport .brand-mark {
-    width: 26px;
-    height: 27px;
-  }
-  .studio-viewport .topbar-divider {
-    display: none;
-  }
-  .studio-viewport .project-switch {
-    grid-area: project;
-    min-width: 0;
-    padding-right: 18px;
-  }
-  .studio-viewport .project-switch > span {
-    font-size: 12px;
-    display: block;
-    max-width: 180px;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
-  }
-  .studio-viewport .project-switch small {
-    display: none;
-  }
-  .studio-viewport .topbar-utilities {
-    grid-area: utilities;
-    padding-left: 0;
-    border: 0;
-  }
-  .studio-viewport .topbar-utilities .local-status {
-    display: none;
-  }
-  .studio-viewport .transport {
-    grid-area: transport;
-    justify-content: flex-start;
-    margin: 0;
-    gap: 10px;
-  }
-  .studio-viewport .tempo-control input {
-    width: 40px;
-    font-size: 18px;
-  }
-  .studio-viewport .tempo-control > button {
-    margin: 0;
-  }
-  .studio-viewport .tempo-control label {
-    flex-direction: row;
-    align-items: center;
-    gap: 5px;
-  }
-  .studio-viewport .play-button {
-    width: 35px;
-    height: 30px;
-  }
-  .studio-viewport .transport-buttons .icon-button {
-    width: 25px;
-    height: 29px;
-  }
-  .studio-viewport .topbar-actions {
-    grid-area: actions;
-    justify-content: flex-end;
-    margin: 0;
-  }
-  .studio-viewport .topbar-actions > .icon-button {
-    width: 26px;
-  }
-  .studio-viewport .audio-button {
-    height: 29px;
-    font-size: 9px;
-  }
-  .studio-viewport .studio-body {
-    display: flex;
-    flex-direction: column;
-  }
-  .studio-viewport .rack-sidebar {
-    flex: 0 0 55px;
-    padding: 5px 10px;
-  }
-  .studio-viewport .rack-track {
-    padding: 4px 6px;
-  }
-  .studio-viewport .rack-track strong {
-    font-size: 10px;
-  }
-  .studio-viewport .rack-track-top {
-    font-size: 8px;
-  }
-  .studio-viewport .rack-tracks {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-    grid-template-rows: 1fr;
-  }
-  .studio-viewport .rack-number {
-    font-size: 10px;
-  }
-  .studio-viewport .studio-main {
-    flex: 1;
-    padding-top: 5px;
-  }
-  .studio-viewport .main-heading {
-    min-height: 41px;
-    flex-basis: 41px;
-  }
-  .studio-viewport .workspace-tabs > button {
-    padding: 8px 12px;
-    font-size: 12px;
-    gap: 6px;
-  }
-  .studio-viewport .workspace-tabs > button > span {
-    display: none;
-  }
-  .studio-viewport .main-heading-actions .text-button {
-    display: none;
-  }
-  .studio-viewport .module-switch {
-    display: flex;
-    flex: 0 0 31px;
-    gap: 5px;
-    padding: 5px 8px;
-    background: #252b24;
-  }
-  .studio-viewport .module-switch button {
-    flex: 1;
-    padding: 3px;
-    border: 1px solid #4f5c44;
-    border-radius: 3px;
-    color: #a4b099;
-    font-size: 11px;
-  }
-  .studio-viewport .module-switch button.active {
-    color: #e8d0a9;
-    border-color: #a99970;
-    background: #c2b17f19;
-  }
-  .studio-viewport .synth-grid {
-    grid-template-columns: 1fr;
-  }
-  .studio-viewport .synth-grid > .module {
-    display: none;
-    border: 0;
-    padding: 12px;
-  }
-  .studio-viewport .instrument[data-section="oscillator"] .oscillator-module {
-    display: flex;
-  }
-  .studio-viewport .instrument[data-section="filter"] .filter-module,
-  .studio-viewport .instrument[data-section="amp"] .amp-module {
-    display: block;
-  }
-  .studio-viewport .expanded-source .source-basic {
-    max-width: 520px;
-    width: 100%;
-    align-self: center;
-  }
-  .studio-viewport .expanded-source .unison-strip {
-    width: 100%;
-  }
-  .studio-viewport .source-detail-controls {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  .studio-viewport .lfo-module .lfo-controls select {
-    font-size: 12px;
-  }
-  .studio-viewport .master-panel-header h2 span {
-    display: none;
-  }
-  .studio-viewport .modulation-strip .mod-route {
-    font-size: 9px;
-  }
-}
-@media (max-width: 620px) {
-  .studio-viewport .topbar {
-    grid-template-columns: minmax(0, 1fr) 110px 51px;
-    height: 82px;
-    flex-basis: 82px;
-    gap: 5px 5px;
-    padding: 5px 9px;
-  }
-  .studio-viewport .brand {
-    gap: 6px;
-  }
-  .studio-viewport .brand > span:nth-child(2) {
-    font-size: 21px;
-    letter-spacing: 2px;
-  }
-  .studio-viewport .brand small {
-    font-size: 4px;
-  }
-  .studio-viewport .brand-mark {
-    width: 24px;
-    height: 25px;
-  }
-  .studio-viewport .project-switch > span {
-    font-size: 10px;
-    max-width: 90px;
-  }
-  .studio-viewport .topbar-utilities .icon-button {
-    width: 23px;
-  }
-  .studio-viewport .topbar-actions {
-    gap: 2px;
-  }
-  .studio-viewport .audio-button {
-    font-size: 8px;
-    padding: 0 6px;
-  }
-  .studio-viewport .audio-button span {
-    font-size: 7px;
-  }
-  .studio-viewport .transport {
-    gap: 6px;
-  }
-  .studio-viewport .tempo-control {
-    gap: 3px;
-  }
-  .studio-viewport .tempo-control input {
-    width: 35px;
-    font-size: 17px;
-  }
-  .studio-viewport .tempo-control label {
-    font-size: 7px;
-    gap: 3px;
-  }
-  .studio-viewport .tempo-control > button {
-    font-size: 6px;
-    padding: 3px;
-  }
-  .studio-viewport .transport-buttons {
-    gap: 1px;
-  }
-  .studio-viewport .transport-buttons .icon-button {
-    width: 23px;
-  }
-  .studio-viewport .play-button {
-    width: 31px;
-    height: 28px;
-  }
-  .studio-viewport .rack-sidebar {
-    flex-basis: 54px;
-    padding: 4px 8px;
-  }
-  .studio-viewport .rack-tracks {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    grid-template-rows: repeat(2, minmax(0, 1fr));
-    gap: 3px;
-  }
-  .studio-viewport .rack-track {
-    padding: 3px 5px;
-    gap: 4px;
-  }
-  .studio-viewport .rack-track strong {
-    font-size: 9px;
-  }
-  .studio-viewport .rack-number {
-    font-size: 9px;
-  }
-  .studio-viewport .studio-main {
-    padding: 4px 8px 0;
-  }
-  .studio-viewport .main-heading {
-    flex-basis: 38px;
-    min-height: 38px;
-    margin-bottom: 0;
-  }
-  .studio-viewport .workspace-tabs {
-    padding: 2px;
-  }
-  .studio-viewport .workspace-tabs > button {
-    padding: 7px 10px;
-    font-size: 11px;
-    gap: 4px;
-  }
-  .studio-viewport .workspace-tabs > button > svg {
-    width: 13px;
-  }
-  .studio-viewport .main-heading-actions .icon-button {
-    width: 25px;
-  }
-  .studio-viewport .swing-control > label,
-  .studio-viewport .swing-control output {
-    font-size: 8px;
-  }
-  .studio-viewport .instrument-header {
-    flex-basis: 46px;
-    height: 46px;
-  }
-  .studio-viewport .patch-name {
-    font-size: 15px;
-  }
-  .studio-viewport .instrument-identity .eyebrow {
-    font-size: 7px;
-  }
-  .studio-viewport .instrument-toolbar {
-    flex-basis: 34px;
-    height: 34px;
-    min-height: 34px;
-  }
-  .studio-viewport .tabs {
-    gap: 14px;
-  }
-  .studio-viewport .tabs button {
-    font-size: 11px;
-    gap: 4px;
-  }
-  .studio-viewport .voice-mode select {
-    font-size: 9px;
-  }
-  .studio-viewport .module-switch button {
-    font-size: 10px;
-  }
-  .studio-viewport .synth-grid > .module {
-    padding: 10px 12px;
-  }
-  .studio-viewport .module-title h3 {
-    font-size: 13px;
-  }
-  .studio-viewport .expanded-source {
-    gap: 7px;
-  }
-  .studio-viewport .source-tabs {
-    gap: 18px;
-    flex-basis: 24px;
-  }
-  .studio-viewport .source-tabs button {
-    font-size: 11px;
-    padding-bottom: 5px;
-  }
-  .studio-viewport .single-osc .waveform {
-    height: 35px;
-  }
-  .studio-viewport .single-osc > span {
-    font-size: 7px;
-  }
-  .studio-viewport .single-osc select {
-    font-size: 11px;
-  }
-  .studio-viewport .knob {
-    width: 45px;
-    height: 45px;
-  }
-  .studio-viewport .knob-label {
-    font-size: 11px;
-  }
-  .studio-viewport .knob-control output {
-    font-size: 9px;
-  }
-  .studio-viewport .source-detail-controls .knob-label {
-    font-size: 11px;
-  }
-  .studio-viewport .unison-strip {
-    flex-basis: 27px;
-  }
-  .studio-viewport .modulation-strip {
-    flex-basis: 25px;
-    min-height: 25px;
-  }
-  .studio-viewport .modulation-strip b,
-  .studio-viewport .modulation-strip em {
-    font-size: 8px;
-  }
-  .studio-viewport .modulation-strip .mod-route {
-    font-size: 8px;
-  }
-  .studio-viewport .modulation-layout {
-    display: flex;
-    flex-direction: column;
-    padding: 8px;
-    gap: 7px;
-  }
-  .mod-mobile-tabs {
-    display: flex;
-    flex: 0 0 28px;
-    gap: 5px;
-  }
-  .mod-mobile-tabs button {
-    flex: 1;
-    font-size: 11px;
-    border: 1px solid #4e5e44;
-    border-radius: 3px;
-  }
-  .mod-mobile-tabs button.active {
-    border-color: #b6a279;
-    color: #ead2ad;
-    background: #b5a07119;
-  }
-  .studio-viewport .lfo-switch {
-    flex: 0 0 26px;
-  }
-  .studio-viewport .lfo-grid {
-    flex: 1;
-    min-height: 0;
-  }
-  .studio-viewport .lfo-grid .lfo-module {
-    padding: 12px;
-  }
-  .studio-viewport .lfo-grid .lfo-module .waveform {
-    height: 55px;
-    margin: 11px 0;
-  }
-  .studio-viewport .lfo-grid .lfo-module .lfo-controls {
-    margin-bottom: 12px;
-  }
-  .studio-viewport .lfo-module .knob {
-    width: 50px;
-    height: 50px;
-  }
-  .studio-viewport .matrix-module {
-    padding: 10px;
-  }
-  .studio-viewport .matrix-row .select-wrap select {
-    font-size: 11px;
-    padding-top: 6px;
-    padding-bottom: 6px;
-  }
-  .studio-viewport .matrix-heading {
-    font-size: 8px;
-    padding: 6px 0;
-  }
-  .studio-viewport .add-route {
-    font-size: 11px;
-    padding: 8px;
-  }
-  .studio-viewport .instrument[data-mod-page="lfos"] .matrix-module {
-    display: none;
-  }
-  .studio-viewport .instrument[data-mod-page="matrix"] .lfo-grid,
-  .studio-viewport .instrument[data-mod-page="matrix"] .lfo-switch {
-    display: none;
-  }
-  .studio-viewport .serial-fx {
-    display: flex;
-    flex-direction: column;
-  }
-  .fx-mobile-tabs {
-    display: flex;
-    gap: 4px;
-    flex: 0 0 33px;
-    padding: 5px;
-    background: #232922;
-  }
-  .fx-mobile-tabs button {
-    min-width: 0;
-    flex: 1;
-    padding: 4px 2px;
-    font-size: 9px;
-    border: 1px solid #4f5b45;
-    border-radius: 3px;
-  }
-  .fx-mobile-tabs button.active {
-    border-color: #b39c70;
-    color: #e8d0a8;
-    background: #b89c6618;
-  }
-  .studio-viewport .serial-fx > .effect-module {
-    display: none;
-    flex: 1;
-    border: 0;
-    padding: 10px 13px;
-    gap: 7px;
-    min-height: 0;
-  }
-  .studio-viewport
-    .serial-fx[data-active="saturationMode"]
-    .effect-module[data-slot="saturationMode"],
-  .studio-viewport
-    .serial-fx[data-active="modulationMode"]
-    .effect-module[data-slot="modulationMode"],
-  .studio-viewport
-    .serial-fx[data-active="delayMode"]
-    .effect-module[data-slot="delayMode"],
-  .studio-viewport
-    .serial-fx[data-active="reverbMode"]
-    .effect-module[data-slot="reverbMode"] {
-    display: flex;
-  }
-  .studio-viewport .serial-fx .fx-slot-header {
-    font-size: 10px;
-  }
-  .studio-viewport .serial-fx .fx-controls {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px 7px;
-  }
-  .studio-viewport .serial-fx .fx-controls .knob {
-    width: 45px;
-    height: 45px;
-  }
-  .studio-viewport .serial-fx .fx-controls .knob-label {
-    font-size: 11px;
-  }
-  .studio-viewport .serial-fx .fx-controls .knob-control output {
-    font-size: 9px;
-  }
-  .studio-viewport .serial-fx .fx-art {
-    flex: 1;
-    height: 60px;
-    min-height: 25px;
-    max-height: 90px;
-  }
-  .studio-viewport .serial-fx .effect-module > .select-wrap select {
-    font-size: 13px;
-    padding: 7px 24px 7px 7px;
-  }
-  .studio-viewport .sequencer-header {
-    flex-basis: 37px;
-    height: 37px;
-  }
-  .studio-viewport .section-heading h2 {
-    font-size: 12px;
-  }
-  .studio-viewport .pattern-toolbar {
-    flex-basis: 66px;
-  }
-  .studio-viewport .pattern-bank > button {
-    font-size: 9px;
-  }
-  .studio-viewport .pattern-settings select,
-  .studio-viewport .pattern-settings input {
-    font-size: 9px;
-  }
-  .studio-viewport .pattern-settings > label {
-    font-size: 7px;
-  }
-  .studio-viewport .step-numbers > .timeline-heading {
-    font-size: 7px;
-    white-space: nowrap;
-    overflow: hidden;
-    letter-spacing: 0;
-  }
-  .studio-viewport .sequence-grid {
-    grid-template-rows: 18px repeat(8, minmax(0, 1fr));
-    gap: 2px;
-  }
-  .studio-viewport .step > span {
-    font-size: 7px;
-  }
-  .studio-viewport .step .step-number {
-    display: none;
-  }
-  .studio-viewport .step .step-duration {
-    bottom: 2px;
-    right: 1px;
-    font-size: 5px;
-  }
-  .studio-viewport .step-editor {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    padding: 7px;
-    gap: 6px;
-  }
-  .studio-viewport .step-editor > label {
-    font-size: 7px;
-    height: 34px;
-  }
-  .studio-viewport .step-editor .select-wrap select {
-    font-size: 8px;
-    padding: 5px 14px 5px 3px;
-  }
-  .studio-viewport .step-editor > label:nth-child(2) {
-    height: 34px;
-  }
-  .studio-viewport .modal .step-editor {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding: 13px;
-    gap: 14px;
-  }
-  .studio-viewport .modal .step-editor > label {
-    height: 52px;
-    font-size: 10px;
-  }
-  .studio-viewport .modal .step-editor > label > output {
-    font-size: 11px;
-  }
-  .studio-viewport .modal .step-editor .select-wrap select {
-    font-size: 12px;
-  }
-  .studio-viewport .keyboard-section {
-    --keyboard-base-height: 58px;
-  }
-  .studio-viewport .keyboard-controls .eyebrow {
-    font-size: 7px;
-  }
-  .studio-viewport .piano-key.white > span {
-    font-size: 6px;
-  }
-  .studio-viewport .studio-footer {
-    font-size: 7px;
-  }
-  .master-panel-header {
-    flex-basis: 59px;
-    padding: 10px;
-    gap: 6px;
-  }
-  .master-panel-header .eyebrow {
-    font-size: 7px;
-  }
-  .master-panel-header h2 {
-    font-size: 18px;
-  }
-  .master-panel-header .master-toggle {
-    font-size: 8px;
-    padding: 6px;
-    gap: 4px;
-  }
-  .master-tabs {
-    padding: 0 8px;
-    gap: 0;
-    justify-content: space-between;
-    flex-basis: 37px;
-  }
-  .master-tabs button {
-    font-size: 10px;
-    gap: 4px;
-  }
-  .master-tabs button svg {
-    width: 12px;
-  }
-  .master-editor {
-    padding: 10px;
-    gap: 8px;
-  }
-  .master-section-title {
-    gap: 5px;
-  }
-  .master-section-title h3 {
-    font-size: 14px;
-  }
-  .master-section-title .master-toggle {
-    font-size: 9px;
-    padding: 5px 6px;
-  }
-  .master-description {
-    font-size: 10px;
-  }
-  .heat-modes button {
-    font-size: 10px;
-    padding: 6px;
-    gap: 4px;
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .heat-modes button small {
-    font-size: 7px;
-  }
-  .master-knobs {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px 6px;
-    padding-top: 0;
-  }
-  .studio-viewport .master-editor .master-knobs .knob {
-    width: 46px;
-    height: 46px;
-  }
-  .master-chain {
-    font-size: 6px;
-    padding: 6px;
-    line-height: 1.4;
-  }
-  .eq-band-switch button {
-    padding: 5px 7px;
-    font-size: 9px;
-  }
-  .eq-faders {
-    gap: 3px;
-  }
-  .eq-faders output {
-    font-size: 8px;
-  }
-  .eq-faders span {
-    font-size: 8px;
-  }
-  .eq-faders small {
-    font-size: 5px;
-  }
-  .master-space {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 8px;
-  }
-  .master-space > section {
-    padding: 10px;
-  }
-  .master-space svg {
-    margin: 5px 0;
-    max-height: 60px;
-  }
-  .master-space .master-knobs {
-    display: flex;
-  }
-}
+
 .operator-three {
   display: flex;
   align-items: center;
@@ -2070,26 +1171,7 @@
     overflow: hidden;
   }
 }
-@media (max-width: 620px) and (max-height: 800px) {
-  .master-editor .heat-modes,
-  .master-editor .master-description {
-    display: none;
-  }
-  .heat-mode-select {
-    display: block;
-  }
-  .heat-mode-select .select-wrap {
-    width: 100%;
-  }
-  .heat-mode-select select {
-    font-size: 13px;
-    padding: 7px;
-  }
-  .studio-viewport .serial-fx .fx-art {
-    min-height: 15px;
-    flex-basis: 32px;
-  }
-}
+
 .studio-viewport .knob-min,
 .studio-viewport .knob-max {
   font-size: 6px;
@@ -2123,9 +1205,6 @@
 .studio-viewport .filter-module {
   display: flex;
   flex-direction: column;
-}
-.studio-viewport .instrument[data-section="filter"] .filter-module {
-  display: flex;
 }
 .studio-viewport .filter-module > * {
   flex-shrink: 0;
@@ -2204,39 +1283,6 @@
     .filter-module[data-filter="comb"]
     .filter-knobs
     .knob-label {
-    font-size: 9px;
-  }
-}
-@media (max-width: 850px) and (max-height: 800px) {
-  .studio-viewport .instrument[data-section="filter"] .filter-module {
-    padding: 7px 10px;
-  }
-  .studio-viewport .filter-model-options {
-    min-height: 21px;
-    margin-bottom: 3px;
-  }
-  .studio-viewport .filter-model-options select {
-    font-size: 10px;
-    padding-top: 2px;
-    padding-bottom: 2px;
-  }
-  .studio-viewport .filter-module .filter-response {
-    min-height: 32px;
-    max-height: 48px;
-  }
-  .studio-viewport .filter-response .display-meta {
-    font-size: 7px;
-  }
-  .studio-viewport .filter-module[data-filter] .filter-knobs .knob {
-    width: 34px;
-    height: 34px;
-  }
-  .studio-viewport .filter-module .envelope-knobs .knob {
-    width: 32px;
-    height: 32px;
-  }
-  .studio-viewport .filter-module .envelope-knobs .knob-label,
-  .studio-viewport .filter-module .envelope-knobs output {
     font-size: 9px;
   }
 }

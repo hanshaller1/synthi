@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Flame,
   Power,
@@ -17,7 +16,6 @@ export default function MasterFX({
   value: MasterFx;
   onChange: (value: MasterFx) => void;
 }) {
-  const [tab, setTab] = useState("heat");
   const change = (v: Partial<MasterFx>) => onChange({ ...p, ...v });
   const toggle = (
     key:
@@ -77,46 +75,16 @@ export default function MasterFX({
         </button>
         }
       />
-      <nav className="master-tabs" aria-label="Master-Effektbereich">
-        {[
-          { id: "heat", label: "Heat / Drive", icon: Flame },
-          { id: "eq", label: "Equalizer", icon: SlidersHorizontal },
-          { id: "dynamics", label: "Dynamics / Stereo", icon: AudioLines },
-          { id: "space", label: "Space", icon: Waves },
-        ].map((t) => (
-          <button
-            key={t.id}
-            className={tab === t.id ? "active" : ""}
-            onClick={() => setTab(t.id)}
-          >
-            <t.icon size={14} />
-            {t.label}
-          </button>
-        ))}
-      </nav>
-      <div className="master-editor">
-        {tab === "heat" && (
-          <>
-            <div className="master-section-title">
-              <h3>Analog colour</h3>
+      <div className="master-editor master-grid">
+        <section className="module master-module master-heat">
+            <div className="module-title master-section-title">
+              <h3><Flame size={14} /> Heat / Drive</h3>
               {toggle("driveEnabled", "DRIVE")}
             </div>
             <p className="master-description">
               Acht eigene Drive-Kennlinien, inspiriert vom Konzept des Analog
               Heat MK II.
             </p>
-            <div className="heat-modes">
-              {HEAT_MODES.map((mode, i) => (
-                <button
-                  key={mode}
-                  className={p.driveMode === i ? "active" : ""}
-                  onClick={() => change({ driveMode: i })}
-                >
-                  <small>0{i + 1}</small>
-                  {mode}
-                </button>
-              ))}
-            </div>
             <div className="heat-mode-select">
               <Select
                 label="Master Drive-Modus"
@@ -157,12 +125,10 @@ export default function MasterFX({
               {knob("mix", "Dry / Wet", 0, 1)}
               {knob("output", "Output", -18, 6, db)}
             </div>
-          </>
-        )}
-        {tab === "eq" && (
-          <>
-            <div className="master-section-title">
-              <h3>Stereo equalizer</h3>
+        </section>
+        <section className="module master-module master-eq">
+            <div className="module-title master-section-title">
+              <h3><SlidersHorizontal size={14} /> Equalizer</h3>
               {toggle("eqEnabled", "EQ")}
               <div className="eq-band-switch">
                 {([2, 3, 8] as const).map((n) => (
@@ -217,7 +183,7 @@ export default function MasterFX({
             <div className="eq-faders">
               {gains.map((gain, i) => (
                 <label key={`${p.eqBands}-${i}`}>
-                  <output>{db(gain)}</output>
+                  <output title={db(gain)} aria-label={db(gain)}>{gain.toFixed(1)}</output>
                   <input
                     aria-label={`EQ ${formatHz(EQ_FREQUENCIES[p.eqBands][i])}`}
                     type="range"
@@ -249,12 +215,10 @@ export default function MasterFX({
                 </label>
               ))}
             </div>
-          </>
-        )}
-        {tab === "dynamics" && (
-          <>
-            <div className="master-section-title">
-              <h3>Glue compressor</h3>
+        </section>
+        <section className="module master-module master-dynamics">
+            <div className="module-title master-section-title">
+              <h3><AudioLines size={14} /> Dynamics / Stereo</h3>
               {toggle("compressorEnabled", "COMP")}
             </div>
             <p className="master-description">
@@ -291,10 +255,9 @@ export default function MasterFX({
               {knob("makeup", "Makeup", -6, 12, db)}
               {knob("width", "Stereo width", 0, 2)}
             </div>
-          </>
-        )}
-        {tab === "space" && (
-          <div className="master-space">
+        </section>
+        <section className="module master-module master-space">
+          <div className="module-title"><h3><Waves size={14} /> Space</h3><span className="module-index">04</span></div>
             <section>
               <div className="master-section-title">
                 <h3>Ping-pong echo</h3>
@@ -344,8 +307,7 @@ export default function MasterFX({
                 {knob("reverb", "Mix", 0, 1)}
               </div>
             </section>
-          </div>
-        )}
+        </section>
       </div>
       <footer className="master-chain">
         DRIVE → EQ → COMPRESSOR → STEREO → DELAY → REVERB → MASTER → LIMITER

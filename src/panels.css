@@ -91,22 +91,6 @@
   border-color: #9a7957;
   background: #e5ac8610;
 }
-.studio-viewport .studio-panel .master-tabs {
-  min-height: 40px;
-  flex-basis: 40px;
-  padding: 0 15px;
-  border-color: var(--panel-line);
-  gap: 22px;
-}
-.studio-viewport .studio-panel .master-tabs button {
-  color: var(--muted);
-  font-size: 13px;
-  font-family: inherit;
-}
-.studio-viewport .studio-panel .master-tabs button.active {
-  color: var(--accent);
-  border-color: var(--accent);
-}
 .studio-viewport .studio-panel .master-section-title h3 {
   font-size: 14px;
   font-weight: 500;
@@ -117,20 +101,17 @@
   color: #a8afa4;
   font-size: 12px;
 }
-.studio-viewport .studio-panel .heat-modes button,
 .studio-viewport .studio-panel .eq-band-switch button {
   color: #a8afa4;
   border-color: var(--panel-line);
   background: var(--surface-low);
   font-size: 12px;
 }
-.studio-viewport .studio-panel .heat-modes button.active,
 .studio-viewport .studio-panel .eq-band-switch button.active {
   color: var(--accent);
   border-color: #9a7957;
   background: #e5ac8610;
 }
-.studio-viewport .studio-panel .heat-modes button small,
 .studio-viewport .studio-panel .master-chain,
 .studio-viewport .studio-panel .eq-faders small,
 .studio-viewport .studio-panel .eq-faders span {
@@ -147,8 +128,7 @@
   border-color: var(--panel-line);
   background: var(--surface-low);
 }
-.studio-viewport .studio-panel .master-chain,
-.studio-viewport .studio-panel .sequencer-footer {
+.studio-viewport .studio-panel .master-chain {
   border-color: var(--panel-line);
   background: var(--surface-low);
 }
@@ -176,8 +156,7 @@
   font: 8px var(--mono);
   color: var(--muted);
 }
-.studio-viewport .studio-panel .pattern-toolbar,
-.studio-viewport .studio-panel .instrument-toolbar {
+.studio-viewport .studio-panel .pattern-toolbar {
   background: var(--surface);
   border-color: var(--panel-line);
 }
@@ -187,31 +166,6 @@
 .studio-viewport .studio-panel .step-numbers > .timeline-heading {
   letter-spacing: 0;
   overflow: hidden;
-}
-@media (max-width: 960px) {
-  .panel-header .voice-badge { display: none; }
-  .panel-preset { max-width: 160px; }
-}
-@media (max-width: 620px), (max-width: 960px) and (max-height: 620px) and (pointer: coarse) {
-  .studio-viewport .studio-panel .panel-header {
-    height: 40px;
-    min-height: 40px;
-    flex-basis: 40px;
-    padding: 0 8px;
-    gap: 5px;
-  }
-  .studio-viewport .panel-header .section-heading { gap: 6px; }
-  .studio-viewport .panel-header h2 { font-size: 12px; }
-  .studio-viewport .panel-header .tag { padding: 4px; font-size: 6px; }
-  .studio-viewport .panel-header .panel-engine { flex-basis: 112px; }
-  .studio-viewport .panel-header .panel-engine select { height: 26px; font-size: 11px; padding-left: 6px; }
-  .panel-preset { display: none; }
-  .panel-header .patch-actions { gap: 4px; }
-  .studio-viewport .panel-header-actions .icon-button { width: 25px; height: 25px; }
-  .studio-viewport .studio-panel .master-tabs { gap: 12px; padding: 0 8px; }
-  .studio-viewport .studio-panel .master-tabs button { font-size: 11px; }
-  .studio-viewport .studio-panel .master-knobs .knob { width: 42px; height: 42px; }
-  .studio-viewport .studio-panel .steps { --step-gap: 2px; }
 }
 
 /* Shared workspace controls leave the remaining height to the active editor. */
@@ -275,59 +229,5 @@
   }
   .studio-viewport .main-heading .swing-control {
     gap: 4px;
-  }
-}
-@media (max-width: 960px) {
-  .studio-viewport .main-heading {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: 34px 24px;
-    grid-template-areas: "tabs tabs" "swing actions";
-    gap: 4px 8px;
-    flex: 0 0 64px;
-    min-height: 64px;
-    margin-bottom: 0;
-  }
-  .studio-viewport .main-heading > .workspace-tabs {
-    grid-area: tabs;
-    justify-self: start;
-  }
-  .studio-viewport .main-heading > .workspace-tabs > button {
-    padding: 4px 10px;
-    height: 26px;
-    font-size: 11px;
-  }
-  .studio-viewport .main-heading .swing-control {
-    grid-area: swing;
-    margin: 0;
-  }
-  .studio-viewport .main-heading-actions {
-    grid-area: actions;
-    justify-self: end;
-  }
-  .studio-viewport .main-heading-actions .heading-action,
-  .studio-viewport .main-heading-actions .icon-button {
-    width: 24px;
-    height: 24px;
-  }
-}
-@media (max-width: 620px) {
-  .studio-viewport .main-heading {
-    flex-basis: 60px;
-    min-height: 60px;
-    grid-template-rows: 30px 24px;
-  }
-  .studio-viewport .main-heading > .workspace-tabs > button {
-    height: 24px;
-  }
-  .studio-viewport .main-heading .swing-control > label {
-    gap: 5px;
-    font-size: 8px;
-  }
-  .studio-viewport .main-heading .swing-control input {
-    width: 40px;
-  }
-  .studio-viewport .main-heading .swing-control output {
-    font-size: 8px;
   }
 }
