@@ -1,3 +1,16 @@
+# Swing-Änderungen während der Piano-Track-Wiedergabe vom 25.10.2026
+
+Basis: GitHub-`main`, Commit `bdbaaca`; sauberer Checkout vor Beginn. Ausschließlich die unabhängige Piano-Track-Wiedergabe wurde angepasst; bestehende Bedienung und Smartphone-Darstellung bleiben erhalten.
+
+- Swing-Änderungen verwenden einen eigenen Pfad zum Neuplanen ausstehender Trigger. `onSilence()`, `panic()`, `restore()` und `rebase()` werden dabei nicht aufgerufen. Klingende Stimmen, geplante Gates/Releases, MIDI-Note-Offs, laufende Aufnahmen und der Abspielkopf bleiben erhalten.
+- Der Wechsel erfolgt an der nächsten gemeinsamen Paargrenze der bisherigen und neuen Swing-Auflösung hinter dem 120-ms-Vorlauf. Bereits übergebene Audio-/MIDI-Ereignisse werden nicht storniert. Die abschnittsweise Zeitabbildung bleibt an den Übergängen monoton, auch bei 100 % und beim Wechsel zwischen 1/8 und 1/16. Wiederholtes Regeln ersetzt noch nicht wirksame spätere Einstellungen entsprechend ihrer Grenze.
+- Neuplanung behält die ausgelösten Ereignis-IDs und Wahrscheinlichkeitsentscheidungen jedes Loop-Durchlaufs. Sie umfasst aktuelle und bereits vorbereitete folgende Segmente. Veraltete Swing-Abschnitte werden entfernt, sobald auch überlappende Noten an Bereichsanfängen sie nicht mehr benötigen; Pause/Stop räumen den Zustand auf.
+- Bereichs-/Tempoänderungen und die Wiederaufnahme nach einer verspäteten Scheduler-Ausführung behalten ihren bestehenden Neustartpfad. Der Haupttransport und WAV-Export werden durch diese Korrektur nicht geändert.
+
+Statische Durchsicht von Vorlauf, Loop-Grenzen, schnellen Swing-/Auflösungsänderungen, MIDI-Weitergabe und Ressourcenfreigabe. Produktionsbuild einschließlich Pages-/Portable-Dateien mit `npm run build:pages` und `git diff --check`. Keine Tests, Hörprüfungen, Browserprüfungen oder Benchmarks angelegt oder ausgeführt; hörbare Übergänge wurden nicht praktisch gemessen.
+
+---
+
 # LFO-Phasen, Random-Trigger und Swing 0–100 % vom 25.10.2026
 
 Basis: ausschließlich GitHub-`main`, Commit `2ec66e1`; sauberer Checkout vor Beginn. Keine Tests, Testdateien, Test-Abhängigkeiten, Hörprüfungen, Browserprüfungen oder Benchmarks. Keine Smartphone-Anpassungen.

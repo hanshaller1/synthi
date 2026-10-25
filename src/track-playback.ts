@@ -4,6 +4,7 @@ import type { Pattern, PianoNote, Project } from "./model";
 import { effectiveSwing, swingOffset, triggerEventOrder } from "./swing";
 import type { Swing } from "./swing";
 
+const LOOKAHEAD = .12;
 export type TrackPlaybackState = { track: number; state: "stopped" | "playing" | "paused" };
 type Segment = {
   at: number; from: number; end: number; unit: number; cycle: number; absolute: number;
@@ -24,6 +25,7 @@ export class TrackPlayback {
   private snapshot: Pattern | null = null;
   private tempo = 0;
   private swing: Swing = { amount: 0, resolution: 16 };
+  private swingChanges: { from: number; swing: Swing }[] = [];
   onState: (state: TrackPlaybackState) => void = () => {};
   onPosition: (track: number, step: number) => void = () => {};
   onSilence: () => void = () => {};
@@ -82,7 +84,8 @@ export class TrackPlayback {
       const group = n.group ?? n.id;
       if (!s.chances.has(group)) s.chances.set(group, Math.random() < n.probability);
       if (!s.chances.get(group)) continue;
-      const start = n.start + n.micro + swingOffset(s.absolute + n.start - s.from + n.micro, pattern.division, this.swing);
+      const absolute = s.absolute + n.start - s.from + n.micro;
+      const start = n.start + n.micro + swingOffset(absolute, pattern.division, this.swingAt(absolute));
       const end = Math.min(s.end, start + n.duration), clipped = Math.max(s.from, start);
       if (end <= clipped) continue;
       const at = s.at + (clipped - s.from) * s.unit;
@@ -94,11 +97,41 @@ export class TrackPlayback {
   private sortEvents() {
     this.pending.sort((a,b)=>triggerEventOrder(a,b,this.engine.context.sampleRate));
   }
+  private swingAt(position: number): Swing {
+    for (let i = this.swingChanges.length - 1; i >= 0; i--)
+      if (this.swingChanges[i].from <= position) return this.swingChanges[i].swing;
+    return this.swingChanges[0]?.swing ?? this.swing;
+  }
+  private changeSwing(swing: Swing, pattern: Pattern, current: Segment, now: number) {
+    // Audio/MIDI events inside the lookahead have already been handed off.
+    // Both resolutions meet at this pair boundary, so the new warp cannot
+    // cross the old one, including the coincident triggers at 100% swing.
+    const committed = current.absolute + (now + LOOKAHEAD + 1 / this.engine.context.sampleRate - current.at) / current.unit;
+    const previous = this.swingAt(committed);
+    const pair = pattern.division * 2 / Math.min(previous.resolution, swing.resolution);
+    const from = Math.ceil(committed / pair) * pair;
+    this.swingChanges = this.swingChanges.filter(change => change.from < from);
+    this.swingChanges.push({ from, swing });
+    this.swing = swing;
+  }
+  private refreshEvents(pattern: Pattern, skipBefore: number) {
+    // Keep emitted keys and probability decisions; rebuild only our own queue.
+    this.pending = [];
+    for (const s of this.segments) this.events(s, pattern, skipBefore);
+  }
+  private trimSwingChanges(pattern: Pattern) {
+    // Keep the preceding setting for notes that overlap a range start.
+    const earliest = Math.min(...this.segments.map(s => s.absolute - s.from)) +
+      Math.min(0, ...pattern.notes.map(n => n.start + n.micro));
+    while (this.swingChanges.length > 1 && this.swingChanges[1].from <= earliest)
+      this.swingChanges.shift();
+  }
   private rebase(step: number, absolute: number, cycle: number) {
     const p = this.getProject(), pattern = p.tracks[this.track].patterns[this.patternIndex], range = pianoRange(pattern);
     this.snapshot = pattern;
     this.tempo = p.tempo;
     this.swing = effectiveSwing(pattern, p);
+    this.swingChanges = [{ from: -Infinity, swing: this.swing }];
     this.pending = [];
     this.segments = [];
     this.engine.restore(p);
@@ -110,16 +143,18 @@ export class TrackPlayback {
     if (p.activePattern !== this.patternIndex || track.mode !== "piano") { this.stop(); return; }
     const range = pianoRange(pattern), previousRange = pianoRange(this.snapshot!);
     const now = this.engine.context.currentTime, position = this.position(this.track)!, current = this.currentSegment();
+    const swing = effectiveSwing(pattern, p);
     if (pattern.length !== this.snapshot!.length || pattern.division !== this.snapshot!.division ||
         range.start !== previousRange.start || range.end !== previousRange.end || range.loop !== previousRange.loop ||
-        p.tempo !== this.tempo || effectiveSwing(pattern,p).amount !== this.swing.amount || effectiveSwing(pattern,p).resolution !== this.swing.resolution) {
+        p.tempo !== this.tempo) {
       this.onSilence();
       this.engine.panic(this.track);
       this.rebase(position.step, position.absolute, current.cycle);
-    } else if (pattern.notes !== this.snapshot!.notes) {
-      // Recording/editing changes future events without resetting the clock or live voices.
-      this.pending = [];
-      for (const s of this.segments) this.events(s, pattern, now);
+    } else {
+      const swingChanged = swing.amount !== this.swing.amount || swing.resolution !== this.swing.resolution;
+      if (swingChanged) this.changeSwing(swing, pattern, current, now);
+      if (swingChanged || pattern.notes !== this.snapshot!.notes)
+        this.refreshEvents(pattern, now);
       this.snapshot = pattern;
     }
     let last = this.segments[this.segments.length - 1];
@@ -130,11 +165,11 @@ export class TrackPlayback {
       this.rebase(range.start, last.absolute + last.end - last.from, last.cycle + 1);
       last = this.segments[this.segments.length - 1];
     }
-    while (range.loop && endTime(last) < now + .12 + 1/this.engine.context.sampleRate) {
+    while (range.loop && endTime(last) < now + LOOKAHEAD + 1/this.engine.context.sampleRate) {
       last = this.segment(range.start, endTime(last), last.cycle + 1, last.absolute + last.end - last.from);
     }
     this.sortEvents();
-    while (this.pending.length && this.pending[0].at <= now + .12) {
+    while (this.pending.length && this.pending[0].at <= now + LOOKAHEAD) {
       const event = this.pending.shift()!;
       event.segment.emitted.add(event.key);
       if (event.at < now - .1) continue;
@@ -150,6 +185,7 @@ export class TrackPlayback {
     }
     this.onPosition(this.track, Math.floor(this.position(this.track)!.step));
     while (this.segments.length > 1 && this.segments[1].at <= now) this.segments.shift();
+    this.trimSwingChanges(pattern);
     if (!range.loop && now >= endTime(last)) this.stop();
   }
   pause() {
@@ -167,6 +203,7 @@ export class TrackPlayback {
     this.timer = undefined;
     this.pending = [];
     this.segments = [];
+    this.swingChanges = [];
     if (this.track >= 0) this.engine.panic(this.track);
   }
   stop(notify = true) {
