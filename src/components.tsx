@@ -193,7 +193,7 @@ export function Knob({
         aria-valuenow={Number(value.toFixed(4))}
         aria-valuetext={format(value)}
         tabIndex={0}
-        title={`${label}: ${format(value)}${modulation?` · Modulation ${format(modulation.min)} … ${format(modulation.max)} · Aktuell ${format(modulation.current)}`:""} · Ziehen · Shift: fein · Doppelklick: Reset${onLearn ? " · Rechtsklick: MIDI Learn" : ""}`}
+        title={`${label}: ${format(value)}${modulation?` · Theoretischer Modulationsbereich ${format(modulation.min)} … ${format(modulation.max)} · ${modulation.live?"Zuletzt gemeldeter DSP-Wert":"Basis (keine Live-Daten)"} ${format(modulation.current)}`:""} · Ziehen · Shift: fein · Doppelklick: Reset${onLearn ? " · Rechtsklick: MIDI Learn" : ""}`}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault(); onEdit?.();

@@ -13,7 +13,7 @@ class PhaseTrackEffect extends AudioWorkletProcessor {
   constructor(options){
     super();this.slot=options.processorOptions.slot;this.structure='';this.valueSets={};this.arrays={};this.parameterNames={};
     for(const mode of phaseFxModes[this.slot]){this.valueSets[mode]={};this.arrays[mode]=[];this.parameterNames[mode]=phaseFxControls[mode].map(key=>'fx.'+this.slot+'.'+mode+'.'+key);}
-    this.model=new PhaseFxModel(this.slot,phaseFxModes[this.slot][0]);this.idle=new PhaseFxModel(this.slot,phaseFxModes[this.slot][0]);this.previous=null;this.fade=0;this.mix=0;this.disposed=false;this.oldValues={};this.telemetry=0;this.wasBypassed=true;this.idling=false;
+    this.model=new PhaseFxModel(this.slot,phaseFxModes[this.slot][0]);this.idle=new PhaseFxModel(this.slot,phaseFxModes[this.slot][0]);this.previous=null;this.fade=0;this.mix=0;this.disposed=false;this.oldValues={};this.telemetry=0;this.reporting=options.processorOptions.telemetry;this.wasBypassed=true;this.idling=false;
     this.port.onmessage=({data})=>{if(data==='dispose'){this.disposed=true;this.port.close();}};
   }
   read(mode,i){const v=this.valueSets[mode],keys=phaseFxControls[mode],arrays=this.arrays[mode];for(let k=0;k<keys.length;k++){const key=keys[k],a=arrays[k],target=a[a.length===1?0:i];v[key]=phaseFxEvents[mode][key]||v[key]===undefined?target:v[key]+(target-v[key])*Math.min(1,1/(sampleRate*.004));}return v;}
@@ -44,7 +44,7 @@ class PhaseTrackEffect extends AudioWorkletProcessor {
       output[1][i]=dryR*(1-this.mix)+(Number.isFinite(wetR)?fxClamp(wetR,-8,8):0)*this.mix;
     }
     this.telemetry+=output[0].length;
-    if(this.telemetry>=sampleRate/25){this.telemetry=0;this.port.postMessage({mode:this.model.mode,values:{...this.valueSets[this.model.mode],stages:this.model.stages,voices:this.model.voices,springCount:this.model.springCount,oversampling:this.model.oversampling},phase:this.model.phase,age:this.model.age,gate:this.model.gate,bypass:p.bypass[0],tempo:p.tempo[p.tempo.length-1],sampleRate});}
+    if(this.reporting&&this.telemetry>=sampleRate/25){this.telemetry=0;this.port.postMessage({mode:this.model.mode,previousMode:this.previous?.mode,transition:this.previous?Math.min(1,this.fade/(sampleRate*.032)):1,values:{...this.valueSets[this.model.mode],stages:this.model.stages,voices:this.model.voices,springCount:this.model.springCount,oversampling:this.model.oversampling},phase:this.model.phase,age:this.model.age,gate:this.model.gate,bypass:p.bypass[0],tempo:p.tempo[p.tempo.length-1],sampleRate});}
     return true;
   }
 }
@@ -52,8 +52,8 @@ for(const slot of Object.keys(phaseFxModes)){class Stage extends PhaseTrackEffec
 `;
 export class WorkletFxStage {
   readonly input:AudioWorkletNode;readonly output:AudioWorkletNode;
-  reading?:{mode:string;values:Record<string,number>;phase:number;age:number;gate:number;bypass:number;tempo:number;sampleRate:number};
-  constructor(private context:AudioContext|OfflineAudioContext,readonly slot:FxSlot){this.input=this.output=new AudioWorkletNode(context,`phase-track-effect-${slot}`,{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[2],processorOptions:{slot}});this.input.port.onmessage=({data})=>{this.reading=data;};}
+  reading?:{mode:string;previousMode?:string;transition:number;values:Record<string,number>;phase:number;age:number;gate:number;bypass:number;tempo:number;sampleRate:number};
+  constructor(private context:AudioContext|OfflineAudioContext,readonly slot:FxSlot){this.input=this.output=new AudioWorkletNode(context,`phase-track-effect-${slot}`,{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[2],processorOptions:{slot,telemetry:context instanceof AudioContext}});this.input.port.onmessage=({data})=>{this.reading=data;};}
   update(p:Patch,at:number,tempo:number){
     const set=(id:string,value:number)=>{const param=this.input.parameters.get(id)!;param.setValueAtTime(value,at);};
     set("algorithm",(FX_SLOT_MODES[this.slot] as readonly string[]).indexOf(p[this.slot]));set("bypass",Number(!p.fxEnabled[this.slot]));set("tempo",tempo);
@@ -66,6 +66,6 @@ export class WorkletFxStage {
     const direct=this.input.parameters.get(id);if(direct)return [direct];
     return FX_SLOT_MODES[this.slot].flatMap(mode=>FX_CONTROLS[mode].filter(c=>c.param===id).map(c=>this.input.parameters.get(`fx.${this.slot}.${mode}.${c.key}`)!));
   }
-  dispose(){this.input.port.postMessage("dispose");this.input.port.close();this.input.disconnect();}
+  dispose(){this.input.port.postMessage("dispose");this.input.port.onmessage=null;this.input.disconnect();}
   get time(){return this.context.currentTime;}
 }

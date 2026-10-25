@@ -12,8 +12,13 @@ export function modulationConfig(p:Patch,ids:readonly string[]){
   const ranges=Object.fromEntries(Object.entries(PARAMETER_REGISTRY).map(([id,m])=>[id,{min:m.min,max:m.max,scale:p.modVersion===1?"linear":m.scale,event:m.trigger,options:m.options}]));
   const special={pitch:{min:-1200,max:1200,scale:"linear"},amplitude:{min:0,max:2,scale:"linear"},pan:{min:-1,max:1,scale:"linear"}};
   Object.assign(values,{pitch:0,amplitude:1,pan:p.pan});
-  const routes=p.mods.map(r=>{const m=DYNAMIC_META[r.target as keyof typeof DYNAMIC_META];return {...r,target:m?.canonical??r.target,condition:m?.canonical?{slot:m.slot,variant:m.variant}:undefined};});
-  return {values,ranges:{...ranges,...special},routes,ids,order:generatorOrder(p.mods),lfos:p.lfos,modes:{saturationMode:p.saturationMode,modulationMode:p.modulationMode,delayMode:p.delayMode,reverbMode:p.reverbMode},fields:Object.keys(LFO_FIELDS).filter(key=>!(LFO_FIELDS[key as keyof typeof LFO_FIELDS] as {event?:boolean}).event)};
+  const allRoutes=p.mods.filter(r=>r.amount!==0).map(r=>{const m=DYNAMIC_META[r.target as keyof typeof DYNAMIC_META];return {...r,target:m?.canonical??r.target,condition:m?.canonical?{slot:m.slot,variant:m.variant}:undefined};});
+  // Only expose destinations belonging to this processor. Keep the generator
+  // graph running so changing routes never freezes/restarts a free-running LFO.
+  const needed=new Set<string>(ids);
+  const routes=allRoutes.filter(r=>needed.has(r.target)||PARAMETER_REGISTRY[r.target as keyof typeof PARAMETER_REGISTRY]?.scope==="generator"||/^fx\.[^.]+\.mode$/.test(r.target));
+  const sourceFlags=Object.fromEntries(routes.map(r=>[r.source,true]));
+  return {values,ranges:{...ranges,...special},routes,ids,sourceFlags,order:generatorOrder(p.mods),lfos:p.lfos,modes:{saturationMode:p.saturationMode,modulationMode:p.modulationMode,delayMode:p.delayMode,reverbMode:p.reverbMode},fields:Object.keys(LFO_FIELDS).filter(key=>!(LFO_FIELDS[key as keyof typeof LFO_FIELDS] as {event?:boolean}).event)};
 }
 export const modulationProcessor=`
 const lfoNoise=${lfoNoise.toString()};
@@ -30,7 +35,7 @@ const modulationFxSlots=Object.keys(modulationFxModes);
 const modulationFxModeIds=modulationFxSlots.map(slot=>'fx.'+slot+'.mode');
 class PhaseModulation extends AudioWorkletProcessor {
   static get parameterDescriptors(){return ['tempo','wheel','pressure','bend','active'].map(name=>({name,defaultValue:name==='tempo'?118:name==='active'?1:0,minValue:name==='tempo'?20:name==='bend'?-1:0,maxValue:name==='tempo'?400:1,automationRate:'a-rate'}));}
-  constructor(options){super();this.c=options.processorOptions.config;this.eventsEpoch=0;this.notesEpoch=0;this.eventCache={};this.lastNoteEpoch=[-1,-1,-1];this.groups={};this.lfoValues=[{},{},{}];this.fieldIds=[1,2,3].map(i=>Object.fromEntries([...this.c.fields,'mode','shape','retrigger','sync','polarity','division'].map(key=>[key,'lfo.'+i+'.'+key])));this.groupRoutes();this.track=options.processorOptions.track;this.events=[];this.started=false;this.disposed=false;this.notes=[];this.note={start:options.processorOptions.start,note:options.processorOptions.note,velocity:options.processorOptions.velocity,release:Infinity,seed:options.processorOptions.seed,values:this.c.values};this.phase=[0,0,0];this.initialized=[false,false,false];this.lastModes=[null,null,null];this.randomPhase=0;this.randomStarted=false;this.randomSeed=options.processorOptions.track?1:options.processorOptions.seed;this.age=0;this.sample=0;this.sources={};this.last={};this.modeValues=this.c.modes;
+  constructor(options){super();this.c=options.processorOptions.config;this.reporting=options.processorOptions.telemetry;this.eventsEpoch=0;this.notesEpoch=0;this.eventCache={};this.lastNoteEpoch=[-1,-1,-1];this.groups={};this.lfoValues=[{},{},{}];this.fieldIds=[1,2,3].map(i=>Object.fromEntries([...this.c.fields,'mode','shape','retrigger','sync','polarity','division'].map(key=>[key,'lfo.'+i+'.'+key])));this.groupRoutes();this.track=options.processorOptions.track;this.events=[];this.started=false;this.disposed=false;this.notes=[];this.note={start:options.processorOptions.start,note:options.processorOptions.note,velocity:options.processorOptions.velocity,release:Infinity,seed:options.processorOptions.seed,values:this.c.values};this.phase=[0,0,0];this.initialized=[false,false,false];this.lastModes=[null,null,null];this.randomPhase=0;this.randomStarted=false;this.randomSeed=options.processorOptions.track?1:options.processorOptions.seed;this.age=0;this.sample=0;this.sources={};this.last={};this.modeValues=this.c.modes;
     this.port.onmessage=({data})=>{if(data.type==='dispose'){this.disposed=true;this.port.close();}else{this.events.push(data);this.events.sort((a,b)=>a.at-b.at);}};
   }
   groupRoutes(){this.groups={};for(const route of this.c.routes)(this.groups[route.target]??=[]).push(route);}
@@ -55,7 +60,9 @@ class PhaseModulation extends AudioWorkletProcessor {
       if(now<this.note.start||p.active[p.active.length===1?0:i]<.5){for(const out of outputs)out[0][i]=0;continue;}
       if(!this.started)this.reset();
       const n=this.note,s=this.sources,c=this.c;
-      s.velocity=n.velocity;s.keytrack=(n.note-60)/36;s.modwheel=p.wheel[p.wheel.length===1?0:i];s.pressure=n.pressure??p.pressure[p.pressure.length===1?0:i];s.pitchbend=p.bend[p.bend.length===1?0:i];s.randomNote=lfoNoise(Math.floor(n.start*10000),n.seed);s.ampEnv=this.envelope('amp',now);s.filterEnv=this.envelope('filter',now);
+      s.velocity=n.velocity;s.keytrack=(n.note-60)/36;s.modwheel=p.wheel[p.wheel.length===1?0:i];s.pressure=n.pressure??p.pressure[p.pressure.length===1?0:i];s.pitchbend=p.bend[p.bend.length===1?0:i];
+      if(c.sourceFlags.randomNote){if(this.noiseStart!==n.start||this.noiseSeed!==n.seed){this.noiseStart=n.start;this.noiseSeed=n.seed;this.noiseValue=lfoNoise(Math.floor(n.start*10000),n.seed);}s.randomNote=this.noiseValue;}
+      if(c.sourceFlags.ampEnv)s.ampEnv=this.envelope('amp',now);if(c.sourceFlags.filterEnv)s.filterEnv=this.envelope('filter',now);
       for(const id of c.order){
         if(id==='smoothRandom'){const rate=this.value('randomRate');if(!this.randomStarted){this.randomPhase=now*rate;this.randomStarted=true;}s[id]=lfoValue('smooth',this.randomPhase,this.randomSeed,.5,0,this.value('randomSlew'),lfoNoise);this.randomPhase+=rate/sampleRate;continue;}
         if(id.startsWith('macro')){s[id]=this.value(id);continue;}
@@ -75,7 +82,7 @@ class PhaseModulation extends AudioWorkletProcessor {
       for(let k=0;k<c.ids.length;k++){const id=c.ids[k],event=c.ranges[id]?.event,value=event?this.eventValue(id):this.value(id),base=c.values[id]??0,delta=value-base;const previous=this.last[id]??0,smoothed=event?delta:previous+(delta-previous)*Math.min(1,1/(sampleRate*.003));this.last[id]=smoothed;outputs[k][0][i]=smoothed;}
       this.age++;
     }
-    this.sample+=frames;if(this.sample>=sampleRate/25){this.sample=0;this.port.postMessage({values:Object.fromEntries([...new Set([...this.c.ids,...this.c.routes.map(r=>r.target)])].map(id=>[id,this.c.ids.includes(id)?(this.c.values[id]??0)+(this.last[id]??0):this.c.ranges[id]?.event?this.eventValue(id):this.value(id)])),sources:this.sources,deltas:this.last,time:currentFrame/sampleRate});}
+    this.sample+=frames;if(this.reporting&&this.sample>=sampleRate/25){this.sample=0;this.port.postMessage({values:Object.fromEntries([...new Set([...this.c.ids,...this.c.routes.map(r=>r.target)])].map(id=>[id,this.c.ids.includes(id)?(this.c.values[id]??0)+(this.last[id]??0):this.c.ranges[id]?.event?this.eventValue(id):this.value(id)])),sources:this.sources,deltas:this.last,time:currentFrame/sampleRate});}
     return true;
   }
 }
@@ -86,7 +93,8 @@ export class Modulator {
   ids:string[];private destinations=new Map<string,(AudioParam|AudioNode)[]>();
   constructor(private context:Context,p:Patch,ids:readonly string[],start:number,note=60,velocity=0,track=false,seed=1){
     this.ids=[...ids];
-    this.node=new AudioWorkletNode(context,"phase-modulation",{numberOfInputs:0,numberOfOutputs:32,outputChannelCount:Array(32).fill(1),processorOptions:{config:modulationConfig(p,ids.length?ids:["macro1"]),start,note,velocity,track,seed}});
+    const outputs=track?32:Math.max(1,ids.length);
+    this.node=new AudioWorkletNode(context,"phase-modulation",{numberOfInputs:0,numberOfOutputs:outputs,outputChannelCount:Array(outputs).fill(1),processorOptions:{config:modulationConfig(p,ids),start,note,velocity,track,seed,telemetry:context instanceof AudioContext}});
     this.node.port.onmessage=({data})=>{this.reading=data;};
   }
   connect(id:string,destination:AudioParam|AudioNode){const index=this.ids.indexOf(id);if(index>=0){this.node.connect(destination as AudioParam,index);const list=this.destinations.get(id)??[];list.push(destination);this.destinations.set(id,list);}}
@@ -104,11 +112,11 @@ export class Modulator {
     return added;
   }
   expression(key:"tempo"|"wheel"|"pressure"|"bend",value:number,at=this.context.currentTime){this.node.parameters.get(key)!.setValueAtTime(value,at);}
-  update(p:Patch,at:number,trigger=false){this.node.port.postMessage({type:"config",config:modulationConfig(p,this.ids.length?this.ids:["macro1"]),at,trigger});}
+  update(p:Patch,at:number,trigger=false){this.node.port.postMessage({type:"config",config:modulationConfig(p,this.ids),at,trigger});}
   note(id:number,note:number,velocity:number,at:number){this.node.port.postMessage({type:"note",id,note,velocity,seed:note+1,at});}
   release(at:number,id?:number){this.node.port.postMessage({type:"release",id,at});}
   retune(note:number,at:number,id?:number){this.node.port.postMessage({type:"retune",note,at,id});}
   pressure(value:number,at:number,note?:number){this.node.port.postMessage({type:"pressure",value,at,note});}
   panic(at:number){this.node.port.postMessage({type:"panic",at});}
-  dispose(){this.node.port.postMessage({type:"dispose"});this.node.port.close();this.node.disconnect();}
+  dispose(){this.node.port.postMessage({type:"dispose"});this.node.port.onmessage=null;this.node.disconnect();}
 }

@@ -1,5 +1,7 @@
+import { FX_DELAY_LIMIT_SECONDS } from "./fx-timing";
 /** Inline worklet DSP: fixed signal graphs, continuously controlled coefficients. */
 export const fxDsp = `
+const fxDelayLimit=${FX_DELAY_LIMIT_SECONDS};
 const fxClamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 // Polyphase 2x oversampling, Blackman-windowed 63-tap half-band FIR.
 const fxHalfband=new Float64Array(63);let fxFirSum=0;
@@ -17,7 +19,7 @@ class PhaseFxModel {
     this.low=new Float64Array(16);this.high=new Float64Array(4);this.dc=new Float64Array(4);this.held=new Float64Array(2);this.crushCount=0;this.prevInput=new Float64Array(2);
     this.lines=[];this.allpass=Array.from({length:16},()=>[0,0,0,0]);this.filters=Array.from({length:4},()=>[0,0]);this.returned=[0,0];this.coef={};this.last='';
     if(slot==='saturationMode'){this.osIn=[new Float64Array(32),new Float64Array(32)];this.osOut=[new Float64Array(64),new Float64Array(64)];}
-    if(slot==='delayMode')this.lines=[new PhaseFxLine(16),new PhaseFxLine(16)];
+    if(slot==='delayMode')this.lines=[new PhaseFxLine(fxDelayLimit),new PhaseFxLine(fxDelayLimit)];
     if(slot==='modulationMode')this.lines=[new PhaseFxLine(.12),new PhaseFxLine(.12)];
     if(slot==='reverbMode'){this.lines=Array.from({length:8},()=>new PhaseFxLine(.3));this.pre=[new PhaseFxLine(.2),new PhaseFxLine(.2)];this.diff=Array.from({length:4},()=>new PhaseFxLine(.02));this.early=new PhaseFxLine(.15);this.network=new Float64Array(8);this.reverbTimes=new Float64Array(8);this.reverbGains=new Float64Array(8);this.earlyTaps=[.011,.019,.031,.047,.073];}
   }
@@ -98,7 +100,7 @@ class PhaseFxModel {
     const flutter=Math.sin(this.age*2*Math.PI*6.3+Math.sin(this.age*2*Math.PI*.7))*(v.flutter??0)*.00035;
     const motion=this.mode==='tape'?Math.sin(this.age*2*Math.PI*.8)*v.wow*.002+flutter:this.mode==='dub'?Math.sin(this.age*2*Math.PI*.31)*v.modDepth*.004:0;
     const rightTime=this.mode==='pingpong'?(v.sync>=.5?(v.rightDivision>0?tempo/60*v.rightDivision:time):(v.rightTime>0?v.rightTime:time)):time+(this.mode==='digital'?v.stereoOffset:0);
-    const a=this.lines[0].read(fxClamp(time+motion,.001,16)),b=this.lines[1].read(fxClamp(rightTime-motion,.001,16));
+    const a=this.lines[0].read(fxClamp(time+motion,.001,fxDelayLimit)),b=this.lines[1].read(fxClamp(rightTime-motion,.001,fxDelayLimit));
     const envTarget=Math.max(Math.abs(left),Math.abs(right));this.env+=(envTarget-this.env)*(envTarget>this.env?.01:.00015);
     let fa=a,fb=b;
     const hz=this.mode==='tape'?9000-v.age*7800:this.mode==='dub'?v.frequency:v.tone??20000;
@@ -119,7 +121,7 @@ class PhaseFxModel {
     const out=this.returned,duck=1/(1+(v.ducking??0)*this.env*12);
     if(this.mode==='multitap'){
       out[0]=0;out[1]=0;for(let i=1;i<=3;i++){
-        const t=i===1?time:time*v.spacing*(i-1),sample=(this.lines[0].read(t+1/sampleRate)+this.lines[1].read(t+1/sampleRate))*.5*v['tap'+i+'Level'],pan=v['tap'+i+'Pan']*v.width;
+        const t=fxClamp(i===1?time:time*v.spacing*(i-1),.001,fxDelayLimit),sample=(this.lines[0].read(t+1/sampleRate)+this.lines[1].read(t+1/sampleRate))*.5*v['tap'+i+'Level'],pan=v['tap'+i+'Pan']*v.width;
         out[0]+=sample*Math.cos((pan+1)*Math.PI/4);out[1]+=sample*Math.sin((pan+1)*Math.PI/4);
       }
     }else if(this.mode==='pingpong'){const width=v.width;out[0]=(a*(1+width)+b*(1-width))*.5;out[1]=(b*(1+width)+a*(1-width))*.5;}

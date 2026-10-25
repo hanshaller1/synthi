@@ -1,3 +1,26 @@
+# Modulations-/FX-Korrekturen vom 25.10.2026
+
+Basis: GitHub-`main`, Commit `9fcc85c`; sauberer Checkout vor Beginn. Die fünf gemeldeten Befunde wurden bearbeitet. Keine Tests, Hörprüfungen oder Benchmarks angelegt oder ausgeführt.
+
+## Korrekturen
+
+- **P1 / Smooth Random:** Die gemeinsame LFO-Funktion interpoliert im Smooth-Modus über eine vollständige Periode, auch bei Slew 0. Kubisches Smoothstep wird mit steigendem Slew in quintisches Smootherstep überführt. Beide besitzen stetige Werte und eine Ableitung von null an den Periodengrenzen; quintisch ist dort zusätzlich die zweite Ableitung null. Die Slew-Dauer von Random/Sample & Hold bleibt separat. Dieselbe Funktion wird in den AudioWorklet-Quelltext eingebettet und für die Vorschau und das Abtasten von Anschlagparametern verwendet.
+- **P1 / Delay-Zeiten:** Die bestehende Speichergrenze wird explizit auf 16 Sekunden je Kanal/Tap vereinheitlicht. `FX_DELAY_LIMIT_SECONDS` ist die gemeinsame Quelle für Worklet-Puffer, DSP-Lesegrenzen, Vorschau, Optionsauswahl und Export-Tail-Reserve. Multi-tap war bisher nicht ausdrücklich auf dieselbe Zeit begrenzt und ist jetzt einbezogen. Bei 20 BPM sind 8 Beats (= 24 s) in der UI gesperrt; Ping-pong-Rechtszeit und Multi-tap-Spacing werden mitgeprüft. Importierte Werte und Überschreitungen durch Tempo/Modulation werden als Basiswerte erhalten und sichtbar mit angeforderter sowie begrenzter wirksamer Grundzeit ausgewiesen. Wow/Flutter bewegen die Lesezeit innerhalb dieser Grenze. Die Korrektur entscheidet sich damit für klar begrenzte Auswahlmöglichkeiten, nicht für zusätzliche große Delay-Puffer pro Track und Übergangsmodell.
+- **P2 / FX-Vorschauen:** Der Bitcrusher zeigt ein 12-ms-Beispielsignal mit sampleratenabhängiger Sample-&-Hold-/Quantisierungs-Treppe; Jitter ist eine deterministische Illustration. Tone/Mix sind ausdrücklich nicht simuliert. Beim Wavefolder ist zusätzlich ein separater normierter Postfilter-Tiefpassgang sichtbar. Alle Grafiken besitzen eine sichtbare Beschriftung als schematische Vorschau; statische Kennlinien, nicht simulierte Verarbeitung und fehlende Live-Daten sind entsprechend benannt.
+- **P2 / Wirksamer FX-Zustand:** Variantenauswahl, Power-Button und zugehörige Parameter bleiben Basis-Bedienelemente. Daneben zeigt ein eigenes DSP-Statusfeld die gemeldete effektive Variante, ON/BYPASS und einen eventuell laufenden Algorithmusübergang. Modul-Abdunklung und Grafik folgen diesem Zustand. Die Telemetrie liefert dafür auch den vorherigen Algorithmus und den Übergangsfortschritt. Ohne Effektprozessor-Telemetrie erscheint eine Basisansicht; unbestätigte Modulations-Sollwerte werden nicht als Effektprozessor-Zustand ausgegeben.
+- **P2 / Reglerbereiche:** Der aktuelle Punkt bleibt an die Prozessor-Telemetrie gebunden. Eine gecachte Intervallrechnung berücksichtigt nun abhängige Macros, modulierte LFO-Tiefe/Polarität, diskrete Optionen und bedingte kanonische FX-Aliase einschließlich einer möglichen Nichtaktivierung. Basiswerte während geglätteter Aktivierung/Deaktivierung werden eingeschlossen. Tooltips und Modulationseditor bezeichnen den Ring ausdrücklich als theoretischen, konservativen Bereich. Phasenkorrelationen, Ereignisabtastung und gegenseitig ausschließende Varianten werden nicht als exakt gemeinsam erreichbare Extrema dargestellt.
+
+## Begrenzte Optimierungen und Verifikation
+
+- Kein zusätzlicher Stimmen-Modulationsprozessor bei ausschließlich FX-/Anschlag-Zielen. Vorhandene Stimmenprozessoren reservieren nur die tatsächlich benötigten Ausgänge; die Track-Reserve für dynamische Routen bleibt bestehen.
+- Prozessor-Konfigurationen enthalten nur ihre Ausgangsziele sowie die Generator-/FX-Modus-Routen. Generatoren laufen weiter, damit Routenänderungen keine laufenden LFOs einfrieren oder neu starten. Nicht benötigte Amp-/Filter-Quellen werden nicht sampleweise ausgewertet, und Random per Note wird je Notenstart/Seed zwischengespeichert.
+- Im Offline-Kontext entfallen UI-Telemetrie und deren Objektserialisierung. DSP, Glättung und 32-ms-Algorithmusüberblendung bleiben ansonsten gemeinsam mit dem Echtzeitpfad. Dispose-Nachrichten werden vor dem Schließen des Ports vom Prozessor empfangen; der Hauptthread trennt seine Listener und Audioverbindungen.
+- Statische Durchsicht, TypeScript-/Produktionsbuild mit `npm run build:pages`, syntaktische Kompilierung der eingebetteten Worklet-Quellen ohne DSP-Ausführung und `git diff --check`. Die drei Veröffentlichungsdateien werden aus dem aktuellen Quellcode erzeugt. Die bestehende Bundlegrößenwarnung bleibt bestehen.
+
+Es wurden keine CPU-/Polyphonie-Werte gemessen und keine Klanggleichheit oder Artefaktfreiheit durch eine Hörprüfung bestätigt. Die Änderungen reduzieren konkret vermeidbare Arbeit; sie ersetzen keine Messung der vollständigen Anwendung auf dem Zielgerät. Zufallsquellen und Free-Run-Phasen bleiben zudem keine sampleidentische Aufzeichnung einer vorausgegangenen Live-Session.
+
+---
+
 # Modulation und Track-FX vom 23.10.2026
 
 Basis: GitHub-`main`, Commit `575fd3a`, sauberer Checkout und identischer Remote-Stand bei Beginn. Umsetzung direkt auf `main`. Vorher abgeschlossene Synthese-/Filter-/Sequencer-Korrekturen wurden nicht erneut umgesetzt. Keine Tests, Hörprüfungen, Browserprüfungen oder Benchmarks angelegt oder ausgeführt.

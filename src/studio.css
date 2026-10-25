@@ -373,6 +373,15 @@
 .studio-viewport .serial-fx .effect-module {
   gap: 8px;
   padding: 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.studio-viewport .effects-grid.serial-fx {
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+.studio-viewport .serial-fx .effect-module > * {
+  flex-shrink: 0;
 }
 .fx-slot-header {
   display: flex;
@@ -443,6 +452,34 @@
 .fx-art .fx-reference {
   opacity: 0.3;
   stroke-dasharray: 3 3;
+}
+.fx-preview {
+  margin: 0;
+  flex: 0 0 auto;
+}
+.fx-preview figcaption,
+.fx-base-controls,
+.fx-effective-status,
+.fx-time-status {
+  color: #b3bbaa;
+  font: 10px/1.4 var(--mono);
+  overflow-wrap: anywhere;
+}
+.fx-preview figcaption {
+  margin-top: 4px;
+}
+.fx-art .fx-filter-response {
+  stroke: #8cb6c2;
+  stroke-dasharray: 3 2;
+}
+.fx-effective-status {
+  padding: 5px 7px;
+  border: 1px solid #59664f;
+  border-radius: 3px;
+}
+.fx-effective-status.is-bypassed,
+.fx-time-status.is-limited {
+  color: #edc18e;
 }
 .fx-controls {
   display: grid;

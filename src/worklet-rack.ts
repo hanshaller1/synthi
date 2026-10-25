@@ -46,6 +46,8 @@ export class WorkletRack {
       const actual=stage.reading;if(!actual)continue;
       for(const c of FX_CONTROLS[actual.mode]){const value=actual.values[c.key];values[`fx.${slot}.${actual.mode}.${c.key}`]=value;if(c.param)values[c.param]=value;}
       values[`fx.${slot}.mode`]=(FX_SLOT_MODES[slot as FxSlot] as readonly string[]).indexOf(actual.mode);
+      values[`fx.${slot}.previousMode`]=actual.previousMode?(FX_SLOT_MODES[slot as FxSlot] as readonly string[]).indexOf(actual.previousMode):-1;
+      values[`fx.${slot}.transition`]=actual.transition;
       for(const key of ["phase","age","gate","bypass","tempo","sampleRate"] as const)values[`fx.${slot}.${key}`]=actual[key];
     }
     return {...reading,values};

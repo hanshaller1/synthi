@@ -1,4 +1,5 @@
 import { Modulator } from "./modulation-worklet";
+import { FX_DELAY_LIMIT_SECONDS } from "./fx-timing";
 import { PARAMETER_REGISTRY, setParameters } from "./parameters";
 import { DYNAMIC_META } from "./parameter-spec";
 import { getParameter } from "./parameters";
@@ -1283,13 +1284,15 @@ export class SynthEngine {
     let modulator: Modulator | undefined;
     if (p.modVersion === 2 && p.mods.length && this.combAvailable) {
       const ids = [...new Set(p.mods.filter(r=>targets[r.target]?.params.length && !MOD_TARGETS[r.target].trigger).map(r=>r.target))];
-      modulator = new Modulator(c,p,ids,start,note,velocity,false,note+1);
-      modulator.expression("tempo",this.tempo,start);modulator.expression("wheel",this.modwheel,start);modulator.expression("pressure",this.pressures[track],start);modulator.expression("bend",this.bends[track]/200,start);
-      for (const id of ids) {
-        const output=c.createGain();modulator.connect(id,output);nodes.push(output);
-        if(bindings[id])for(const binding of bindings[id])connectBinding(output,binding.param,binding.weight);
-        else for(const param of targets[id].params)output.connect(param);
-        routeOutputs[id]=[output];if(id==="pitch")pitchModNodes.push(output);
+      if (ids.length) modulator = new Modulator(c,p,ids,start,note,velocity,false,note+1);
+      if (modulator) {
+        modulator.expression("tempo",this.tempo,start);modulator.expression("wheel",this.modwheel,start);modulator.expression("pressure",this.pressures[track],start);modulator.expression("bend",this.bends[track]/200,start);
+        for (const id of ids) {
+          const output=c.createGain();modulator.connect(id,output);nodes.push(output);
+          if(bindings[id])for(const binding of bindings[id])connectBinding(output,binding.param,binding.weight);
+          else for(const param of targets[id].params)output.connect(param);
+          routeOutputs[id]=[output];if(id==="pitch")pitchModNodes.push(output);
+        }
       }
     } else {
     for (const mod of p.mods) {
@@ -1884,8 +1887,8 @@ function effectTail(patch: Patch,tempo:number) {
     if(upper(id("mix"))<=0)continue;
     const seconds=upper(id("sync"))>=.5?60/tempo*upper(id("division")):upper(id("time"));
     const right=mode==="pingpong"?(upper(id("sync"))>=.5?60/tempo*upper(id("rightDivision")):upper(id("rightTime"))):mode==="digital"?Math.abs(upper(id("stereoOffset"))):0;
-    const time=Math.min(16,Math.max(seconds+(mode==="digital"?right:0),right)+.006);
-    delay=Math.max(delay,delayTail(time,Math.min(.92,upper(id("feedback"))))+(mode==="multitap"?Math.min(16,time*upper(id("spacing"))*2):0));
+    const time=Math.min(FX_DELAY_LIMIT_SECONDS,Math.max(seconds+(mode==="digital"?right:0),right)+.006);
+    delay=Math.max(delay,delayTail(time,Math.min(.92,upper(id("feedback"))))+(mode==="multitap"?Math.min(FX_DELAY_LIMIT_SECONDS,time*upper(id("spacing"))*2):0));
   }
   if(enabled("reverbMode"))for(const mode of modes("reverbMode")){
     const id=(key:string)=>`fx.reverbMode.${mode}.${key}`;
