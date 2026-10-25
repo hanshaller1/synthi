@@ -5,6 +5,7 @@ import type { FxSlot, Modulation, Numbers, Param, Patch } from "./model";
 export type ParameterMeta = {
   label:string; group:string; trigger:boolean; min:number; max:number; default:number;
   scale:"linear"|"log"; scope:"voice"|"fx"|"generator";
+  evaluation?:"grain";
   options?: readonly {value:number;label:string}[]; canonical?:string; slot?:FxSlot; variant?:string; key?:string;
 };
 const dynamic: Record<string,ParameterMeta> = {};

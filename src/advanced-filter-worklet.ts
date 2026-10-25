@@ -24,8 +24,9 @@ class PhaseAdvancedFilter extends AudioWorkletProcessor {
     this.core = new phaseFilterDsp.Core(sampleRate, phaseFilterDsp.isOversampled(this.settings));
     this.keys = PhaseAdvancedFilter.parameterDescriptors.map((p) => p.name);
     this.varying = [];
-    this.active = true;
+    this.active = true;this.reporting=false;this.frames=0;
     this.port.onmessage = ({data}) => {
+      if(data?.type==='telemetry'){this.reporting=data.enabled;this.frames=0;}
       if(data==='reset') this.core.reset();
       if(data==='dispose') { this.active=false; this.port.close(); }
     };
@@ -44,6 +45,10 @@ class PhaseAdvancedFilter extends AudioWorkletProcessor {
         output[ch][i]=this.core.channel(x,Math.min(ch,1));
       }
       this.core.position=(this.core.position+1)&this.core.mask;
+    }
+    this.frames+=output[0].length;
+    if(this.reporting&&this.frames>=sampleRate/30){this.frames%=sampleRate/30;
+      this.port.postMessage({time:(currentFrame+output[0].length-1)/sampleRate,frequencies:this.settings.type==='comb'?this.core.combHz.slice():[this.core.lastHz],kind:'advanced',mix:this.settings.filterMix,note:this.settings.note});
     }
     return true;
   }

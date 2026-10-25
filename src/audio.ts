@@ -1,5 +1,5 @@
 import { NativeModulationMeter } from "./modulation-meter";
-import type { ModulationReadings } from "./modulation-display";
+import type { ModulationReadings, FilterModulationReading, GrainModulationReading } from "./modulation-display";
 import type { ModulationReading } from "./modulation-worklet";
 import { Modulator, ControlPlanner } from "./modulation-worklet";
 import { controlFrame } from "./lfo-phase";
@@ -10,7 +10,8 @@ import { DYNAMIC_META } from "./parameter-spec";
 import { getParameter } from "./parameters";
 import { EngineSource } from "./engine-worklet";
 import { ENGINE_KEYS, engineOwner, needsEngineWorklet, sampleRegion, sampleSliceSelection } from "./engine-config";
-import { grainEnvelope, quantizeGrain, GRAIN_BEATS } from "./grain-tools";
+import type { GrainControl } from "./grain-tools";
+import { grainEnvelope, quantizeGrain, GRAIN_BEATS, GRAIN_CONTROL_SET, GRAIN_CLOCK_CONTROLS } from "./grain-tools";
 import { FILTER_KEYS, FILTER_TARGETS, filterAdsrAt, filterAdsrReleaseAt, filterCurve, filterFrequencyAt, filterReleaseFrequencyAt, filterLevels, needsAdvancedFilter } from "./filter-config";
 import { FmSource } from "./fm-worklet";
 import { FM_KEYS, FM_TARGETS, migrateFmLocks } from "./fm-config";
@@ -70,9 +71,10 @@ type Voice = {
   modwheelParams: AudioParam[];
   modulator?: Modulator;
   control?: ControlPlanner;
+  filterEnvelope: Patch;
   modulationPatch: Patch;
   sampledModulation: ModulationReading;
-  grainReadings: ModulationReading[];
+  grainReadings: Map<AudioBufferSourceNode,GrainModulationReading>;
   nativeReading: () => ModulationReading | undefined;
   setModulationReporting: (enabled:boolean) => void;
   updateModulationMeter: (at:number) => void;
@@ -89,6 +91,7 @@ type Bus = EffectRack & {
   pan: StereoPannerNode;
   paraStart: number;
   paraPatch: Patch | null;
+  paraVelocity:number;
 };
 const EPS = 0.00001;
 const NOISE_GAIN = 0.1;
@@ -287,6 +290,7 @@ export class SynthEngine {
       pan,
       paraStart: 0,
       paraPatch: null as Patch | null,
+      paraVelocity:1,
     });
   }
   update(project: Project) {
@@ -448,6 +452,7 @@ export class SynthEngine {
           this.buses[t.id].setLfoClock(clock);
         }
         this.buses[t.id].prepareEffects(t.patch,project.tempo);
+        this.buses[t.id].paraFilter.setReporting(this.observedModulationTrack===t.id,this.clockSink);
       }
     }
     if (!this.filtersReady) {
@@ -475,7 +480,7 @@ export class SynthEngine {
       voice.cleanupTimer = undefined;
     }
     for(const timer of voice.grainTimers)window.clearInterval(timer);voice.grainTimers.length=0;
-    voice.setModulationReporting(false);voice.modulator?.dispose();voice.control?.dispose();
+    voice.setModulationReporting(false);voice.grainReadings.clear();voice.modulator?.dispose();voice.control?.dispose();
     voice.filter.dispose();
     for (const source of voice.sources) {
       try {
@@ -649,7 +654,7 @@ export class SynthEngine {
       bus.paraFilter.Q.setValueAtTime(p.resonance, start);
       if (!held.length) {
         bus.paraStart = start;
-        bus.paraPatch = envelopePatch;
+        bus.paraPatch = envelopePatch;bus.paraVelocity=velocity;
         bus.paraAmp.gain.cancelScheduledValues(start);
         scheduleEnvelope(bus.paraAmp.gain, env, start, 1);
         bus.paraFilter.frequency.cancelScheduledValues(start);
@@ -720,14 +725,14 @@ export class SynthEngine {
       for (const output of routeOutputs[key] ?? []) connectBinding(output, param, weight);
     };
     const routed = (key: string) => p.mods.some((m) => m.target === key && m.amount !== 0);
-    const grainReadings:ModulationReading[]=[];
+    const grainReadings=new Map<AudioBufferSourceNode,GrainModulationReading>();
+    const grainTargets=new Set(p.mods.filter(r=>r.amount&&GRAIN_CONTROL_SET.has(r.target)).map(r=>r.target));
+    const captureGrains=c instanceof AudioContext&&grainTargets.size>0;
+    let grainSerial=0;
     let grainReading:ModulationReading|undefined;
-    const numberAt = (key: Param, at: number) => {
+    const numberAt = (key: GrainControl, at: number) => {
       const value=modulatedNumber(p,key,at,start,note,velocity,this.modwheel,this.tempo,modulationRelease,{pressure:this.pressures[track],pitchbend:this.bends[track]/200,seed:attackSeed,control:control?.snapshot.bind(control)});
-      if(c instanceof AudioContext&&this.observedModulationTrack===track&&p.mods.some(r=>r.amount&&r.target===key)){
-        if(!grainReading||grainReading.time!==at){grainReading={values:{},bases:{},sources:{},time:at};grainReadings.push(grainReading);}
-        grainReading.values[key]=value;grainReading.bases![key]=getParameter(p,key);
-      }
+      if(grainReading&&grainTargets.has(key)){grainReading.values[key]=value;grainReading.bases![key]=getParameter(p,key);}
       return value;
     };
     if (!(driveProcessor instanceof WaveShaperNode))
@@ -1118,7 +1123,7 @@ export class SynthEngine {
           // Live clouds are replenished with a short lookahead, without accumulating ended grains.
           let cursor = start, scanOffset = 0, scanAt = start;
           let deadline=duration===undefined?Infinity:start+Math.max(1/c.sampleRate,duration)+p.release;
-          type GrainPlan = { offset: number; length: number; rate: number; reverse: boolean; pan: number; shape: number; attack: number; release: number; window: number; amplitude: number; end: number };
+          type GrainPlan = { offset: number; length: number; rate: number; reverse: boolean; pan: number; shape: number; attack: number; release: number; window: number; amplitude: number; end: number; controls?:ModulationReading };
           let recent: GrainPlan[] = [], frozen: GrainPlan[] = [], freezeIndex = 0, wasFrozen = false;
           const motionPhase = Math.random() * Math.PI * 2;
           const scheduleGrains = (until: number) => {
@@ -1128,6 +1133,7 @@ export class SynthEngine {
               const at = cursor,
                 source = c.createBufferSource(),
                 window = c.createGain();
+              grainReading=captureGrains?{values:{},bases:{},sources:{},time:at}:undefined;
               const sync = numberAt("grainSync", at) >= .5;
               const density = sync ? Math.min(128, this.tempo / 60 / GRAIN_BEATS[Math.round(numberAt("grainSyncDivision", at))]) : numberAt("grainDensity", at);
               const freeze = numberAt("grainFreeze", at) >= .5;
@@ -1149,6 +1155,17 @@ export class SynthEngine {
                 shape: Math.round(numberAt("grainWindowShape",at)), attack: numberAt("grainAttack",at), release: numberAt("grainRelease",at), window: numberAt("grainWindow",at),
                 amplitude: .75 / Math.sqrt(Math.max(1, density * proposedLength)), end: at + proposedLength,
               };
+              if(captureGrains){
+                // Freeze reuses the audible grain's controls, rather than the
+                // freshly calculated proposal that was discarded by the planner.
+                const selected=frozen.length?plan.controls:grainReading;
+                const values={...selected?.values},bases={...selected?.bases};
+                for(const key of GRAIN_CLOCK_CONTROLS){
+                  delete values[key];delete bases[key];
+                  if(grainReading?.values[key]!==undefined){values[key]=grainReading.values[key];bases[key]=grainReading.bases![key];}
+                }
+                plan.controls={values,bases,sources:{},time:at};
+              }
               if (!freeze || !frozen.length) { recent = recent.filter((g) => g.end > at); recent.push(plan); if (freeze) frozen = [plan]; }
               const { length, offset } = plan;
               source.buffer = plan.reverse ? this.reverse(sample) : sample;
@@ -1171,7 +1188,9 @@ export class SynthEngine {
               const stop=Math.min(at+length,c instanceof OfflineAudioContext?voice.end:grainVoiceEnd);
               source.stop(stop);
               fixedEnds.set(source,stop);
+              if(plan.controls)grainReadings.set(source,{id:++grainSerial,start:at,end:stop,frozen:freeze,reading:plan.controls});
               source.onended = () => {
+                grainReadings.delete(source);
                 source.disconnect();
                 fixedEnds.delete(source);
                 window.disconnect();
@@ -1371,12 +1390,12 @@ export class SynthEngine {
     const triggerIds=[...new Set(patch.mods.filter(r=>r.amount&&PARAMETER_REGISTRY[r.target as Param]?.trigger&&!Object.hasOwn(DYNAMIC_META,r.target)).map(r=>r.target))];
     const sampledModulation:ModulationReading={values:Object.fromEntries(triggerIds.map(id=>[id,getParameter(p,id)])),bases:Object.fromEntries(triggerIds.map(id=>[id,getParameter(patch,id)])),sources:{},time:start};
     const voice: Voice = { effectId, modulator, control,
-      modulationPatch:p,sampledModulation,grainReadings,
+      filterEnvelope:envelopePatch,modulationPatch:p,sampledModulation,grainReadings,
       nativeReading:()=>nativeMeter?.reading,
       updateModulationMeter:at=>nativeMeter?.update(meterConfig(),at),
       setModulationReporting:enabled=>{
-        modulator?.setReporting(enabled);
-        if(!enabled){nativeMeter?.dispose();nativeMeter=undefined;grainReadings.length=0;grainReading=undefined;}
+        modulator?.setReporting(enabled);filter.setReporting(enabled,this.clockSink);
+        if(!enabled){nativeMeter?.dispose();nativeMeter=undefined;}
         else if(!modulator&&!nativeMeter&&c instanceof AudioContext&&this.combAvailable&&this.clockSink){
           const config=meterConfig();if(config.length)nativeMeter=new NativeModulationMeter(c,config,meterOutputs(),this.clockSink);
         }
@@ -1668,23 +1687,36 @@ export class SynthEngine {
     if(this.observedModulationTrack===track||this.disposed&&track!==null)return;
     this.observedModulationTrack=track;
     for(const [id,clock]of this.lfoClocks)clock.setReporting(id===track);
-    for(let id=0;id<this.buses.length;id++)this.buses[id].setModulationReporting(id===track);
+    for(let id=0;id<this.buses.length;id++){this.buses[id].setModulationReporting(id===track);this.buses[id].paraFilter.setReporting(id===track,this.clockSink);}
     for(const voice of this.voices)voice.setModulationReporting(voice.track===track);
   }
   releaseModulationReading(track:number){if(this.observedModulationTrack===track)this.observeModulation(null);}
   modulationReading(track:number):ModulationReadings{
     this.observeModulation(track);
     const now=this.context.currentTime;
-    if(this.disposed||this.context.state==="closed")return {time:now,running:false,voices:[]};
-    const voices=this.voices.filter(v=>v.track===track&&v.time<=now&&v.end>now).map(v=>{
+    if(this.disposed||this.context.state==="closed")return {time:now,running:false,voices:[],filters:[],sampleRate:this.context.sampleRate};
+    const active=this.voices.filter(v=>v.track===track&&v.time<=now&&v.end>now);
+    const filters:FilterModulationReading[]=[];
+    const appendFilter=(filter:VoiceFilter,patch:Patch,env:Patch,velocity:number,at:number,voice?:number,note?:number)=>{
+      const levels=filterLevels(env);
+      for(const {branch,reading}of filter.readings)if(reading.time>=at)
+        filters.push({reading,branch,voice,note:reading.note??note,patch,velocity,velocityScale:1-env.filterVelocity*(1-velocity),base:env.cutoff,depth:env.filterAmount,low:Math.min(levels.base,levels.peak,levels.sustain),high:Math.max(levels.base,levels.peak,levels.sustain)});
+    };
+    for(const v of active)if(v.patch.voiceMode!=="para")appendFilter(v.filter,v.modulationPatch,v.filterEnvelope,v.velocity,v.time,v.effectId,v.note);
+    const para=active.filter(v=>v.patch.voiceMode==="para"),bus=this.buses[track];
+    if(para.length)appendFilter(bus.paraFilter,para.at(-1)!.modulationPatch,bus.paraPatch??para[0].filterEnvelope,bus.paraVelocity,bus.paraStart);
+    const voices=active.map(v=>{
       v.updateModulationMeter(now);
-      v.grainReadings.sort((a,b)=>a.time-b.time);
-      const grains=v.grainReadings.filter(r=>r.time<=now).at(-1);
-      while(v.grainReadings.length>1&&v.grainReadings[1].time<=now)v.grainReadings.shift();
+      const grains:GrainModulationReading[]=[];
+      for(const [source,grain]of v.grainReadings){
+        const end=Math.min(grain.end,v.end);
+        if(end<=now){v.grainReadings.delete(source);continue;}
+        if(grain.start<=now)grains.push({...grain,end});
+      }
       const actual=v.modulator?.reading??v.nativeReading();
       return {id:v.effectId,note:v.note,released:v.releaseAt<=now,patch:v.modulationPatch,sampledPatch:v.basePatch,reading:actual&&actual.time>=v.time?actual:undefined,sampled:v.sampledModulation,grains};
     });
-    return {time:now,running:this.context.state==="running",voices,clock:this.lfoClocks.get(track)?.reading,fx:this.buses[track].effectReading};
+    return {time:now,running:this.context.state==="running",voices,filters,sampleRate:this.context.sampleRate,clock:this.lfoClocks.get(track)?.reading,fx:this.buses[track].effectReading};
   }
   panic(track?: number) {
     for(const [id,clock]of this.lfoClocks)if(track===undefined||id===track){clock.panic(this.context.currentTime);}

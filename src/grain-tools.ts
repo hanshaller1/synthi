@@ -1,3 +1,10 @@
+import type { Param } from "./model";
+/** Authoritative list of controls consumed by the grain planner. It also marks
+ * their registry evaluation scope, so the UI never falls back to a note value. */
+export const GRAIN_CONTROLS=["grainSync","grainSyncDivision","grainDensity","grainFreeze","grainScan","grainPitch","grainQuantize","grainScaleRoot","grainSize","position","spread","grainReverse","grainPan","grainMotionRate","grainStereoMotion","grainDrift","grainWindowShape","grainAttack","grainRelease","grainWindow"] as const satisfies readonly Param[];
+export type GrainControl=(typeof GRAIN_CONTROLS)[number];
+export const GRAIN_CONTROL_SET:ReadonlySet<string>=new Set(GRAIN_CONTROLS);
+export const GRAIN_CLOCK_CONTROLS=["grainSync","grainSyncDivision","grainDensity","grainFreeze","grainScan"] as const;
 // Grain divisions in quarter-note beats. The scheduler uses the project clock.
 export const GRAIN_BEATS = [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8];
 export function quantizeGrain(note: number, mode: number, root: number) {

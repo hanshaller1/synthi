@@ -1,3 +1,4 @@
+import { GRAIN_CONTROL_SET } from "./grain-tools";
 import { FX_PARAMETERS, FX_PARAMETER_META } from "./fx-spec";
 import { PARAMS, MOD_TARGETS } from "./model";
 import type { Modulation, Numbers, Param, Patch } from "./model";
@@ -9,6 +10,7 @@ export const PARAMETER_REGISTRY = Object.fromEntries(Object.entries(PARAMS).map(
   const target=MOD_TARGETS[id as Param];
   const scale=FX_PARAMETER_META[id]?.log||min>0&&max/min>=100?"log":"linear";
   const meta:ParameterMeta=DYNAMIC_META[id as keyof typeof DYNAMIC_META]??{min,max,default:fallback,label:FX_PARAMETER_META[id]?.label??target.label,group:FX_PARAMETER_META[id]?.group??target.group,trigger:target.trigger,scale,scope:FX_PARAMETERS.has(id as Param)?"fx":/^(macro|random|modEnv)/.test(id)?"generator":"voice"};
+  if(GRAIN_CONTROL_SET.has(id))return [id,{...meta,evaluation:"grain"}];
   if(meta.canonical){const canonical=PARAMS[meta.canonical as Param];return [id,{...meta,min:canonical[0],max:canonical[1],default:canonical[2],scale:FX_PARAMETER_META[meta.canonical]?.log?"log":"linear"}];}
   return [id,meta];
 })) as Record<Param,ParameterMeta>;

@@ -1,3 +1,5 @@
+import { NativeFilterFrequencyMeter } from "./filter-meter";
+import type { FilterFrequencyReading, NativeFrequencyBounds } from "./filter-meter";
 import { getParameter } from "./parameter-spec";
 import { PARAMS } from "./model";
 import type { Param, Patch } from "./model";
@@ -7,7 +9,7 @@ import { createFilterDsp } from "./filter-dsp";
 import type { FilterDspSettings } from "./filter-dsp";
 
 type Context = AudioContext | OfflineAudioContext;
-type Branch = { input: AudioNode; gain: GainNode; nodes: AudioNode[]; connections: [AudioNode, AudioNode | AudioParam][]; worklet?: AudioWorkletNode };
+type Branch = { input: AudioNode; gain: GainNode; nodes: AudioNode[]; connections: [AudioNode, AudioNode | AudioParam][]; worklet?: AudioWorkletNode; id:number; bounds?:NativeFrequencyBounds; meter?:NativeFilterFrequencyMeter; reading?:FilterFrequencyReading };
 const dsp = createFilterDsp();
 export function filterSettings(p: Patch, note = 60): FilterDspSettings {
   return { ...p, native: !needsAdvancedFilter(p), type: p.filterType, mode: p.multimodeType, character: p.filterCharacter, frequency: p.cutoff, detune: 0, note, polarity: p.combPolarity === "negative" ? -1 : 1 };
@@ -37,6 +39,9 @@ export class VoiceFilter {
   private shape = "";
   private timers = new Set<number>();
   private disposed = false;
+  private reporting=false;
+  private reportSink?:AudioNode;
+  private branchSerial=0;
   private patch?: Patch;
   constructor(private context: Context, private bypass = false) {
     this.input = context.createGain(); this.output = context.createGain();
@@ -48,10 +53,29 @@ export class VoiceFilter {
     this.combDamping = this.sources.combDamping.offset; this.combMix = this.sources.combMix.offset;
     if (bypass) this.input.connect(this.output);
   }
+  setReporting(enabled:boolean,sink?:AudioNode){
+    const reporting=enabled&&!this.bypass&&!this.disposed&&this.context instanceof AudioContext;
+    if(reporting===this.reporting&&(!sink||sink===this.reportSink))return;
+    this.reporting=reporting;if(sink)this.reportSink=sink;
+    for(const branch of this.branches)this.reportBranch(branch);
+  }
+  private reportBranch(branch:Branch){
+    branch.worklet?.port.postMessage({type:"telemetry",enabled:this.reporting});
+    if(!this.reporting){branch.meter?.dispose();branch.meter=undefined;branch.reading=undefined;}
+    else if(!branch.worklet&&!branch.meter&&branch.bounds&&this.reportSink&&this.context instanceof AudioContext)
+      branch.meter=new NativeFilterFrequencyMeter(this.context,branch.bounds,this.sources.frequency,this.sources.detune,this.reportSink);
+  }
+  get readings(){
+    return [...this.branches].flatMap(branch=>{
+      const reading=branch.meter?.reading??branch.reading,gain=branch.gain.gain.value;
+      return reading&&gain>1e-5&&this.context.currentTime-reading.time<=.3?[{branch:branch.id,gain,reading}]:[];
+    });
+  }
   parameter(key: string) { return this.sources[key]?.offset; }
   setNote(note: number, when: number) { this.sources.note.offset.setValueAtTime(note, when); }
   private destroy(branch: Branch) {
     if (!this.branches.delete(branch)) return;
+    branch.meter?.dispose();if(branch.worklet)branch.worklet.port.onmessage=null;
     this.input.disconnect(branch.input);
     branch.worklet?.port.postMessage("dispose");
     for (const [source, target] of branch.connections) {
@@ -71,7 +95,7 @@ export class VoiceFilter {
       if (scale === 1) { if (target instanceof AudioParam) source.connect(target); else source.connect(target); connections.push([source, target]); }
       else { const weight = c.createGain(); weight.gain.value = scale; source.connect(weight); connections.push([source, weight]); if (target instanceof AudioParam) weight.connect(target); else weight.connect(target); nodes.push(weight); }
     };
-    let input: AudioNode, worklet: AudioWorkletNode | undefined;
+    let input: AudioNode, worklet: AudioWorkletNode | undefined,bounds:NativeFrequencyBounds|undefined;
     if (advanced || p.filterType === "comb") {
       if (!c.audioWorklet || typeof AudioWorkletNode === "undefined") throw new Error("Diese Filter benötigen AudioWorklet über HTTPS oder localhost.");
       worklet = new AudioWorkletNode(c, advanced ? "phase-advanced-filter" : "phase-comb-filter", {
@@ -84,6 +108,7 @@ export class VoiceFilter {
       let first: BiquadFilterNode | undefined, last: BiquadFilterNode | undefined;
       for (let i = 0; i < mode.stages; i++) {
         const filter = c.createBiquadFilter(); filter.type = mode.type;
+        bounds??={frequency:[filter.frequency.minValue,filter.frequency.maxValue],detune:[filter.detune.minValue,filter.detune.maxValue]};
         wire("frequency", filter.frequency); wire("detune", filter.detune);
         if (mode.peak) { filter.Q.value = 1.2; wire("filterPeakGain", filter.gain, 1 / mode.stages); }
         else {
@@ -95,7 +120,8 @@ export class VoiceFilter {
       }
       last!.connect(gain); input = first!;
     }
-    const old = this.branch, branch: Branch = { input, gain, nodes, connections, worklet };
+    const old = this.branch, branch: Branch = { input, gain, nodes, connections, worklet, bounds, id:++this.branchSerial };
+    if(worklet)worklet.port.onmessage=({data})=>{if(this.reporting)branch.reading=data;};
     this.input.connect(input); gain.connect(this.output); gain.gain.value = old ? 0 : 1;
     if (old) {
       gain.gain.setValueAtTime(0, when); gain.gain.linearRampToValueAtTime(1, when + .012);
@@ -105,7 +131,7 @@ export class VoiceFilter {
         this.timers.add(timer);
       }
     }
-    this.branches.add(branch); this.branch = branch; this.shape = shape; return true;
+    this.branches.add(branch); this.branch = branch; this.shape = shape;this.reportBranch(branch); return true;
   }
   private controls(p: Patch, when: number, previous?: Patch, scheduled = false, force = false) {
     for (const key of Object.keys(controlDefaults)) {

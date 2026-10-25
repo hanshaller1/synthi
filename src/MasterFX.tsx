@@ -44,6 +44,7 @@ export default function MasterFX({
     log = false,
   ) => (
     <Knob
+      modulation={false}
       key={key}
       defaultValue={makeMasterFx()[key] as number}
       label={label}

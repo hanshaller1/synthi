@@ -1,3 +1,4 @@
+import { filterMeterProcessor } from "./filter-meter";
 import { fxProcessor } from "./fx-worklet";
 import { modulationMeterProcessor } from "./modulation-meter";
 import { modulationProcessor } from "./modulation-worklet";
@@ -32,8 +33,9 @@ class PhaseCombFilter extends AudioWorkletProcessor {
     this.low = [0, 0];
     this.mask = size - 1;
     this.position = 0;
-    this.active = true;
+    this.active = true;this.reporting=false;this.frames=0;
     this.port.onmessage = ({ data }) => {
+      if(data?.type==='telemetry'){this.reporting=data.enabled;this.frames=0;}
       if (data === 'reset') {
         for (const ring of this.rings) ring.fill(0);
         this.low.fill(0);
@@ -52,9 +54,10 @@ class PhaseCombFilter extends AudioWorkletProcessor {
     const input = inputs[0] || [];
     const alpha = 1 - Math.exp(-2 * Math.PI * Math.max(100, Math.min(sampleRate * 0.45, params.damping[0])) / sampleRate);
     const sign = Math.max(-1, Math.min(1, params.polarity[0]));
-    const frequency = params.frequency, feedback = params.feedback, mix = params.mix;
+    const frequency = params.frequency, feedback = params.feedback, mix = params.mix;let lastHz=0;
     for (let i = 0; i < output[0].length; i++) {
       const hz = Math.max(20, Math.min(sampleRate * 0.45, frequency[frequency.length === 1 ? 0 : i] * Math.pow(2, params.detune[params.detune.length === 1 ? 0 : i] / 1200)));
+      lastHz=hz;
       const delay = sampleRate / hz;
       const whole = Math.floor(delay), fraction = delay - whole;
       const first = (this.position - whole) & this.mask, second = (first - 1) & this.mask;
@@ -74,6 +77,10 @@ class PhaseCombFilter extends AudioWorkletProcessor {
       }
       this.position = (this.position + 1) & this.mask;
     }
+    this.frames+=output[0].length;
+    if(this.reporting&&this.frames>=sampleRate/30){this.frames%=sampleRate/30;
+      this.port.postMessage({time:(currentFrame+output[0].length-1)/sampleRate,frequencies:[lastHz],kind:'comb',mix:mix[mix.length===1?0:mix.length-1]});
+    }
     return true;
   }
 }
@@ -86,7 +93,7 @@ export function prepareFilterWorklet(context: Context): Promise<void> {
   // Classic and multimode filters still work in contexts without AudioWorklet.
   if (!context.audioWorklet) return Promise.resolve();
   const url = URL.createObjectURL(
-    new Blob([processor, spectralProcessor, fmProcessor, advancedFilterProcessor, engineProcessor, sampleProcessor, fxProcessor, modulationProcessor, modulationMeterProcessor], { type: "text/javascript" }),
+    new Blob([processor, spectralProcessor, fmProcessor, advancedFilterProcessor, engineProcessor, sampleProcessor, fxProcessor, modulationProcessor, modulationMeterProcessor, filterMeterProcessor], { type: "text/javascript" }),
   );
   const pending = context.audioWorklet
     .addModule(url)

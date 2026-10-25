@@ -1,3 +1,4 @@
+import { PARAMETER_REGISTRY } from "./parameters";
 import { parameterPosition, parameterAt } from "./parameter-scale";
 import { ModulationOverlay } from "./modulation-ui";
 import type { Param } from "./model";
@@ -136,14 +137,24 @@ export function Select({
     </label>
   );
 }
-export function Slider({value,min=0,max=1,step=.01,log=false,power=1,parameterId,onChange,format=percent,onLearn,className="",...input}:Omit<InputHTMLAttributes<HTMLInputElement>,"value"|"min"|"max"|"step"|"type"|"onChange">&{
-  value:number;min?:number;max?:number;step?:number;log?:boolean;power?:number;parameterId?:Param;
+/** Every track parameter is explicitly bound. Non-matrix controls (for
+ * example Master FX) must opt out rather than silently missing an ID. */
+type ParameterBinding = {parameterId:Param;modulation?:never}|{parameterId?:never;modulation:false};
+function checkParameterBinding(id:Param|undefined,modulation:false|undefined){
+  if(id===undefined){if(modulation!==false)throw new Error("Knob/Slider benötigt eine registrierte parameterId oder modulation={false}.");}
+  else {if(modulation===false)throw new Error("Registrierte Parameter dürfen die Modulationsbindung nicht deaktivieren.");if(!Object.hasOwn(PARAMETER_REGISTRY,id))throw new Error(`Unregistrierte Regler-Parameter-ID: ${id}`);}
+  return id===undefined?undefined:PARAMETER_REGISTRY[id];
+}
+export function Slider({value,min:givenMin,max:givenMax,step=.01,log:givenLog,power=1,parameterId,modulation,onChange,format=percent,onLearn,className="",...input}:Omit<InputHTMLAttributes<HTMLInputElement>,"value"|"min"|"max"|"step"|"type"|"onChange">&ParameterBinding&{
+  value:number;min?:number;max?:number;step?:number;log?:boolean;power?:number;
   onChange:(value:number)=>void;format?:(value:number)=>string;onLearn?:()=>void;
 }){
+  const meta=checkParameterBinding(parameterId,modulation);
+  const min=givenMin??meta?.min??0,max=givenMax??meta?.max??1,log=givenLog??(meta?.scale==="log");
   const scale={min,max,log,power},nonlinear=log&&min>0||power!==1;
-  const label=input["aria-label"]??parameterId??"Parameter";
+  const label=input["aria-label"]??meta?.label??"Parameter";
   const title=input.title??`${label}: ${format(value)}${onLearn?" · Rechtsklick: MIDI Learn":""}`;
-  return <span className={`parameter-slider ${className}`}>
+  return <span className={`parameter-slider ${className}`} data-parameter-id={parameterId}>
     <input {...input} type="range" min={nonlinear?0:min} max={nonlinear?1:max} step={nonlinear ? .001 : step>0 ? step : "any"} value={nonlinear?parameterPosition(value,scale):value}
       aria-valuemin={min} aria-valuemax={max} aria-valuenow={value} aria-valuetext={format(value)} title={title}
       onContextMenu={onLearn?e=>{e.preventDefault();onLearn();}:input.onContextMenu}
@@ -154,21 +165,22 @@ export function Slider({value,min=0,max=1,step=.01,log=false,power=1,parameterId
 export function Knob({
   label,
   value,
-  min = 0,
-  max = 1,
+  min:givenMin,
+  max:givenMax,
   onChange,
   format = percent,
-  log = false,
+  log:givenLog,
   power = 1,
   step,
-  defaultValue,
+  defaultValue:givenDefault,
   minLabel,
   maxLabel,
   locked = false,
   onLearn,
   onEdit,
   parameterId,
-}: {
+  modulation,
+}: ParameterBinding & {
   label: string;
   value: number;
   min?: number;
@@ -184,8 +196,9 @@ export function Knob({
   locked?: boolean;
   onLearn?: () => void;
   onEdit?: () => void;
-  parameterId?: Param;
 }) {
+  const meta=checkParameterBinding(parameterId,modulation);
+  const min=givenMin??meta?.min??0,max=givenMax??meta?.max??1,log=givenLog??(meta?.scale==="log"),defaultValue=givenDefault??meta?.default;
   const scale={min,max,log,power};
   const drag = useRef<{ y: number; x: number; value: number } | null>(null);
   const normalized=parameterPosition(value,scale);
@@ -197,7 +210,7 @@ export function Knob({
   };
   const angle = -135 + clamp(normalized, 0, 1) * 270;
   return (
-    <div className={`knob-control ${locked ? "locked" : ""}`}>
+    <div className={`knob-control ${locked ? "locked" : ""}`} data-parameter-id={parameterId}>
       <div
         className="knob"
         role="slider"

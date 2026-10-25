@@ -65,7 +65,7 @@ function displayPoints(points:ModulationPoint[]){
 }
 function tooltip(state:ControlModulation,base:number,format:(v:number)=>string){
   const points=displayPoints(state.points).map(p=>`${p.label}: ${format(p.value)} (Basis ${format(p.base)})`);
-  return `Basis: ${format(base)}\nTheoretischer Modulationsbereich: ${format(state.min)} … ${format(state.max)}\n${state.routes.join("\n")}\n${points.length?`DSP-/Audio-Werte${state.voices>1?` · ${state.voices} Stimmen`:""}:\n${points.join("\n")}${state.points.length>32?`\nWeitere ${state.points.length-32} Stimmen; Live-Spanne umfasst alle Werte`:""}`:"Kein aktueller DSP-Wert · Bereichsvorschau"}`;
+  return `Basis: ${format(base)}\nTheoretischer Modulationsbereich: ${format(state.min)} … ${format(state.max)}\n${state.routes.join("\n")}\n${points.length?`DSP-/Audio-Werte${state.voices?` · ${state.voices} ${state.voices===1?"Stimme":"Stimmen"}`:""}${state.grains?` · ${state.grains} klingende Grains`:""}:\n${points.join("\n")}${state.points.length>32?`\nWeitere ${state.points.length-32} Werte; Live-Spanne umfasst alle Werte`:""}`:"Kein aktueller DSP-Wert · Bereichsvorschau"}`;
 }
 /** Only this SVG layer is painted at frame rate. Native/base controls and their
  * handlers remain React-controlled; the audio code never calls React setters. */
@@ -105,7 +105,7 @@ export function ModulationOverlay({id,base,scale,kind,format,baseTitle}:{
         }else{set(dot,"x1",String(value*100));set(dot,"x2",String(value*100));}
         set(dot,"data-sampled",String(p.sampled));set(dot,"stroke",VOICE_COLORS[(p.voice??0)%VOICE_COLORS.length]);
       }
-      if(badge.current){badge.current.hidden=state.voices<2;badge.current.textContent=`×${state.voices}`;}
+      if(badge.current){badge.current.hidden=state.voices<2&&!state.grains;badge.current.textContent=state.grains?`×${state.grains}G`:`×${state.voices}`;}
       if(host.matches(":hover")||document.activeElement===host)describe();
     };
     host.addEventListener("pointerenter",describe);host.addEventListener("focus",describe);
