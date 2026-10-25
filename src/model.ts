@@ -56,6 +56,7 @@ export type Lfo = {
   shape: LfoShape;
   mode: LfoMode;
   legacyTriggerMod?:boolean;
+  randomRepeat?:number;
   rate: number;
   sync: boolean;
   division: number;
@@ -1182,6 +1183,7 @@ export function sanitizePatch(value: unknown): Patch {
           ? (v.mode as LfoMode)
           : "free",
         legacyTriggerMod:v.legacyTriggerMod===true,
+        randomRepeat:Math.round(num(v.randomRepeat,0,1,0)),
         rate: num(v.rate, 0.02, 30, l.rate),
         sync: v.sync === true,
         division: num(v.division, 1/24, 16, 4),
@@ -1318,7 +1320,7 @@ export function sanitizeProject(value: unknown): Project {
   const p = makeProject();
   p.name = typeof value.name === "string" ? value.name.slice(0, 80) : p.name;
   p.tempo = num(value.tempo, 40, 240, 118);
-  p.swing = num(value.swing, 0, 0.6, 0);
+  p.swing = num(value.swing, 0, 1, 0);
   p.swingResolution = value.swingResolution === 8 ? 8 : 16;
   p.master = num(value.master, 0, 1, 0.7);
   if (isRecord(value.masterFx)) {
@@ -1386,7 +1388,7 @@ export function sanitizeProject(value: unknown): Project {
         const item = (v.patterns as unknown[])[j];
         if (!isRecord(item)) return pat;
         pat.swingMode = item.swingMode === "custom" || item.swingMode === "off" ? item.swingMode : "global";
-        pat.swing = num(item.swing, 0, 0.6, p.swing);
+        pat.swing = num(item.swing, 0, 1, p.swing);
         pat.swingResolution = item.swingResolution === 8 ? 8 : 16;
         pat.length = Math.round(num(item.length, 1, MAX_STEPS, 16));
         pat.division = [8, 16, 32].includes(Number(item.division))
@@ -1414,7 +1416,7 @@ export function sanitizeProject(value: unknown): Project {
           const saved = item.pianoBackup;
           pat.pianoBackup = {
             swingMode:saved.swingMode === "custom" || saved.swingMode === "off" || saved.swingMode === "global"?saved.swingMode:pat.swingMode,
-            swing:num(saved.swing,0,.6,pat.swing),swingResolution:saved.swingResolution === 8?8:saved.swingResolution === 16?16:pat.swingResolution,
+            swing:num(saved.swing,0,1,pat.swing),swingResolution:saved.swingResolution === 8?8:saved.swingResolution === 16?16:pat.swingResolution,
             notes: sanitizeNotes(saved.notes,legacyLfos), steps: sanitizeSteps(saved.steps,legacyLfos),
             length: Math.round(num(saved.length, 1, MAX_STEPS, pat.length)),
             division: [8, 16, 32].includes(Number(saved.division)) ? Number(saved.division) : pat.division,

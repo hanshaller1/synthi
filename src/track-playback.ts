@@ -1,7 +1,7 @@
 import { SynthEngine, lockedPatch } from "./audio";
 import { clamp, makeStep, pianoRange, shouldTrigger } from "./model";
 import type { Pattern, PianoNote, Project } from "./model";
-import { effectiveSwing, swingOffset } from "./swing";
+import { effectiveSwing, swingOffset, triggerEventOrder } from "./swing";
 import type { Swing } from "./swing";
 
 export type TrackPlaybackState = { track: number; state: "stopped" | "playing" | "paused" };
@@ -9,7 +9,7 @@ type Segment = {
   at: number; from: number; end: number; unit: number; cycle: number; absolute: number;
   emitted: Set<string>; chances: Map<string, boolean>;
 };
-type Event = { at: number; gate: number; note?: PianoNote; segment: Segment; key: string };
+type Event = { at: number; nominalAt?:number; gate: number; note?: PianoNote; segment: Segment; key: string };
 
 /** Independent forward timeline playback. Project mute/solo values stay untouched. */
 export class TrackPlayback {
@@ -82,17 +82,17 @@ export class TrackPlayback {
       const group = n.group ?? n.id;
       if (!s.chances.has(group)) s.chances.set(group, Math.random() < n.probability);
       if (!s.chances.get(group)) continue;
-      const start = n.start + n.micro + swingOffset(s.absolute + n.start - s.from, pattern.division, this.swing);
+      const start = n.start + n.micro + swingOffset(s.absolute + n.start - s.from + n.micro, pattern.division, this.swing);
       const end = Math.min(s.end, start + n.duration), clipped = Math.max(s.from, start);
       if (end <= clipped) continue;
       const at = s.at + (clipped - s.from) * s.unit;
       // A newly recorded note is already sounding live; do not echo it on this pass.
       if (at <= skipBefore) { s.emitted.add(key); continue; }
-      this.pending.push({ key, segment: s, at, gate: (end - clipped) * s.unit, note: n });
+      this.pending.push({ key, segment: s, at, nominalAt:s.at+(n.start+n.micro-s.from)*s.unit, gate: (end - clipped) * s.unit, note: n });
     }
   }
   private sortEvents() {
-    this.pending.sort((a, b) => a.at - b.at || Number(!!a.note) - Number(!!b.note));
+    this.pending.sort((a,b)=>triggerEventOrder(a,b,this.engine.context.sampleRate));
   }
   private rebase(step: number, absolute: number, cycle: number) {
     const p = this.getProject(), pattern = p.tracks[this.track].patterns[this.patternIndex], range = pianoRange(pattern);
@@ -130,7 +130,7 @@ export class TrackPlayback {
       this.rebase(range.start, last.absolute + last.end - last.from, last.cycle + 1);
       last = this.segments[this.segments.length - 1];
     }
-    while (range.loop && endTime(last) < now + .12) {
+    while (range.loop && endTime(last) < now + .12 + 1/this.engine.context.sampleRate) {
       last = this.segment(range.start, endTime(last), last.cycle + 1, last.absolute + last.end - last.from);
     }
     this.sortEvents();

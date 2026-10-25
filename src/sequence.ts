@@ -76,6 +76,7 @@ export function notesToSteps(pattern: Pattern): { steps?: Step[]; reason?: strin
 }
 
 export type SequenceNote = {
+  nominalOffset: number;
   note: number; velocity: number; offset: number; duration: number;
   locks: Partial<Numbers>;
 };
@@ -85,12 +86,12 @@ export type ChanceState = Map<string, { cycle: number; trigger: boolean }>;
 export function sequenceFrame(track: Track, pattern: Pattern, position: number, swing: Swing, fill: boolean, chance: ChanceState): SequenceFrame {
   if (track.mode === "step" || matchesSteps(pattern)) {
     const { index, span, advance, cycle, trigger } = playbackStep(pattern, position);
-    const s = pattern.steps[index], offset = swingOffset(position, pattern.division, swing) + s.micro * span;
+    const s = pattern.steps[index], offset = swingOffset(position + s.micro * span, pattern.division, swing) + s.micro * span;
     const notes: SequenceNote[] = [];
     if (trigger && shouldTrigger(s, cycle, fill))
       for (let r = 0; r < s.retrig; r++) for (const off of CHORDS[s.chord])
         notes.push({ note: clamp(s.note + off, 0, 127), velocity: s.velocity,
-          offset: swingOffset(position + r * span / s.retrig, pattern.division, swing) + s.micro * span + r * span / s.retrig, duration: span * s.gate / s.retrig, locks: s.locks });
+          nominalOffset:s.micro*span+r*span/s.retrig,offset: swingOffset(position + s.micro * span + r * span / s.retrig, pattern.division, swing) + s.micro * span + r * span / s.retrig, duration: span * s.gate / s.retrig, locks: s.locks });
     return { index, cycle, advance, offset, notes, trigger };
   }
   const cycleLength = pattern.direction === "pingpong" ? Math.max(1, pattern.length * 2 - 2) : pattern.length;
@@ -107,7 +108,7 @@ export function sequenceFrame(track: Track, pattern: Pattern, position: number, 
       if (n.group) chance.set(key, { cycle, trigger });
     }
     if (trigger) notes.push({ note: n.note, velocity: n.velocity,
-      offset: swingOffset(position + n.start - index, pattern.division, swing) + n.start - index + n.micro, duration: n.duration, locks: n.locks });
+      nominalOffset:n.start-index+n.micro,offset: swingOffset(position + n.start - index + n.micro, pattern.division, swing) + n.start - index + n.micro, duration: n.duration, locks: n.locks });
   }
   return { index, cycle, advance: 1, offset, notes, trigger: true };
 }
@@ -123,7 +124,7 @@ export function migrateToSteps(pattern: Pattern, swing: Swing = {amount:0,resolu
     const group = buckets.get(slot) ?? []; group.push(n); buckets.set(slot, group);
   }
   const occupied = [...buckets.keys()].sort((a, b) => a - b);
-  const heardStart = (n: PianoNote) => n.start + n.micro + swingOffset(n.start, pattern.division, swing);
+  const heardStart = (n: PianoNote) => n.start + n.micro + swingOffset(n.start + n.micro, pattern.division, swing);
   for (const [slot, notes] of buckets) {
     // Choose a supported subset, never invent missing chord tones. Prefer more
     // retained notes, then stronger notes. Duplicated unisons remain one trigger.
@@ -139,8 +140,8 @@ export function migrateToSteps(pattern: Pattern, swing: Swing = {amount:0,resolu
     const boundary = slot < pattern.length ? pattern.length : MAX_STEPS;
     const available = Math.min(next - slot, boundary - slot);
     const options = STEP_SPANS.filter((span) => Math.ceil(span) <= available).map((span) => {
-      const offset = swingOffset(slot, pattern.division, swing);
-      const micro = clamp((heardStart(lead) - slot - offset) / span, -.45, .45);
+      const micro = clamp((lead.start + lead.micro - slot) / span, -.45, .45);
+      const offset = swingOffset(slot + micro * span, pattern.division, swing);
       const gate = clamp(lead.duration / span, .05, 4);
       const error = Math.abs(slot + offset + micro * span - heardStart(lead)) * 4 + Math.abs(gate * span - lead.duration);
       return { span, gate, micro, offset, error };

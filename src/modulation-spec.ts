@@ -38,6 +38,7 @@ export const LFO_FIELDS = {
   polarity: {min:0,max:1,default:0,label:"Polarity",options:[{value:0,label:"Bipolar"},{value:1,label:"Unipolar"}],event:true},
   shape: {min:0,max:7,default:0,label:"Waveform",options:LFO_SHAPES.map((label,value)=>({label,value})),event:true},
   mode: {min:0,max:4,default:0,label:"Trigger mode",options:LFO_MODES.map((id,value)=>({label:id.toUpperCase(),value})),event:true},
+  randomRepeat: {min:0,max:1,default:0,label:"Random sequence",options:[{value:0,label:"NEW · per Note-On"},{value:1,label:"REPEAT · reproducible"}],event:true},
   sync: {min:0,max:1,default:0,label:"Tempo sync",options:[{value:0,label:"Hz"},{value:1,label:"Sync"}],event:true},
 } as const;
 export type LfoField = keyof typeof LFO_FIELDS;

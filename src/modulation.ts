@@ -1,17 +1,17 @@
 import { ENGINE_DISCRETE, sampleSliceSelection } from "./engine-config";
 import { FILTER_DISCRETE, LEGACY_MULTIMODE_TYPES, filterAdsrAt, filterAdsrReleaseAt } from "./filter-config";
 import { FM_ALGORITHMS } from "./fm-config";
-import { lfoNoise, lfoSnapshot, lfoValue } from "./lfo";
+import { lfoNoise, lfoValue } from "./lfo";
 import { ampEnvelope, modulationEnvelope } from "./modulation-math";
 import { MOD_TARGETS, PARAMS, MULTIMODE_FILTERS, clamp } from "./model";
 import type { ModSource, ModTarget, Param, Patch } from "./model";
 import { GRANULAR_SAMPLES, SAMPLER_SAMPLES } from "./catalog";
 import { DYNAMIC_META, getParameter, isDynamicParameter, setParameters } from "./parameter-spec";
 import { PARAMETER_REGISTRY, modulationValue, routeCurve } from "./parameters";
-import { LFO_FIELDS } from "./modulation-spec";
 const choices={wave:["sine","triangle","sawtooth","square"],wave2:["sine","triangle","sawtooth","square"],fmAlgorithm:FM_ALGORITHMS.map(a=>a.id),excitation:["noise","pick","bow"],filterType:["lowpass","highpass","bandpass","notch","multimode","comb"],multimodeType:MULTIMODE_FILTERS.map(m=>m.id),combPolarity:["positive","negative"],sampleId:SAMPLER_SAMPLES.map(s=>s.id),grainSampleId:GRANULAR_SAMPLES.map(s=>s.id),sampleLoop:[false,true]};
-export type Expression={pressure?:number;pitchbend?:number;seed?:number;stack?:Set<string>;lfoStart?:number;lfoClock?:(time:number)=>{phases:number[];origin:number}};
+export type Expression={pressure?:number;pitchbend?:number;seed?:number;stack?:Set<string>;control?:(time:number)=>{sources:Record<string,number>}};
 export function sourceValue(p:Patch,source:ModSource,time:number,start:number,note:number,velocity:number,wheel:number,tempo:number,releaseAt=Infinity,expression:Expression={}) :number {
+  const current=expression.control?.(time).sources[source];if(current!==undefined)return current;
   if(source==="velocity")return velocity;
   if(source==="keytrack")return (note-60)/36;
   if(source==="modwheel")return wheel;
@@ -31,15 +31,7 @@ export function sourceValue(p:Patch,source:ModSource,time:number,start:number,no
   if(source==="filterEnv"){const held=filterAdsrAt(p,Math.max(0,Math.min(time,releaseAt)-start));return time>releaseAt?filterAdsrReleaseAt(p,held,time-releaseAt):held;}
   if(source==="ampEnv")return ampEnvelope(p.attack,p.decay,p.sustain,p.release,elapsed,release);
   if(source==="modEnv1"||source==="modEnv2"){const v=(key:string)=>getParameter(p,source+key);return modulationEnvelope(v("Attack"),v("Decay"),v("Sustain"),v("Release"),v("AttackCurve"),v("DecayCurve"),v("ReleaseCurve"),elapsed,release);}
-  const index=Number(source.slice(-1))-1;if(index<0||index>2)return 0;
-  if(expression.stack?.has(source))return 0;
-  let l=p.lfos[index];
-  if(p.modVersion===2){l={...l};const stack=new Set(expression.stack);stack.add(source);
-    const values=Object.fromEntries(Object.keys(LFO_FIELDS).map(key=>`lfo.${index+1}.${key}` as Param).filter(id=>p.mods.some(r=>r.target===id)).map(id=>[id,modulatedNumber(p,id,time,start,note,velocity,wheel,tempo,releaseAt,{...expression,stack})]));
-    l=setParameters(p,values).lfos[index];
-  }
-  const origin=expression.lfoStart??start,clock=expression.lfoClock?.(l.mode==="hold"?origin:time);
-  return l.depth*lfoSnapshot(l,tempo,origin,time,index,releaseAt,clock?.phases[index],clock?.origin??0);
+  throw new Error("LFO-Snapshots benötigen die gemeinsame Kontrollzeitachse.");
 }
 export function modulatedNumber(p:Patch,key:Param,time:number,start:number,note:number,velocity:number,wheel:number,tempo:number,releaseAt=Infinity,expression:Expression={}) {
   let amount=0;for(const route of p.mods)if(route.target===key)amount+=routeCurve(sourceValue(p,route.source,time,start,note,velocity,wheel,tempo,releaseAt,expression),route.curve)*route.amount;

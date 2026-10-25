@@ -61,7 +61,8 @@ export function lfoFadeGain(
     );
   return gain;
 }
-export function lfoSnapshot(
+/** Static editor preview at constant tempo/rate. Audio snapshots use ControlPlanner. */
+export function lfoPreviewValue(
   lfo: Lfo,
   tempo: number,
   start: number,

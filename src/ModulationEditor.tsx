@@ -20,7 +20,7 @@ import {
 import { getParameter, PARAMETER_REGISTRY, setParameters } from "./parameters";
 import { lfoId, validModulationRoutes } from "./parameter-spec";
 import { visibleFmTarget } from "./fm-config";
-import { lfoSnapshot } from "./lfo";
+import { lfoPreviewValue } from "./lfo";
 import type { LfoField } from "./modulation-spec";
 type Props = {
   patch: Patch;
@@ -141,7 +141,7 @@ export default function ModulationEditor({
                   d={Array.from(
                     { length: 241 },
                     (_, i) =>
-                      `${i ? "L" : "M"}${i},${35 - lfoSnapshot(l, tempo, 0, (i / 240) * span, index, span - (l.fadeOut ?? 0) - 1 / Math.max(0.02, rate)) * l.depth * 27}`,
+                      `${i ? "L" : "M"}${i},${35 - lfoPreviewValue(l, tempo, 0, (i / 240) * span, index, span - (l.fadeOut ?? 0) - 1 / Math.max(0.02, rate)) * l.depth * 27}`,
                   ).join(" ")}
                   fill="none"
                   stroke="currentColor"
@@ -157,7 +157,7 @@ export default function ModulationEditor({
                 />
               </svg>
               <div className="mod-select-grid">
-                {(["shape", "mode", "sync", "polarity"] as LfoField[]).map(
+                {(["shape", "mode", "sync", "polarity", ...((l.shape === "random" || l.shape === "smooth") && l.mode !== "free" && l.mode !== "hold" ? ["randomRepeat"] : [])] as LfoField[]).map(
                   (key) => control(lfoId(index, key), LFO_FIELDS[key].label),
                 )}
               </div>

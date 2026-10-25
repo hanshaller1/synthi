@@ -80,7 +80,7 @@ export function normalizeModulationPatch(p:Patch):Patch {
   const values:Partial<Numbers>={};
   for(const id of Object.keys(dynamic))if(Object.hasOwn(p,id)){values[id as Param]=p[id as DynamicParam];delete p[id as DynamicParam];}
   let result=Object.keys(values).length?setParameters(p,values):p;
-  const advanced=result.lfos.some(l=>l.shape==="smooth"||l.depth<0||[l.phase,l.delay,l.fade,l.fadeOut,l.skew,l.slew,l.polarity].some(v=>!!v)||(l.pulseWidth??.5)!==.5)||result.mods.some(r=>!(["lfo1","lfo2","lfo3","velocity","keytrack","modwheel","filterEnv"] as string[]).includes(r.source)||isDynamicParameter(r.target)||r.curve&&r.curve!=="linear"||FX_PARAMETERS.has(r.target as Param));
+  const advanced=result.lfos.some(l=>l.shape==="smooth"||l.depth<0||[l.phase,l.delay,l.fade,l.fadeOut,l.skew,l.slew,l.polarity,l.randomRepeat].some(v=>!!v)||(l.pulseWidth??.5)!==.5)||result.mods.some(r=>!(["lfo1","lfo2","lfo3","velocity","keytrack","modwheel","filterEnv"] as string[]).includes(r.source)||isDynamicParameter(r.target)||r.curve&&r.curve!=="linear"||FX_PARAMETERS.has(r.target as Param));
   if(advanced||result.mods.length>8)result={...result,modVersion:2};
   if(result.mods.some(r=>r.target.startsWith("fx.")||FX_PARAMETERS.has(r.target as Param)))result={...result,fxVersion:2};
   const routes=validModulationRoutes(result.mods);return routes.length===result.mods.length?result:{...result,mods:routes};

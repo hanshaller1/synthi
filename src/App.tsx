@@ -1378,7 +1378,7 @@ export default function App() {
                   aria-label="Swing"
                   type="range"
                   min="0"
-                  max=".6"
+                  max="1"
                   step=".01"
                   value={project.swing}
                   onChange={(e) =>

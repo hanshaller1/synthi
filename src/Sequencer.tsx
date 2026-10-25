@@ -453,7 +453,7 @@ export default function Sequencer(p: Props) {
                       aria-label="Track Swing-Wert"
                       type="range"
                       min="0"
-                      max=".6"
+                      max="1"
                       step=".01"
                       value={pattern.swing}
                       onChange={(e) =>
