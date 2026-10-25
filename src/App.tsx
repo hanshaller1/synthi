@@ -57,6 +57,8 @@ import { makeNote, migrateToSteps, stepsToNotes } from "./sequence";
 import { generateNotes } from "./piano-tools";
 import type { MigrationReport } from "./sequence";
 import { SynthEngine, Transport, renderProject } from "./audio";
+import { effectiveSwing } from "./swing";
+import { lfoParameterId } from "./lfo-migration";
 import { MidiController } from "./midi";
 import {
   TRACK_COUNT,
@@ -88,7 +90,7 @@ type ModalName =
   | "settings"
   | "preset"
   | null;
-type Binding = { cc: number; track: number; param: MidiTarget; legacyPeak?: boolean };
+type Binding = { cc: number; track: number; param: MidiTarget; legacyPeak?: boolean; legacyRetrigger?:boolean };
 const KEYBOARD_KEYS = [
   "a",
   "w",
@@ -585,7 +587,7 @@ export default function App() {
         if (Array.isArray(presets)) setUserPresets(presets.map(sanitizePatch));
         if (Array.isArray(mapping))
           setBindings(
-            mapping.map((m) => m && m.param === "resonance" && restored?.tracks[m.track]?.patch.legacyPeakModulation ? { ...m, param: "filterPeakGain" as const, legacyPeak: true } : m).filter(
+            mapping.map((m) => m && m.param === "resonance" && restored?.tracks[m.track]?.patch.legacyPeakModulation ? { ...m, param: "filterPeakGain" as const, legacyPeak: true } : m&&/^lfo\.[1-3]\.retrigger$/.test(m.param)?{...m,param:lfoParameterId(m.param) as MidiTarget,legacyRetrigger:true}:m).filter(
               (m) =>
                 m &&
                 (Object.hasOwn(PARAMS, m.param) || m.param === "fmAlgorithm") &&
@@ -683,6 +685,10 @@ export default function App() {
         const meta=PARAMETER_REGISTRY[binding.param];
         let mapped=meta.scale==="log"&&range[0]>0?range[0]*Math.pow(range[1]/range[0],value):range[0]+value*(range[1]-range[0]);
         if(meta.options)mapped=meta.options[Math.min(meta.options.length-1,Math.floor(value*meta.options.length))].value;
+        if(binding.legacyRetrigger){
+          const patch=projectRef.current.tracks[binding.track].patch,index=+binding.param.split(".")[1]-1;
+          changePatch({lfos:patch.lfos.map((l,i)=>i===index?{...l,mode:value>=.5?"trig":"free"}:l) as Patch["lfos"]},binding.track);return;
+        }
         changePatch({[binding.param]:mapped},binding.track);
         return;
       }
@@ -1014,8 +1020,8 @@ export default function App() {
       changeTrack(which, { mode, patterns: source.patterns.map((pat) => ({ ...pat, notes: stepsToNotes(pat) })) });
       notify(`Track ${which + 1}: alle Patterns als Piano Roll übernommen.`);
     } else {
-      const result = source.patterns.map((pat) => migrateToSteps(pat, projectRef.current.swing));
-      setMigration({ track: which, patterns: source.patterns.map((pat, i) => ({ ...pat, steps: result[i].steps, pianoBackup: clone({ notes: pat.notes, steps: pat.steps, length: pat.length, division: pat.division, direction: pat.direction }) })), reports: result.map((r) => r.report) });
+      const result = source.patterns.map((pat) => migrateToSteps(pat, effectiveSwing(pat, projectRef.current)));
+      setMigration({ track: which, patterns: source.patterns.map((pat, i) => ({ ...pat, steps: result[i].steps, pianoBackup: clone({ notes: pat.notes, steps: pat.steps, length: pat.length, division: pat.division, direction: pat.direction, swingMode:pat.swingMode,swing:pat.swing,swingResolution:pat.swingResolution }) })), reports: result.map((r) => r.report) });
     }
   };
   const confirmMigration = () => {
@@ -1381,6 +1387,7 @@ export default function App() {
                 />
                 <output>{Math.round(project.swing * 100)}%</output>
               </label>
+              <Select label="Globale Swing-Auflösung" value={project.swingResolution} onChange={v=>{checkpoint();updateProject(p=>({...p,swingResolution:+v as 8|16}));}}><option value="8">1/8</option><option value="16">1/16</option></Select>
             </div>
             <div className="main-heading-actions">
               {lockMode && (

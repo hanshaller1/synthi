@@ -1,6 +1,8 @@
 import { SynthEngine, lockedPatch } from "./audio";
 import { clamp, makeStep, pianoRange, shouldTrigger } from "./model";
 import type { Pattern, PianoNote, Project } from "./model";
+import { effectiveSwing, swingOffset } from "./swing";
+import type { Swing } from "./swing";
 
 export type TrackPlaybackState = { track: number; state: "stopped" | "playing" | "paused" };
 type Segment = {
@@ -21,7 +23,7 @@ export class TrackPlayback {
   private patternIndex = -1;
   private snapshot: Pattern | null = null;
   private tempo = 0;
-  private swing = 0;
+  private swing: Swing = { amount: 0, resolution: 16 };
   onState: (state: TrackPlaybackState) => void = () => {};
   onPosition: (track: number, step: number) => void = () => {};
   onSilence: () => void = () => {};
@@ -56,6 +58,7 @@ export class TrackPlayback {
     this.engine.previewTrack = track;
     this.engine.update(p);
     this.rebase(this.paused.step, this.paused.absolute, this.paused.cycle);
+    if(!resume)this.engine.resetLfoClocks(this.engine.context.currentTime+.04,track);
     this.timer = window.setInterval(() => this.schedule(), 20);
     this.onState({ track, state: this.state });
     this.schedule();
@@ -79,7 +82,7 @@ export class TrackPlayback {
       const group = n.group ?? n.id;
       if (!s.chances.has(group)) s.chances.set(group, Math.random() < n.probability);
       if (!s.chances.get(group)) continue;
-      const start = n.start + n.micro + (Math.floor(n.start) % 2 ? this.swing * Math.min(1, pattern.division / 16) : 0);
+      const start = n.start + n.micro + swingOffset(s.absolute + n.start - s.from, pattern.division, this.swing);
       const end = Math.min(s.end, start + n.duration), clipped = Math.max(s.from, start);
       if (end <= clipped) continue;
       const at = s.at + (clipped - s.from) * s.unit;
@@ -95,7 +98,7 @@ export class TrackPlayback {
     const p = this.getProject(), pattern = p.tracks[this.track].patterns[this.patternIndex], range = pianoRange(pattern);
     this.snapshot = pattern;
     this.tempo = p.tempo;
-    this.swing = p.swing;
+    this.swing = effectiveSwing(pattern, p);
     this.pending = [];
     this.segments = [];
     this.engine.restore(p);
@@ -109,7 +112,7 @@ export class TrackPlayback {
     const now = this.engine.context.currentTime, position = this.position(this.track)!, current = this.currentSegment();
     if (pattern.length !== this.snapshot!.length || pattern.division !== this.snapshot!.division ||
         range.start !== previousRange.start || range.end !== previousRange.end || range.loop !== previousRange.loop ||
-        p.tempo !== this.tempo || p.swing !== this.swing) {
+        p.tempo !== this.tempo || effectiveSwing(pattern,p).amount !== this.swing.amount || effectiveSwing(pattern,p).resolution !== this.swing.resolution) {
       this.onSilence();
       this.engine.panic(this.track);
       this.rebase(position.step, position.absolute, current.cycle);

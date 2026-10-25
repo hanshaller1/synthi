@@ -1,4 +1,5 @@
 import { MODULATION_PARAMS, MODULATION_LABELS, MOD_SOURCES, LFO_MODES, LFO_SHAPES } from "./modulation-spec";
+import { migrateLfoPatch, migrateLfoLocks } from "./lfo-migration";
 import type { DynamicParam } from "./modulation-spec";
 import { DYNAMIC_META, DYNAMIC_PARAMS, DYNAMIC_TARGETS, normalizeModulationPatch } from "./parameter-spec";
 import { ENGINE_PARAMS, ENGINE_KEYS, ENGINE_TARGETS, ENGINE_DISCRETE, sampleSliceSelection, normalizeSampleLocks } from "./engine-config";
@@ -54,12 +55,12 @@ export type LfoMode = (typeof LFO_MODES)[number];
 export type Lfo = {
   shape: LfoShape;
   mode: LfoMode;
+  legacyTriggerMod?:boolean;
   rate: number;
   sync: boolean;
   division: number;
   depth: number;
-  retrigger: boolean;
-  phase?:number; delay?:number; fade?:number; slew?:number; skew?:number; pulseWidth?:number; polarity?:number;
+  phase?:number; delay?:number; fade?:number; fadeOut?:number; slew?:number; skew?:number; pulseWidth?:number; polarity?:number;
 };
 export type ModSource = keyof typeof MOD_SOURCES;
 export type ModTarget = keyof typeof MOD_TARGETS;
@@ -368,6 +369,7 @@ export type Patch = Record<BaseParam, number> & Partial<Record<DynamicParam,numb
     engine: Engine;
     engineVersion: 1 | 2;
     modVersion: 1 | 2;
+    lfoVersion: 2;
     fxVersion: 1 | 2;
     wave: Wave;
     wave2: Wave;
@@ -445,6 +447,9 @@ export type PianoNote = {
   group?: string;
 };
 export type Pattern = {
+  swingMode: "global" | "custom" | "off";
+  swing: number;
+  swingResolution: 8 | 16;
   length: number;
   division: number;
   direction: "forward" | "reverse" | "pingpong" | "random";
@@ -452,7 +457,7 @@ export type Pattern = {
   notes: PianoNote[];
   scale: ScaleConfig;
   pianoPlayback?: { start: number; end: number; loop: boolean };
-  pianoBackup?: { notes: PianoNote[]; steps: Step[]; length: number; division: number; direction: Pattern["direction"] };
+  pianoBackup?: { notes: PianoNote[]; steps: Step[]; length: number; division: number; direction: Pattern["direction"]; swingMode?:Pattern["swingMode"];swing?:number;swingResolution?:8|16 };
 };
 export function pianoRange(pattern: Pattern) {
   const start = clamp(Math.round(pattern.pianoPlayback?.start ?? 0), 0, pattern.length - 1);
@@ -601,6 +606,7 @@ export type Project = {
   tempo: number;
   swing: number;
   master: number;
+  swingResolution: 8 | 16;
   masterFx: MasterFx;
   activePattern: number;
   tracks: Track[];
@@ -700,6 +706,7 @@ export const makeStep = (): Step => ({
   locks: {},
 });
 export const makePattern = (): Pattern => ({
+  swingMode: "global", swing: 0.12, swingResolution: 16,
   length: 16,
   division: 16,
   direction: "forward",
@@ -716,7 +723,7 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
     name: "Velvet circuit",
     engine: "subtractive",
     engineVersion: 2,
-    modVersion: 2, fxVersion: 2,
+    modVersion: 2, fxVersion: 2, lfoVersion: 2,
     wave: "sawtooth",
     wave2: "triangle",
     filterType: "lowpass",
@@ -751,16 +758,14 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
         sync: false,
         division: 4,
         depth: 0.35,
-        retrigger: false,
       },
       {
         shape: "triangle",
-        mode: "free",
+        mode: "trig",
         rate: 2,
         sync: true,
         division: 2,
         depth: 0.25,
-        retrigger: true,
       },
       {
         shape: "sine",
@@ -769,7 +774,6 @@ export function makePatch(overrides: Partial<Patch> = {}): Patch {
         sync: false,
         division: 8,
         depth: 0.3,
-        retrigger: false,
       },
     ],
     mods: [{ source: "lfo1", target: "cutoff", amount: 0.2 }],
@@ -1033,6 +1037,7 @@ export function makeProject(): Project {
     name: "Midnight circuit",
     tempo: 118,
     swing: 0.12,
+    swingResolution: 16,
     master: 0.7,
     masterFx: makeMasterFx(),
     activePattern: 0,
@@ -1072,6 +1077,8 @@ const num = (v: unknown, min: number, max: number, fallback: number) =>
   typeof v === "number" && Number.isFinite(v) ? clamp(v, min, max) : fallback;
 const waves: Wave[] = ["sine", "sawtooth", "triangle", "square"];
 export function sanitizePatch(value: unknown): Patch {
+  if (!isRecord(value)) throw new Error("Ungültiges Preset.");
+  value = migrateLfoPatch(value);
   if (!isRecord(value)) throw new Error("Ungültiges Preset.");
   const p = makePatch();
   for (const key of Object.keys(BASE_PARAMS) as BaseParam[])
@@ -1174,12 +1181,12 @@ export function sanitizePatch(value: unknown): Patch {
         mode: (LFO_MODES as readonly string[]).includes(String(v.mode))
           ? (v.mode as LfoMode)
           : "free",
+        legacyTriggerMod:v.legacyTriggerMod===true,
         rate: num(v.rate, 0.02, 30, l.rate),
         sync: v.sync === true,
-        division: num(v.division, 1/24, 32, 4),
-        depth: num(v.depth, 0, 1, 0.3),
-        retrigger: v.retrigger === true,
-        phase:num(v.phase,0,360,0),delay:num(v.delay,0,8,0),fade:num(v.fade,0,8,0),skew:num(v.skew,-.95,.95,0),slew:num(v.slew,0,1,0),pulseWidth:num(v.pulseWidth,.01,.99,.5),polarity:Math.round(num(v.polarity,0,1,0)),
+        division: num(v.division, 1/24, 16, 4),
+        depth: num(v.depth, -1, 1, 0.3),
+        phase:num(v.phase,0,360,0),delay:num(v.delay,0,8,0),fade:num(v.fade,0,8,0),fadeOut:num(v.fadeOut,0,8,0),skew:num(v.skew,-.95,.95,0),slew:num(v.slew,0,1,0),pulseWidth:num(v.pulseWidth,.01,.99,.5),polarity:Math.round(num(v.polarity,0,1,0)),
       };
     }) as [Lfo, Lfo, Lfo];
   if (Array.isArray(value.mods))
@@ -1221,7 +1228,7 @@ function sanitizeLockNumber(key: Param, value: unknown) {
   if(options)return options.reduce((best,o)=>Math.abs(o.value-result)<Math.abs(best-result)?o.value:best,options[0].value);
   return /^fm[123](Wave|Mode)$/.test(key) || (FILTER_DISCRETE as readonly string[]).includes(key) || (ENGINE_DISCRETE as readonly string[]).includes(key) ? Math.round(result) : result;
 }
-function sanitizeSteps(value: unknown): Step[] {
+function sanitizeSteps(value: unknown, legacyLfos?:unknown): Step[] {
   if (!Array.isArray(value)) return Array.from({ length: MAX_STEPS }, makeStep);
   return Array.from({ length: MAX_STEPS }, makeStep).map((s, k) => {
     const q = value[k];
@@ -1242,14 +1249,15 @@ function sanitizeSteps(value: unknown): Step[] {
       )
     )
       s.condition = q.condition as Condition;
-    if (isRecord(q.locks))
-      for (const key of Object.keys(q.locks) as Param[])
+    const stepLocks = migrateLfoLocks(q.locks,legacyLfos);
+    if (isRecord(stepLocks))
+      for (const key of Object.keys(stepLocks) as Param[])
         if (LOCK_PARAMS.includes(key))
-          s.locks[key] = sanitizeLockNumber(key, q.locks[key]);
+          s.locks[key] = sanitizeLockNumber(key, stepLocks[key]);
     return s;
   });
 }
-function sanitizeNotes(value: unknown): PianoNote[] {
+function sanitizeNotes(value: unknown, legacyLfos?:unknown): PianoNote[] {
   if (!Array.isArray(value)) return [];
   if (value.length > 4096) throw new Error("Maximal 4096 Piano-Roll-Noten pro Pattern.");
   const ids = new Set<string>();
@@ -1258,8 +1266,9 @@ function sanitizeNotes(value: unknown): PianoNote[] {
     while (ids.has(id)) id += `-${k}`;
     ids.add(id);
     const locks: Partial<Numbers> = {};
-    if (isRecord(n.locks)) for (const key of LOCK_PARAMS)
-      if (key in n.locks) locks[key] = sanitizeLockNumber(key, n.locks[key]);
+    const noteLocks = migrateLfoLocks(n.locks,legacyLfos);
+    if (isRecord(noteLocks)) for (const key of LOCK_PARAMS)
+      if (key in noteLocks) locks[key] = sanitizeLockNumber(key, noteLocks[key]);
     return {
       id,
       start: num(n.start, 0, MAX_STEPS - .001, 0),
@@ -1310,6 +1319,7 @@ export function sanitizeProject(value: unknown): Project {
   p.name = typeof value.name === "string" ? value.name.slice(0, 80) : p.name;
   p.tempo = num(value.tempo, 40, 240, 118);
   p.swing = num(value.swing, 0, 0.6, 0);
+  p.swingResolution = value.swingResolution === 8 ? 8 : 16;
   p.master = num(value.master, 0, 1, 0.7);
   if (isRecord(value.masterFx)) {
     const m = value.masterFx;
@@ -1375,6 +1385,9 @@ export function sanitizeProject(value: unknown): Project {
       base.patterns = base.patterns.map((pat, j) => {
         const item = (v.patterns as unknown[])[j];
         if (!isRecord(item)) return pat;
+        pat.swingMode = item.swingMode === "custom" || item.swingMode === "off" ? item.swingMode : "global";
+        pat.swing = num(item.swing, 0, 0.6, p.swing);
+        pat.swingResolution = item.swingResolution === 8 ? 8 : 16;
         pat.length = Math.round(num(item.length, 1, MAX_STEPS, 16));
         pat.division = [8, 16, 32].includes(Number(item.division))
           ? Number(item.division)
@@ -1385,8 +1398,9 @@ export function sanitizeProject(value: unknown): Project {
           )
         )
           pat.direction = item.direction as Pattern["direction"];
-        pat.steps = sanitizeSteps(item.steps);
-        pat.notes = sanitizeNotes(item.notes);
+        const legacyLfos=isRecord(v.patch)&&v.patch.lfoVersion!==2?v.patch.lfos:undefined;
+        pat.steps = sanitizeSteps(item.steps,legacyLfos);
+        pat.notes = sanitizeNotes(item.notes,legacyLfos);
         if (isRecord(item.scale)) pat.scale = {
           enabled: item.scale.enabled === true,
           root: Math.round(num(item.scale.root, 0, 11, 0)),
@@ -1399,7 +1413,9 @@ export function sanitizeProject(value: unknown): Project {
         if (isRecord(item.pianoBackup)) {
           const saved = item.pianoBackup;
           pat.pianoBackup = {
-            notes: sanitizeNotes(saved.notes), steps: sanitizeSteps(saved.steps),
+            swingMode:saved.swingMode === "custom" || saved.swingMode === "off" || saved.swingMode === "global"?saved.swingMode:pat.swingMode,
+            swing:num(saved.swing,0,.6,pat.swing),swingResolution:saved.swingResolution === 8?8:saved.swingResolution === 16?16:pat.swingResolution,
+            notes: sanitizeNotes(saved.notes,legacyLfos), steps: sanitizeSteps(saved.steps,legacyLfos),
             length: Math.round(num(saved.length, 1, MAX_STEPS, pat.length)),
             division: [8, 16, 32].includes(Number(saved.division)) ? Number(saved.division) : pat.division,
             direction: ["forward", "reverse", "pingpong", "random"].includes(String(saved.direction)) ? saved.direction as Pattern["direction"] : pat.direction,

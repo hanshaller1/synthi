@@ -461,6 +461,8 @@ class LegacyEffectRack {
 
 /** Existing sounds retain the native path until advanced controls are used. */
 export class EffectRack {
+  private lfoClock?:AudioNode;
+  setLfoClock(clock:AudioNode){this.lfoClock=clock;}
   private legacy:LegacyEffectRack;private worklet?:WorkletRack;private advanced=false;private ready=false;
   private legacyFeed:GainNode;private legacyOut:GainNode;private advancedOut:GainNode;private patch?:Patch;private tempo=118;
   constructor(private context:Context,private feedInput:AudioNode,output:AudioNode){
@@ -470,7 +472,7 @@ export class EffectRack {
   prepareEffects(p:Patch,tempo:number){this.ready=true;this.tempo=tempo;this.updateEffects(p,undefined,this.context.currentTime);}
   private select(p:Patch,at:number){
     const advanced=this.ready&&p.fxVersion===2;
-    if(advanced&&!this.worklet)this.worklet=new WorkletRack(this.context,this.feedInput,this.advancedOut);
+    if(advanced&&!this.worklet)this.worklet=new WorkletRack(this.context,this.feedInput,this.advancedOut,this.lfoClock);
     if(advanced!==this.advanced){
       this.advanced=advanced;
       this.legacyOut.gain.setTargetAtTime(advanced?0:1,at,.008);
@@ -491,6 +493,7 @@ export class EffectRack {
   effectNote(id:number,note:number,velocity:number,p:Patch,at:number){if(this.select(p,at))this.worklet!.note(id,note,velocity,p,at);}
   effectRelease(id:number,at:number){this.worklet?.release(id,at);}
   effectRetune(id:number,note:number,at:number){this.worklet?.retune(id,note,at);}
+  effectLfoTrigger(at:number){this.worklet?.triggerLfo(at);}
   effectPressure(value:number,at:number,note?:number){this.worklet?.pressure(value,at,note);}
   effectExpression(key:"tempo"|"wheel"|"pressure"|"bend",value:number,at:number){if(key==="tempo")this.tempo=value;this.worklet?.expression(key,value,at);}
   effectPanic(at:number){

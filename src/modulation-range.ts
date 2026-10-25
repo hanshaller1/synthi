@@ -27,7 +27,10 @@ export function createModulationRanges(p: Patch) {
       const index = +source.slice(-1),
         depth = range(`lfo.${index}.depth` as Param);
       const polarity = range(`lfo.${index}.polarity` as Param);
-      return [polarity.min < 0.5 ? -depth.max : 0, depth.max];
+      return [
+        Math.min(0, depth.min, polarity.min < 0.5 ? -depth.max : 0),
+        Math.max(0, depth.max, polarity.min < 0.5 ? -depth.min : 0),
+      ];
     }
     if (source.startsWith("macro")) {
       const v = range(source as Param);

@@ -38,6 +38,10 @@ body, #root { overflow: hidden; }
 .sequencer-actions > label select { height: 28px; padding: 3px 23px 3px 6px; font-size: 11px; }
 .studio-viewport .pattern-toolbar { display: flex; gap: 10px; padding: 8px 12px; min-height: 48px; flex: 0 0 auto; }
 .studio-viewport .pattern-settings { margin-left: auto; gap: 8px; }
+.studio-viewport .pattern-settings { flex-wrap: wrap; row-gap: 6px; }
+.studio-viewport .pattern-settings .track-swing-amount { font-size: 9px; }
+.studio-viewport .pattern-settings .track-swing-amount input { width: 84px; height: 4px; padding: 0; border: 0; }
+.studio-viewport .swing-control .select-wrap select { font-size: 10px; padding: 4px 20px 4px 5px; }
 .piano-track-item { min-width: 0; max-width: 245px; flex-shrink: 1; border-color: var(--track-color); }
 .piano-track-item > .select-wrap { min-width: 0; flex: 1; }
 .piano-track-item select { width: 100%; font-size: 11px; color: var(--track-color); border: 0; background: transparent; text-overflow: ellipsis; padding: 6px 20px 6px 7px; }

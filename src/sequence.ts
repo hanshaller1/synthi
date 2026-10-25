@@ -1,5 +1,7 @@
 import { MAX_STEPS, CHORDS, STEP_SPANS, clamp, clone, makeStep, patternTimeline, playbackStep, shouldTrigger, stepIndex } from "./model";
 import type { Numbers, Pattern, PianoNote, Step, Track } from "./model";
+import { swingOffset } from "./swing";
+import type { Swing } from "./swing";
 
 export const newNoteId = () => typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint32Array(4)), (v) => v.toString(16)).join("-");
 export const makeNote = (start = 0, note = 60, duration = 1): PianoNote => ({
@@ -80,22 +82,21 @@ export type SequenceNote = {
 export type SequenceFrame = { index: number; cycle: number; advance: number; offset: number; notes: SequenceNote[]; trigger: boolean };
 export type ChanceState = Map<string, { cycle: number; trigger: boolean }>;
 /** Offsets and durations use the track's grid unit; both playback paths use this. */
-export function sequenceFrame(track: Track, pattern: Pattern, position: number, swing: number, fill: boolean, chance: ChanceState): SequenceFrame {
-  const swingUnits = Math.min(1, pattern.division / 16);
+export function sequenceFrame(track: Track, pattern: Pattern, position: number, swing: Swing, fill: boolean, chance: ChanceState): SequenceFrame {
   if (track.mode === "step" || matchesSteps(pattern)) {
     const { index, span, advance, cycle, trigger } = playbackStep(pattern, position);
-    const s = pattern.steps[index], offset = (position % 2 ? swing * Math.min(span, swingUnits) : 0) + s.micro * span;
+    const s = pattern.steps[index], offset = swingOffset(position, pattern.division, swing) + s.micro * span;
     const notes: SequenceNote[] = [];
     if (trigger && shouldTrigger(s, cycle, fill))
       for (let r = 0; r < s.retrig; r++) for (const off of CHORDS[s.chord])
         notes.push({ note: clamp(s.note + off, 0, 127), velocity: s.velocity,
-          offset: offset + r * span / s.retrig, duration: span * s.gate / s.retrig, locks: s.locks });
+          offset: swingOffset(position + r * span / s.retrig, pattern.division, swing) + s.micro * span + r * span / s.retrig, duration: span * s.gate / s.retrig, locks: s.locks });
     return { index, cycle, advance, offset, notes, trigger };
   }
   const cycleLength = pattern.direction === "pingpong" ? Math.max(1, pattern.length * 2 - 2) : pattern.length;
   const cycle = Math.floor(position / cycleLength);
   const index = stepIndex(position, pattern.length, pattern.direction);
-  const offset = position % 2 ? swing * swingUnits : 0;
+  const offset = swingOffset(position, pattern.division, swing);
   const notes: SequenceNote[] = [];
   for (const n of pattern.notes) {
     if (n.start < index || n.start >= index + 1 || n.start >= pattern.length) continue;
@@ -106,13 +107,13 @@ export function sequenceFrame(track: Track, pattern: Pattern, position: number, 
       if (n.group) chance.set(key, { cycle, trigger });
     }
     if (trigger) notes.push({ note: n.note, velocity: n.velocity,
-      offset: offset + n.start - index + n.micro, duration: n.duration, locks: n.locks });
+      offset: swingOffset(position + n.start - index, pattern.division, swing) + n.start - index + n.micro, duration: n.duration, locks: n.locks });
   }
   return { index, cycle, advance: 1, offset, notes, trigger: true };
 }
 
 export type MigrationReport = { dropped: number; timing: number; lengths: number; expression: number };
-export function migrateToSteps(pattern: Pattern, swing = 0): { steps: Step[]; report: MigrationReport } {
+export function migrateToSteps(pattern: Pattern, swing: Swing = {amount:0,resolution:16}): { steps: Step[]; report: MigrationReport } {
   const exact = notesToSteps(pattern), report: MigrationReport = { dropped: 0, timing: 0, lengths: 0, expression: 0 };
   if (exact.steps) return { steps: exact.steps, report };
   const steps = pattern.steps.map((s) => ({ ...clone(s), on: false, span: 1 }));
@@ -122,8 +123,7 @@ export function migrateToSteps(pattern: Pattern, swing = 0): { steps: Step[]; re
     const group = buckets.get(slot) ?? []; group.push(n); buckets.set(slot, group);
   }
   const occupied = [...buckets.keys()].sort((a, b) => a - b);
-  const swingUnits = Math.min(1, pattern.division / 16);
-  const heardStart = (n: PianoNote) => n.start + n.micro + (Math.floor(n.start) % 2 ? swing * swingUnits : 0);
+  const heardStart = (n: PianoNote) => n.start + n.micro + swingOffset(n.start, pattern.division, swing);
   for (const [slot, notes] of buckets) {
     // Choose a supported subset, never invent missing chord tones. Prefer more
     // retained notes, then stronger notes. Duplicated unisons remain one trigger.
@@ -139,7 +139,7 @@ export function migrateToSteps(pattern: Pattern, swing = 0): { steps: Step[]; re
     const boundary = slot < pattern.length ? pattern.length : MAX_STEPS;
     const available = Math.min(next - slot, boundary - slot);
     const options = STEP_SPANS.filter((span) => Math.ceil(span) <= available).map((span) => {
-      const offset = slot % 2 ? swing * Math.min(span, swingUnits) : 0;
+      const offset = swingOffset(slot, pattern.division, swing);
       const micro = clamp((heardStart(lead) - slot - offset) / span, -.45, .45);
       const gate = clamp(lead.duration / span, .05, 4);
       const error = Math.abs(slot + offset + micro * span - heardStart(lead)) * 4 + Math.abs(gate * span - lead.duration);

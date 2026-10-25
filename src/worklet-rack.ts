@@ -8,7 +8,7 @@ type Context=AudioContext|OfflineAudioContext;
 export class WorkletRack {
   private stages:Record<FxSlot,WorkletFxStage>;private order:FxSlot[]=[];
   private mod?:Modulator;private sink:GainNode;private previous?:Patch;private tempo=118;private retry?:number;
-  constructor(private context:Context,private input:AudioNode,private output:AudioNode){
+  constructor(private context:Context,private input:AudioNode,private output:AudioNode,private clock?:AudioNode){
     this.stages=Object.fromEntries(Object.keys(FX_SLOT_MODES).map(slot=>[slot,new WorkletFxStage(context,slot as FxSlot)])) as Record<FxSlot,WorkletFxStage>;
     this.sink=context.createGain();this.sink.gain.value=0;this.sink.connect(output);
   }
@@ -23,7 +23,7 @@ export class WorkletRack {
     for(const stage of Object.values(this.stages))stage.update(p,at,tempo);
     const ids=this.ids(p);
     if(!this.mod){
-      this.mod=new Modulator(this.context,p,ids,at,60,0,true);this.mod.node.connect(this.sink,0);
+      this.mod=new Modulator(this.context,p,ids,at,60,0,true,1,this.clock);this.mod.node.connect(this.sink,0);
       for(const id of ids)for(const stage of Object.values(this.stages))for(const destination of stage.parameters(id))this.mod.connect(id,destination);
     }else{
       const added=this.mod.extend(ids);
@@ -36,6 +36,7 @@ export class WorkletRack {
   note(id:number,note:number,velocity:number,p:Patch,at:number){this.update(p,at,this.tempo,true);this.mod?.note(id,note,velocity,at);}
   release(id:number,at:number){this.mod?.release(at,id);}
   retune(id:number,note:number,at:number){this.mod?.retune(note,at,id);}
+  triggerLfo(at:number){this.mod?.triggerLfo(at);}
   pressure(value:number,at:number,note?:number){this.mod?.pressure(value,at,note);}
   expression(key:"tempo"|"wheel"|"pressure"|"bend",value:number,at:number){if(key==="tempo"&&this.previous)this.update(this.previous,at,value);this.mod?.expression(key,value,at);}
   panic(at:number,base?:Patch){this.mod?.panic(at);for(const stage of Object.values(this.stages))stage.cancel(at);if(base)this.update(base,at,this.tempo,true);}

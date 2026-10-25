@@ -10,7 +10,7 @@ import { DYNAMIC_META, getParameter, isDynamicParameter, setParameters } from ".
 import { PARAMETER_REGISTRY, modulationValue, routeCurve } from "./parameters";
 import { LFO_FIELDS } from "./modulation-spec";
 const choices={wave:["sine","triangle","sawtooth","square"],wave2:["sine","triangle","sawtooth","square"],fmAlgorithm:FM_ALGORITHMS.map(a=>a.id),excitation:["noise","pick","bow"],filterType:["lowpass","highpass","bandpass","notch","multimode","comb"],multimodeType:MULTIMODE_FILTERS.map(m=>m.id),combPolarity:["positive","negative"],sampleId:SAMPLER_SAMPLES.map(s=>s.id),grainSampleId:GRANULAR_SAMPLES.map(s=>s.id),sampleLoop:[false,true]};
-export type Expression={pressure?:number;pitchbend?:number;seed?:number;stack?:Set<string>};
+export type Expression={pressure?:number;pitchbend?:number;seed?:number;stack?:Set<string>;lfoStart?:number;lfoClock?:(time:number)=>{phases:number[];origin:number}};
 export function sourceValue(p:Patch,source:ModSource,time:number,start:number,note:number,velocity:number,wheel:number,tempo:number,releaseAt=Infinity,expression:Expression={}) :number {
   if(source==="velocity")return velocity;
   if(source==="keytrack")return (note-60)/36;
@@ -38,12 +38,13 @@ export function sourceValue(p:Patch,source:ModSource,time:number,start:number,no
     const values=Object.fromEntries(Object.keys(LFO_FIELDS).map(key=>`lfo.${index+1}.${key}` as Param).filter(id=>p.mods.some(r=>r.target===id)).map(id=>[id,modulatedNumber(p,id,time,start,note,velocity,wheel,tempo,releaseAt,{...expression,stack})]));
     l=setParameters(p,values).lfos[index];
   }
-  if(p.modVersion===1&&l.mode==="hold")return lfoValue(l.shape,l.retrigger?0:start*(l.sync?tempo/60/l.division:l.rate),l.shape==="random"?start+index+1:index+1)*l.depth;
-  return l.depth*lfoSnapshot(l,tempo,start,time,index);
+  const origin=expression.lfoStart??start,clock=expression.lfoClock?.(l.mode==="hold"?origin:time);
+  return l.depth*lfoSnapshot(l,tempo,origin,time,index,releaseAt,clock?.phases[index],clock?.origin??0);
 }
 export function modulatedNumber(p:Patch,key:Param,time:number,start:number,note:number,velocity:number,wheel:number,tempo:number,releaseAt=Infinity,expression:Expression={}) {
   let amount=0;for(const route of p.mods)if(route.target===key)amount+=routeCurve(sourceValue(p,route.source,time,start,note,velocity,wheel,tempo,releaseAt,expression),route.curve)*route.amount;
   const meta=PARAMETER_REGISTRY[key],value=modulationValue(getParameter(p,key),amount*(meta.trigger&&meta.options?2:1),p.modVersion===1?{...meta,scale:"linear"}:meta);
+  if(/^lfo\.[1-3]\.mode$/.test(key)&&p.lfos[+key.split(".")[1]-1]?.legacyTriggerMod&&getParameter(p,key)<=1)return clamp(value,0,1);
   return p.legacyPeakModulation&&key==="filterPeakGain"?clamp(value,0,20):value;
 }
 /** Topology, articulation and musical divisions are sampled on the note timeline. */
@@ -63,5 +64,5 @@ export function triggerPatch(patch:Patch,start:number,note:number,velocity:numbe
   if(!p.sample&&p.sampleId!==patch.sampleId)p.sampleRoot=SAMPLER_SAMPLES.find(s=>s.id===p.sampleId)?.root??p.sampleRoot;
   return Object.assign(p,sampleSliceSelection(p.sampleSlices,p.sampleSlice));
 }
-export function requiresModulationWorklet(p:Patch){return p.modVersion===2&&p.mods.length>0||p.mods.some(r=>r.amount!==0&&(r.target==="drive"||p.engine==="subtractive"&&r.target==="pulseWidth"&&(p.wave==="square"||p.wave2==="square")||p.engine==="wavetable"&&["wavetable","shape","wtWarp","wtFormant","brightness"].includes(r.target)||p.engine==="additive"&&["shape","brightness","harmonics","spectralTilt","spectralPeak","spectralResonance","inharmonicity"].includes(r.target)));}
+export function requiresModulationWorklet(p:Patch){return p.modVersion===2&&p.mods.length>0||p.mods.some(r=>r.amount!==0&&(r.source.startsWith("lfo")||r.target==="drive"||p.engine==="subtractive"&&r.target==="pulseWidth"&&(p.wave==="square"||p.wave2==="square")||p.engine==="wavetable"&&["wavetable","shape","wtWarp","wtFormant","brightness"].includes(r.target)||p.engine==="additive"&&["shape","brightness","harmonics","spectralTilt","spectralPeak","spectralResonance","inharmonicity"].includes(r.target)));}
 export const modulationScale=(target:ModTarget)=>Object.hasOwn(PARAMS,target)?(PARAMS[target as Param][1]-PARAMS[target as Param][0])/2:1;

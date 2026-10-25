@@ -1,4 +1,6 @@
 import { Modulator } from "./modulation-worklet";
+import { LfoClockTimeline } from "./lfo-clock";
+import { effectiveSwing } from "./swing";
 import { FX_DELAY_LIMIT_SECONDS } from "./fx-timing";
 import { PARAMETER_REGISTRY, setParameters } from "./parameters";
 import { DYNAMIC_META } from "./parameter-spec";
@@ -12,8 +14,6 @@ import { FM_KEYS, FM_TARGETS, migrateFmLocks } from "./fm-config";
 import { sequenceFrame } from "./sequence";
 import type { ChanceState } from "./sequence";
 import { SAMPLE_LIBRARY, sampleData, wavetableSpectrum } from "./catalog";
-import { makeLfoSource } from "./lfo";
-import type { Lfo } from "./model";
 import { MasterProcessor } from "./master-audio";
 import {
   TRACK_COUNT,
@@ -58,6 +58,7 @@ type Voice = {
   patch: Patch;
   basePatch: Patch;
   retune: (note: number, time: number) => void;
+  triggerLfo: (time:number)=>void;
   released: boolean;
   releaseAt: number;
   end: number;
@@ -66,13 +67,6 @@ type Voice = {
   modwheelParams: AudioParam[];
   modulator?: Modulator;
   effectId: number;
-  lfoControls: {
-    index: number;
-    source: AudioBufferSourceNode | ConstantSourceNode;
-    gain: GainNode;
-    scale: number;
-    config: Lfo;
-  }[];
   cleanupTimer?: number;
   release: (time: number) => void;
 };
@@ -182,6 +176,10 @@ function builtInSample(ctx: Context) {
 }
 
 export class SynthEngine {
+  private lfoClocks=new Map<number,Modulator>();
+  private lfoTimelines=new Map<number,LfoClockTimeline>();
+  private clockSink?:GainNode;
+  resetLfoClocks(at:number,track?:number){for(const [id,clock]of this.lfoClocks)if(track===undefined||id===track){clock.resetClock(at);this.lfoTimelines.get(id)?.reset(at);}}
   readonly context: Context;
   readonly analyser: AnalyserNode;
   readonly master: GainNode;
@@ -211,6 +209,7 @@ export class SynthEngine {
     this.wheel = clamp(value, 0, 1);
     for (const bus of this.buses) bus.effectExpression("wheel",this.wheel,this.context.currentTime);
     for(const voice of this.voices)voice.modulator?.expression("wheel",this.wheel);
+    for(const clock of this.lfoClocks.values())clock.expression("wheel",this.wheel);
     for (const voice of this.voices)
       for (const param of voice.modwheelParams)
         param.setTargetAtTime(this.wheel, this.context.currentTime, 0.015);
@@ -302,6 +301,8 @@ export class SynthEngine {
       b.level.gain.setTargetAtTime(audible ? 1 : 0, t, 0.02);
     }
     this.audible[track.id] = audible;
+    this.lfoClocks.get(track.id)?.update(p,t);this.lfoClocks.get(track.id)?.expression("tempo",this.tempo,t);
+    this.lfoTimelines.get(track.id)?.update(p,this.tempo,t);
     if(previous?.pan!==p.pan||previous?.modVersion!==p.modVersion){b.pan.pan.cancelScheduledValues(t);b.pan.pan.setTargetAtTime(p.modVersion===2?0:p.pan,t,.02);}
     b.effectExpression("tempo",this.tempo,t);
     b.updateEffects(p, previous, t);
@@ -343,45 +344,11 @@ export class SynthEngine {
       }
       voice.modulator?.expression("tempo",this.tempo,t);
       voice.patch.lfos = p.lfos;
-      for (const control of voice.lfoControls) {
-        const l = p.lfos[control.index];
-        if (
-          control.config.shape !== l.shape ||
-          control.config.mode !== l.mode ||
-          control.config.retrigger !== l.retrigger
-        ) {
-          try {
-            control.source.stop(t);
-          } catch {
-            /* Already finished one-shot. */
-          }
-          control.source.disconnect();
-          const oldIndex = voice.sources.indexOf(control.source);
-          if (oldIndex >= 0) voice.sources.splice(oldIndex, 1);
-          control.source = makeLfoSource(
-            this.context,
-            l,
-            this.tempo,
-            t,
-            control.index,
-          );
-          control.source.connect(control.gain);
-          voice.sources.push(control.source);
-          if (Number.isFinite(voice.end)) control.source.stop(voice.end);
-        } else if (control.source instanceof AudioBufferSourceNode) {
-          control.source.playbackRate.setTargetAtTime(
-            l.sync ? this.tempo / 60 / l.division : l.rate,
-            t,
-            0.02,
-          );
-        }
-        control.config = { ...l };
-        control.gain.gain.setTargetAtTime(control.scale * l.depth, t, 0.02);
-      }
     }
     this.trackPatches[track.id] = p;
   }
   scheduleTrack(track: number, patch: Patch, when: number) {
+    this.scheduleLfoParameters(track,patch,when);
     const b = this.buses[track];
     const values: [AudioParam, number][] = [
       [b.level.gain, this.audible[track] ? 1 : 0],
@@ -390,6 +357,7 @@ export class SynthEngine {
     for (const [param, value] of values) param.setTargetAtTime(value, when, .003);
     b.scheduleEffects(patch, when);
   }
+  scheduleLfoParameters(track:number,patch:Patch,when:number){this.lfoClocks.get(track)?.update(patch,when,true);this.lfoTimelines.get(track)?.update(patch,this.tempo,when);}
   private builtin(id: string) {
     const cached = this.builtins.get(id);
     if (cached) return cached;
@@ -458,7 +426,18 @@ export class SynthEngine {
     if (!this.combAvailable && project.tracks.some((t) => requiresModulationWorklet(t.patch)))
       throw new Error("Laufende Spektral- und Drive-Modulation benötigt AudioWorklet. Bitte einen aktuellen Browser über HTTPS oder localhost verwenden.", { cause: workletError });
     if(!this.combAvailable&&project.tracks.some(t=>t.patch.fxVersion===2))throw new Error("Erweiterte Effects benötigen AudioWorklet über HTTPS oder localhost.");
-    if(this.combAvailable)project.tracks.forEach(t=>this.buses[t.id].prepareEffects(t.patch,project.tempo));
+    if(this.combAvailable){
+      if(!this.clockSink){this.clockSink=this.context.createGain();this.clockSink.gain.value=0;this.clockSink.channelCount=1;this.clockSink.channelCountMode="explicit";this.clockSink.channelInterpretation="discrete";this.clockSink.connect(this.mixInput);}
+      for(const t of project.tracks){
+        if(!this.lfoClocks.has(t.id)){
+          const clock=new Modulator(this.context,t.patch,[],0,60,0,true,t.id+1,undefined,true);
+          clock.node.connect(this.clockSink);clock.expression("tempo",project.tempo);this.lfoClocks.set(t.id,clock);
+          this.lfoTimelines.set(t.id,new LfoClockTimeline(t.patch,project.tempo));
+          this.buses[t.id].setLfoClock(clock.node);
+        }
+        this.buses[t.id].prepareEffects(t.patch,project.tempo);
+      }
+    }
     if (!this.filtersReady) {
       this.filtersReady = true;
       this.update(project);
@@ -523,10 +502,11 @@ export class SynthEngine {
     patch: Patch,
     when = this.context.currentTime,
     duration?: number,
+    triggerLfo = true,
   ): Voice {
     const c = this.context,
       start = Math.max(when, c.currentTime),
-      p = triggerPatch(patch, start, note, velocity, this.modwheel, this.tempo, this.combAvailable,{pressure:this.pressures[track],pitchbend:this.bends[track]/200}),
+      p = triggerPatch(patch, start, note, velocity, this.modwheel, this.tempo, this.combAvailable,{pressure:this.pressures[track],pitchbend:this.bends[track]/200,lfoClock:time=>this.lfoTimelines.get(track)?.at(time)??{phases:[0,0,0],origin:0}}),
       frequency = midiHz(note + p.tune);
     const filterVelocityScale = 1 - p.filterVelocity * (1 - velocity);
     const envelopePatch = { ...p, filterAmount: p.filterAmount * filterVelocityScale };
@@ -551,6 +531,7 @@ export class SynthEngine {
     const previousVoice = held.at(-1);
     if (legato && duration === undefined && previousVoice?.releaseAt === Infinity && previousVoice.basePatch === patch) {
       previousVoice.retune(note, start);
+      if(triggerLfo)previousVoice.triggerLfo(start);
       this.lastNotes[track] = note;
       return previousVoice;
     }
@@ -691,10 +672,9 @@ export class SynthEngine {
       modwheelParams: AudioParam[] = [],
       keytrackParams: AudioParam[] = [],
       filterEnvParams: { param: AudioParam; scale: number }[] = [],
-      lfoControls: Voice["lfoControls"] = [],
       pitchModNodes: GainNode[] = [];
     const fixedEnds = new Map<Source, number>();
-    let modulationRelease = Infinity;
+    let modulationRelease = duration===undefined?Infinity:start+Math.max(.01,duration), lfoStart = start;
     const bindings: Record<string, { param: AudioParam; weight: number }[]> = {};
     const routeOutputs: Record<string, GainNode[]> = {};
     const weightedOutputs = new Map<GainNode, Map<number, GainNode>>();
@@ -718,7 +698,7 @@ export class SynthEngine {
     };
     const routed = (key: string) => p.mods.some((m) => m.target === key && m.amount !== 0);
     const numberAt = (key: Param, at: number) => modulatedNumber(
-      p, key, at, start, note, velocity, this.modwheel, this.tempo, modulationRelease,{pressure:this.pressures[track],pitchbend:this.bends[track]/200},
+      p, key, at, start, note, velocity, this.modwheel, this.tempo, modulationRelease,{pressure:this.pressures[track],pitchbend:this.bends[track]/200,lfoStart,lfoClock:time=>this.lfoTimelines.get(track)?.at(time)??{phases:[0,0,0],origin:0}},
     );
     if (!(driveProcessor instanceof WaveShaperNode))
       driveProcessor.parameters.forEach((param, key) => { if (key === "amount") bind("drive", param); });
@@ -1282,9 +1262,9 @@ export class SynthEngine {
       return control;
     };
     let modulator: Modulator | undefined;
-    if (p.modVersion === 2 && p.mods.length && this.combAvailable) {
+    if ((p.modVersion === 2 || p.mods.some(r=>r.source.startsWith("lfo"))) && p.mods.length && this.combAvailable) {
       const ids = [...new Set(p.mods.filter(r=>targets[r.target]?.params.length && !MOD_TARGETS[r.target].trigger).map(r=>r.target))];
-      if (ids.length) modulator = new Modulator(c,p,ids,start,note,velocity,false,note+1);
+      if (ids.length) modulator = new Modulator(c,p,ids,start,note,velocity,false,note+1,this.lfoClocks.get(track)?.node);
       if (modulator) {
         modulator.expression("tempo",this.tempo,start);modulator.expression("wheel",this.modwheel,start);modulator.expression("pressure",this.pressures[track],start);modulator.expression("bend",this.bends[track]/200,start);
         for (const id of ids) {
@@ -1304,25 +1284,7 @@ export class SynthEngine {
       const scale = mod.amount * (control ? 1 : target.scale);
       gain.gain.value = scale;
       nodes.push(gain);
-      if (
-        mod.source === "lfo1" ||
-        mod.source === "lfo2" ||
-        mod.source === "lfo3"
-      ) {
-        const index = Number(mod.source.slice(-1)) - 1;
-        const l = p.lfos[index],
-          source = makeLfoSource(c, l, this.tempo, start, index);
-        gain.gain.value *= l.depth;
-        source.connect(gain);
-        lfoControls.push({
-          index,
-          source,
-          gain,
-          scale,
-          config: { ...l },
-        });
-        sources.push(source);
-      } else {
+      {
         const source = c.createConstantSource();
         source.offset.value =
           mod.source === "velocity"
@@ -1352,6 +1314,8 @@ export class SynthEngine {
     }
     const effectId=++this.voiceSerial;
     this.buses[track].effectNote(effectId,note,velocity,p,start);
+    this.lfoClocks.get(track)?.update(p,start,true);this.lfoClocks.get(track)?.note(effectId,note,velocity,start);
+    this.lfoTimelines.get(track)?.update(p,this.tempo,start);
     const voice: Voice = { effectId, modulator,
       track,
       note,
@@ -1451,11 +1415,12 @@ export class SynthEngine {
       gates,
       patch: p,
       basePatch: patch,
+      triggerLfo:(at)=>{lfoStart=at;modulator?.triggerLfo(at);this.buses[track].effectLfoTrigger(at);this.lfoClocks.get(track)?.triggerLfo(at);},
       retune: (next, at) => {
         const delta = (next - note) * 100;
         pitchShift += delta;
         note = next;
-        voice.note = next;modulator?.retune(next,at);this.buses[track].effectRetune(effectId,next,at);
+        voice.note = next;modulator?.retune(next,at);this.buses[track].effectRetune(effectId,next,at);this.lfoClocks.get(track)?.retune(next,at,effectId);
         activeFilter.setNote(next, at);
         if (fmSource) {
           holdParameter(fmSource.frequency, at, fmSource.frequency.value, true);
@@ -1480,7 +1445,6 @@ export class SynthEngine {
       pitch,
       pitchOffsets,
       modwheelParams,
-      lfoControls,
       release: () => {},
     };
     voice.release = (at: number) => {
@@ -1497,7 +1461,7 @@ export class SynthEngine {
           0.24;
       voice.releaseAt = releaseAt;
       modulationRelease = releaseAt;
-      modulator?.release(releaseAt);this.buses[track].effectRelease(effectId,releaseAt);
+      modulator?.release(releaseAt);this.buses[track].effectRelease(effectId,releaseAt);this.lfoClocks.get(track)?.release(releaseAt,effectId);
       for (const source of sources) if (source instanceof FmSource || source instanceof EngineSource) source.release(releaseAt);
       for (const timer of grainTimers) window.clearInterval(timer);
       grainTimers.length = 0;
@@ -1606,6 +1570,8 @@ export class SynthEngine {
         fallback.velocity,
         fallback.patch,
         when,
+        undefined,
+        false,
       );
     for (const v of this.voices)
       if (v.track === track && v.note === note && !v.released) v.release(when);
@@ -1613,6 +1579,7 @@ export class SynthEngine {
   pitchBend(track: number, value: number) {
     this.bends[track] = clamp(value, -1, 1) * 200;
     this.buses[track].effectExpression("bend",value,this.context.currentTime);
+    this.lfoClocks.get(track)?.expression("bend",value,this.context.currentTime);
     for(const voice of this.voices)if(voice.track===track)voice.modulator?.expression("bend",value);
     for (const voice of this.voices)
       if (voice.track === track)
@@ -1629,11 +1596,14 @@ export class SynthEngine {
     const pressure=clamp(value,0,1),at=this.context.currentTime;
     if(note===undefined)this.pressures[track]=pressure;
     this.buses[track].effectPressure(pressure,at,note);
+    this.lfoClocks.get(track)?.pressure(pressure,at,note);
+    if(note===undefined)this.lfoClocks.get(track)?.expression("pressure",pressure,at);
     if(note===undefined)this.buses[track].effectExpression("pressure",pressure,at);
     for(const voice of this.voices)if(voice.track===track&&(note===undefined||voice.note===note))voice.modulator?.pressure(pressure,at,note);
   }
-  modulationReading(track:number){const voice=this.voices.filter(v=>v.track===track&&v.time<=this.context.currentTime&&v.end>this.context.currentTime).at(-1);return {voice:voice?.modulator?.reading,fx:this.buses[track].effectReading};}
+  modulationReading(track:number){const voice=this.voices.filter(v=>v.track===track&&v.time<=this.context.currentTime&&v.end>this.context.currentTime).at(-1);return {voice:voice?.modulator?.reading??this.lfoClocks.get(track)?.reading,fx:this.buses[track].effectReading};}
   panic(track?: number) {
+    for(const [id,clock]of this.lfoClocks)if(track===undefined||id===track){clock.panic(this.context.currentTime);this.lfoTimelines.get(id)?.cancel(this.context.currentTime);}
     const now = this.context.currentTime;
     this.monoHeld = this.monoHeld.map((notes, i) =>
       track === undefined || i === track ? [] : notes,
@@ -1681,6 +1651,7 @@ export class SynthEngine {
       b.pan.disconnect();
     }
     this.masterProcessor.dispose();
+    for(const clock of this.lfoClocks.values())clock.dispose();this.lfoClocks.clear();this.lfoTimelines.clear();this.clockSink?.disconnect();
     this.mixInput.disconnect();
     this.master.disconnect();
     this.limiter.disconnect();
@@ -1735,6 +1706,7 @@ export class Transport {
     this.clockNext = this.next;
     this.epoch = this.next;
     this.external = external;
+    this.engine.resetLfoClocks(this.epoch);
     this.clockPulses = 0;
     if (!external) this.onClock(0xfa, this.next);
     this.timer = window.setInterval(() => {
@@ -1802,7 +1774,7 @@ export class Transport {
       const pattern = track.patterns[project.activePattern], cursor = this.cursors[track.id];
       while (cursor.next < tick + 1 - 0.00001) {
         const position = cursor.position;
-        const frame = sequenceFrame(track, pattern, position, project.swing, this.fill, this.chances[track.id]);
+        const frame = sequenceFrame(track, pattern, position, effectiveSwing(pattern, project), this.fill, this.chances[track.id]);
         const duration = quantum * 32 / pattern.division;
         const baseTime = time + (cursor.next - tick) * quantum;
         cursor.position += frame.advance;
@@ -1920,7 +1892,7 @@ export async function renderProject(
     const pat = track.patterns[project.activePattern], chance: ChanceState = new Map();
     let tick = 0, position = 0;
     while (tick < ticks) {
-      const frame = sequenceFrame(track, pat, position, project.swing, fill, chance);
+      const frame = sequenceFrame(track, pat, position, effectiveSwing(pat, project), fill, chance);
       const unit = quarter * 4 / pat.division, baseTime = tick * quarter / 8;
       if (frame.trigger) events.push({ at: baseTime, track: track.id, patch: track.patch });
       position += frame.advance;
@@ -1955,9 +1927,13 @@ export async function renderProject(
   try {
     engine.update(project);
     await engine.prepare(project);
+    engine.resetLfoClocks(0);
     // Voice limits and shared paraphonic articulation depend on note order.
     // A full track or a long ratchet must not be scheduled ahead of earlier notes.
     events.sort((a, b) => a.at - b.at || Number(!!a.note) - Number(!!b.note));
+    // Grain/trigger snapshots must also see base-rate and tempo events belonging
+    // to later notes before any offline voice generates its future grain plan.
+    for(const event of events)engine.scheduleLfoParameters(event.track,event.patch,event.at);
     for (const event of events) {
       engine.scheduleTrack(event.track, event.patch, event.at);
       const n = event.note;

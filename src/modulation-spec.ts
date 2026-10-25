@@ -7,7 +7,8 @@ export const SYNC_DIVISIONS = straight.flatMap((beats) => [
   ...(beats * 2/3 >= 1/24 ? [{ value: beats * 2/3, label: `${label(beats)} T` }] : []),
 ]).sort((a,b)=>a.value-b.value);
 export const LFO_SHAPES = ["sine", "triangle", "square", "sawtooth", "exp", "ramp", "random", "smooth"] as const;
-export const LFO_MODES = ["free", "retrigger", "one", "half", "hold"] as const;
+export const LFO_MODES = ["free", "trig", "one", "half", "hold"] as const;
+export const LFO_SYNC_DIVISIONS = SYNC_DIVISIONS.filter(d=>d.value<=16);
 export const MOD_CURVES = ["linear", "exponential", "logarithmic"] as const;
 export const MODULATION_PARAMS = {
   macro1: [0,1,0], macro2: [0,1,0], macro3: [0,1,0], macro4: [0,1,0],
@@ -28,16 +29,16 @@ export const MOD_SOURCES = {
 } as const;
 export const LFO_FIELDS = {
   rate: {min:.02,max:30,default:.6,label:"Rate",log:true},
-  division: {min:1/24,max:32,default:4,label:"Sync division",options:SYNC_DIVISIONS,event:true},
-  depth: {min:0,max:1,default:.35,label:"Depth"}, phase: {min:0,max:360,default:0,label:"Start phase"},
+  division: {min:1/24,max:16,default:4,label:"Sync division",options:LFO_SYNC_DIVISIONS,event:true},
+  depth: {min:-1,max:1,default:.35,label:"Depth"}, phase: {min:0,max:360,default:0,label:"Start phase"},
   delay: {min:0,max:8,default:0,label:"Delay"}, fade: {min:0,max:8,default:0,label:"Fade in"},
+  fadeOut: {min:0,max:8,default:0,label:"Fade out"},
   skew: {min:-.95,max:.95,default:0,label:"Skew / symmetry"}, slew: {min:0,max:1,default:0,label:"Slew / smooth"},
   pulseWidth: {min:.01,max:.99,default:.5,label:"Pulse width"},
   polarity: {min:0,max:1,default:0,label:"Polarity",options:[{value:0,label:"Bipolar"},{value:1,label:"Unipolar"}],event:true},
   shape: {min:0,max:7,default:0,label:"Waveform",options:LFO_SHAPES.map((label,value)=>({label,value})),event:true},
-  mode: {min:0,max:4,default:0,label:"Trigger mode",options:LFO_MODES.map((id,value)=>({label:({free:"Free Run",retrigger:"Note Retrigger",one:"One Shot",half:"Half Cycle",hold:"Sample & Hold"})[id],value})),event:true},
+  mode: {min:0,max:4,default:0,label:"Trigger mode",options:LFO_MODES.map((id,value)=>({label:id.toUpperCase(),value})),event:true},
   sync: {min:0,max:1,default:0,label:"Tempo sync",options:[{value:0,label:"Hz"},{value:1,label:"Sync"}],event:true},
-  retrigger: {min:0,max:1,default:0,label:"Retrigger",options:[{value:0,label:"Free"},{value:1,label:"Retrigger"}],event:true},
 } as const;
 export type LfoField = keyof typeof LFO_FIELDS;
 export type LfoParam = `lfo.${1|2|3}.${LfoField}`;
