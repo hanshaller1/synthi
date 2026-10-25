@@ -7,11 +7,13 @@ import { WorkletFxStage } from "./fx-worklet";
 type Context=AudioContext|OfflineAudioContext;
 export class WorkletRack {
   private stages:Record<FxSlot,WorkletFxStage>;private order:FxSlot[]=[];
+  private reporting=false;
   private mod?:Modulator;private sink:GainNode;private previous?:Patch;private tempo=118;private retry?:number;
   constructor(private context:Context,private input:AudioNode,private output:AudioNode,private clock?:Modulator){
     this.stages=Object.fromEntries(Object.keys(FX_SLOT_MODES).map(slot=>[slot,new WorkletFxStage(context,slot as FxSlot)])) as Record<FxSlot,WorkletFxStage>;
     this.sink=context.createGain();this.sink.gain.value=0;this.sink.connect(output);
   }
+  setReporting(enabled:boolean){this.reporting=enabled;this.mod?.setReporting(enabled);for(const stage of Object.values(this.stages))stage.setReporting(enabled);}
   private ids(p:Patch){return [...new Set(p.mods.filter(r=>PARAMETER_REGISTRY[r.target as keyof typeof PARAMETER_REGISTRY]?.scope==="fx").map(r=>DYNAMIC_META[r.target as keyof typeof DYNAMIC_META]?.canonical??r.target))];}
   update(p:Patch,at:number,tempo=this.tempo,step=false){
     this.tempo=tempo;
@@ -23,7 +25,7 @@ export class WorkletRack {
     for(const stage of Object.values(this.stages))stage.update(p,at,tempo);
     const ids=this.ids(p);
     if(!this.mod){
-      this.mod=new Modulator(this.context,p,ids,at,60,0,true,1,this.clock);this.mod.node.connect(this.sink,0);
+      this.mod=new Modulator(this.context,p,ids,at,60,0,true,1,this.clock);this.mod.node.connect(this.sink,0);this.mod.setReporting(this.reporting);
       for(const id of ids)for(const stage of Object.values(this.stages))for(const destination of stage.parameters(id))this.mod.connect(id,destination);
     }else{
       const added=this.mod.extend(ids);
@@ -42,16 +44,17 @@ export class WorkletRack {
   panic(at:number,base?:Patch){this.mod?.panic(at);for(const stage of Object.values(this.stages))stage.cancel(at);if(base)this.update(base,at,this.tempo,true);}
   get reading(){
     const reading=this.mod?.reading;if(!reading)return undefined;
-    const values={...reading.values};
+    const values={...reading.values},variants={...reading.variants},confirmed:string[]=[];let time=reading.time;
     for(const [slot,stage] of Object.entries(this.stages)){
-      const actual=stage.reading;if(!actual)continue;
-      for(const c of FX_CONTROLS[actual.mode]){const value=actual.values[c.key];values[`fx.${slot}.${actual.mode}.${c.key}`]=value;if(c.param)values[c.param]=value;}
+      const actual=stage.reading;if(!actual||this.context.currentTime-actual.time>.3)continue;variants[slot]=actual.mode;time=Math.max(time,actual.time);
+      for(const c of FX_CONTROLS[actual.mode]){const value=actual.values[c.key];values[`fx.${slot}.${actual.mode}.${c.key}`]=value;confirmed.push(`fx.${slot}.${actual.mode}.${c.key}`);if(c.param){values[c.param]=value;confirmed.push(c.param);}}
+      confirmed.push(`fx.${slot}.mode`,`fx.${slot}.bypass`);
       values[`fx.${slot}.mode`]=(FX_SLOT_MODES[slot as FxSlot] as readonly string[]).indexOf(actual.mode);
       values[`fx.${slot}.previousMode`]=actual.previousMode?(FX_SLOT_MODES[slot as FxSlot] as readonly string[]).indexOf(actual.previousMode):-1;
       values[`fx.${slot}.transition`]=actual.transition;
       for(const key of ["phase","age","gate","bypass","tempo","sampleRate"] as const)values[`fx.${slot}.${key}`]=actual[key];
     }
-    return {...reading,values};
+    return {...reading,values,variants,time,confirmed};
   }
   dispose(){if(this.retry!==undefined)window.clearTimeout(this.retry);this.mod?.dispose();this.sink.disconnect();if(this.order.length)this.input.disconnect(this.stages[this.order[0]].input);for(const stage of Object.values(this.stages))stage.dispose();}
 }

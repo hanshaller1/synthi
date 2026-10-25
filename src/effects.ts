@@ -462,6 +462,8 @@ class LegacyEffectRack {
 
 /** Existing sounds retain the native path until advanced controls are used. */
 export class EffectRack {
+  private reporting=false;
+  setModulationReporting(enabled:boolean){this.reporting=enabled;this.worklet?.setReporting(enabled);}
   private lfoClock?:Modulator;
   setLfoClock(clock:Modulator){this.lfoClock=clock;}
   private legacy:LegacyEffectRack;private worklet?:WorkletRack;private advanced=false;private ready=false;
@@ -473,7 +475,7 @@ export class EffectRack {
   prepareEffects(p:Patch,tempo:number){this.ready=true;this.tempo=tempo;this.updateEffects(p,undefined,this.context.currentTime);}
   private select(p:Patch,at:number){
     const advanced=this.ready&&p.fxVersion===2;
-    if(advanced&&!this.worklet)this.worklet=new WorkletRack(this.context,this.feedInput,this.advancedOut,this.lfoClock);
+    if(advanced&&!this.worklet){this.worklet=new WorkletRack(this.context,this.feedInput,this.advancedOut,this.lfoClock);this.worklet.setReporting(this.reporting);}
     if(advanced!==this.advanced){
       this.advanced=advanced;
       this.legacyOut.gain.setTargetAtTime(advanced?0:1,at,.008);

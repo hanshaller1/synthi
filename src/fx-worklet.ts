@@ -14,7 +14,7 @@ class PhaseTrackEffect extends AudioWorkletProcessor {
     super();this.slot=options.processorOptions.slot;this.structure='';this.valueSets={};this.arrays={};this.parameterNames={};
     for(const mode of phaseFxModes[this.slot]){this.valueSets[mode]={};this.arrays[mode]=[];this.parameterNames[mode]=phaseFxControls[mode].map(key=>'fx.'+this.slot+'.'+mode+'.'+key);}
     this.model=new PhaseFxModel(this.slot,phaseFxModes[this.slot][0]);this.idle=new PhaseFxModel(this.slot,phaseFxModes[this.slot][0]);this.previous=null;this.fade=0;this.mix=0;this.disposed=false;this.oldValues={};this.telemetry=0;this.reporting=options.processorOptions.telemetry;this.wasBypassed=true;this.idling=false;
-    this.port.onmessage=({data})=>{if(data==='dispose'){this.disposed=true;this.port.close();}};
+    this.port.onmessage=({data})=>{if(data==='dispose'){this.disposed=true;this.port.close();}else if(data.type==='telemetry'){this.reporting=data.enabled;this.telemetry=0;}};
   }
   read(mode,i){const v=this.valueSets[mode],keys=phaseFxControls[mode],arrays=this.arrays[mode];for(let k=0;k<keys.length;k++){const key=keys[k],a=arrays[k],target=a[a.length===1?0:i];v[key]=phaseFxEvents[mode][key]||v[key]===undefined?target:v[key]+(target-v[key])*Math.min(1,1/(sampleRate*.004));}return v;}
   reset(model,mode,v){model.reset(mode,Math.round(v.stages??4));model.voices=Math.round(v.voices??2);model.springCount=Math.round(v.springCount??2);model.oversampling=v.oversampling??0;}
@@ -44,7 +44,7 @@ class PhaseTrackEffect extends AudioWorkletProcessor {
       output[1][i]=dryR*(1-this.mix)+(Number.isFinite(wetR)?fxClamp(wetR,-8,8):0)*this.mix;
     }
     this.telemetry+=output[0].length;
-    if(this.reporting&&this.telemetry>=sampleRate/25){this.telemetry=0;this.port.postMessage({mode:this.model.mode,previousMode:this.previous?.mode,transition:this.previous?Math.min(1,this.fade/(sampleRate*.032)):1,values:{...this.valueSets[this.model.mode],stages:this.model.stages,voices:this.model.voices,springCount:this.model.springCount,oversampling:this.model.oversampling},phase:this.model.phase,age:this.model.age,gate:this.model.gate,bypass:p.bypass[0],tempo:p.tempo[p.tempo.length-1],sampleRate});}
+    if(this.reporting&&this.telemetry>=sampleRate/30){this.telemetry%=sampleRate/30;this.port.postMessage({mode:this.model.mode,previousMode:this.previous?.mode,transition:this.previous?Math.min(1,this.fade/(sampleRate*.032)):1,values:{...this.valueSets[this.model.mode],stages:this.model.stages,voices:this.model.voices,springCount:this.model.springCount,oversampling:this.model.oversampling},phase:this.model.phase,age:this.model.age,gate:this.model.gate,time:(currentFrame+output[0].length-1)/sampleRate,bypass:p.bypass[0],tempo:p.tempo[p.tempo.length-1],sampleRate});}
     return true;
   }
 }
@@ -52,8 +52,10 @@ for(const slot of Object.keys(phaseFxModes)){class Stage extends PhaseTrackEffec
 `;
 export class WorkletFxStage {
   readonly input:AudioWorkletNode;readonly output:AudioWorkletNode;
-  reading?:{mode:string;previousMode?:string;transition:number;values:Record<string,number>;phase:number;age:number;gate:number;bypass:number;tempo:number;sampleRate:number};
-  constructor(private context:AudioContext|OfflineAudioContext,readonly slot:FxSlot){this.input=this.output=new AudioWorkletNode(context,`phase-track-effect-${slot}`,{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[2],processorOptions:{slot,telemetry:context instanceof AudioContext}});this.input.port.onmessage=({data})=>{this.reading=data;};}
+  reading?:{mode:string;previousMode?:string;transition:number;values:Record<string,number>;phase:number;age:number;gate:number;time:number;bypass:number;tempo:number;sampleRate:number};
+  private reporting=false;
+  constructor(private context:AudioContext|OfflineAudioContext,readonly slot:FxSlot){this.input=this.output=new AudioWorkletNode(context,`phase-track-effect-${slot}`,{numberOfInputs:1,numberOfOutputs:1,outputChannelCount:[2],processorOptions:{slot,telemetry:false}});this.input.port.onmessage=({data})=>{if(this.reporting)this.reading=data;};}
+  setReporting(enabled:boolean){if(this.reporting===enabled)return;this.reporting=enabled;this.reading=undefined;this.input.port.postMessage({type:"telemetry",enabled});}
   update(p:Patch,at:number,tempo:number){
     const set=(id:string,value:number)=>{const param=this.input.parameters.get(id)!;param.setValueAtTime(value,at);};
     set("algorithm",(FX_SLOT_MODES[this.slot] as readonly string[]).indexOf(p[this.slot]));set("bypass",Number(!p.fxEnabled[this.slot]));set("tempo",tempo);

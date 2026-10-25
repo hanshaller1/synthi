@@ -1,10 +1,11 @@
-import { useKnobModulation } from "./modulation-ui";
+import { parameterPosition, parameterAt } from "./parameter-scale";
+import { ModulationOverlay } from "./modulation-ui";
 import type { Param } from "./model";
 import { filterCurve } from "./filter-config";
 import { FM_ALGORITHMS } from "./fm-config";
 import { wavetableSpectrum } from "./catalog";
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, InputHTMLAttributes } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { KEYBOARD_OCTAVES, clamp, noteName } from "./model";
 import type { Envelope, Patch } from "./model";
@@ -135,6 +136,21 @@ export function Select({
     </label>
   );
 }
+export function Slider({value,min=0,max=1,step=.01,log=false,power=1,parameterId,onChange,format=percent,onLearn,className="",...input}:Omit<InputHTMLAttributes<HTMLInputElement>,"value"|"min"|"max"|"step"|"type"|"onChange">&{
+  value:number;min?:number;max?:number;step?:number;log?:boolean;power?:number;parameterId?:Param;
+  onChange:(value:number)=>void;format?:(value:number)=>string;onLearn?:()=>void;
+}){
+  const scale={min,max,log,power},nonlinear=log&&min>0||power!==1;
+  const label=input["aria-label"]??parameterId??"Parameter";
+  const title=input.title??`${label}: ${format(value)}${onLearn?" · Rechtsklick: MIDI Learn":""}`;
+  return <span className={`parameter-slider ${className}`}>
+    <input {...input} type="range" min={nonlinear?0:min} max={nonlinear?1:max} step={nonlinear ? .001 : step>0 ? step : "any"} value={nonlinear?parameterPosition(value,scale):value}
+      aria-valuemin={min} aria-valuemax={max} aria-valuenow={value} aria-valuetext={format(value)} title={title}
+      onContextMenu={onLearn?e=>{e.preventDefault();onLearn();}:input.onContextMenu}
+      onChange={e=>{let next=nonlinear?parameterAt(+e.target.value,scale):+e.target.value;if(step)next=Math.round(next/step)*step;onChange(clamp(next,min,max));}}/>
+    <ModulationOverlay id={parameterId} base={value} scale={scale} kind="slider" format={format} baseTitle={title}/>
+  </span>;
+}
 export function Knob({
   label,
   value,
@@ -143,6 +159,7 @@ export function Knob({
   onChange,
   format = percent,
   log = false,
+  power = 1,
   step,
   defaultValue,
   minLabel,
@@ -159,6 +176,7 @@ export function Knob({
   onChange: (v: number) => void;
   format?: (v: number) => string;
   log?: boolean;
+  power?: number;
   step?: number;
   defaultValue?: number;
   minLabel?: string;
@@ -168,14 +186,10 @@ export function Knob({
   onEdit?: () => void;
   parameterId?: Param;
 }) {
-  const modulation=useKnobModulation(parameterId,value);
-  const position=(v:number)=>max===min?0:log?Math.log(Math.max(min,v)/min)/Math.log(max/min):(v-min)/(max-min);
+  const scale={min,max,log,power};
   const drag = useRef<{ y: number; x: number; value: number } | null>(null);
-  const normalized = max === min ? 0 : log
-    ? Math.log(value / min) / Math.log(max / min)
-    : (value - min) / (max - min);
-  const toValue = (n: number) =>
-    log ? min * Math.pow(max / min, n) : min + n * (max - min);
+  const normalized=parameterPosition(value,scale);
+  const toValue=(n:number)=>parameterAt(n,scale);
   const change = (n: number) => {
     let v = toValue(clamp(n, 0, 1));
     if (step) v = Math.round(v / step) * step;
@@ -193,7 +207,7 @@ export function Knob({
         aria-valuenow={Number(value.toFixed(4))}
         aria-valuetext={format(value)}
         tabIndex={0}
-        title={`${label}: ${format(value)}${modulation?` · Theoretischer Modulationsbereich ${format(modulation.min)} … ${format(modulation.max)} · ${modulation.live?"Zuletzt gemeldeter DSP-Wert":"Basis (keine Live-Daten)"} ${format(modulation.current)}`:""} · Ziehen · Shift: fein · Doppelklick: Reset${onLearn ? " · Rechtsklick: MIDI Learn" : ""}`}
+        title={`${label}: ${format(value)} · Ziehen · Shift: fein · Doppelklick: Reset${onLearn ? " · Rechtsklick: MIDI Learn" : ""}`}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           e.preventDefault(); onEdit?.();
@@ -257,9 +271,9 @@ export function Knob({
             pathLength="100"
             strokeDasharray={`${clamp(normalized, 0, 1) * 100} 100`}
           />
-          {modulation&&<path d="M 13.6 50.4 A 26 26 0 1 1 50.4 50.4" className="knob-mod-range" pathLength="100" strokeDasharray={`${Math.max(0,position(modulation.max)-position(modulation.min))*100} 100`} strokeDashoffset={-position(modulation.min)*100}/>}
-          {modulation&&<circle className="knob-mod-current" cx={32+26*Math.sin((-135+clamp(position(modulation.current),0,1)*270)*Math.PI/180)} cy={32-26*Math.cos((-135+clamp(position(modulation.current),0,1)*270)*Math.PI/180)} r="2.3"/>}
+
         </svg>
+        <ModulationOverlay id={parameterId} base={value} scale={scale} kind="knob" format={format} baseTitle={`${label}: ${format(value)} · Ziehen · Shift: fein · Doppelklick: Reset${onLearn?" · Rechtsklick: MIDI Learn":""}`}/>
         <span className="knob-cap">
           <i style={{ transform: `rotate(${angle}deg)` }} />
         </span>

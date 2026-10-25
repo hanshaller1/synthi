@@ -1,4 +1,5 @@
 import { fxProcessor } from "./fx-worklet";
+import { modulationMeterProcessor } from "./modulation-meter";
 import { modulationProcessor } from "./modulation-worklet";
 import { engineProcessor } from "./engine-worklet";
 import { sampleProcessor } from "./sample-worklet";
@@ -85,7 +86,7 @@ export function prepareFilterWorklet(context: Context): Promise<void> {
   // Classic and multimode filters still work in contexts without AudioWorklet.
   if (!context.audioWorklet) return Promise.resolve();
   const url = URL.createObjectURL(
-    new Blob([processor, spectralProcessor, fmProcessor, advancedFilterProcessor, engineProcessor, sampleProcessor, fxProcessor, modulationProcessor], { type: "text/javascript" }),
+    new Blob([processor, spectralProcessor, fmProcessor, advancedFilterProcessor, engineProcessor, sampleProcessor, fxProcessor, modulationProcessor, modulationMeterProcessor], { type: "text/javascript" }),
   );
   const pending = context.audioWorklet
     .addModule(url)

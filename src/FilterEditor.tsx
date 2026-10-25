@@ -2,7 +2,7 @@ import { PARAMS } from "./model";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { SlidersHorizontal } from "lucide-react";
-import { EnvelopeGraph, Select, formatHz, formatTime, percent } from "./components";
+import { EnvelopeGraph, Select, Slider, formatHz, formatTime, percent } from "./components";
 import { MULTIMODE_FILTERS } from "./model";
 import type { FilterType, MultimodeFilter, Param, Patch } from "./model";
 import { FILTER_CHARACTERS } from "./filter-config";
@@ -61,7 +61,7 @@ export default function FilterEditor({ patch, locks, sampleRate, onPatch, onPara
       <div className="filter-select-grid">{!comb && [2, 4].includes(p.filterCharacter) && !(p.filterType === "multimode" && ["peak", "notch"].includes(p.multimodeType)) && discrete("filterOversampling", "Ladder-/Acid-Oversampling", ["1× · Standard", "2× · High quality"])}{comb && discrete("combInterpolation", "Comb-Interpolation", ["Legacy · Linear", "HD · Lagrange"])}{discrete("drivePosition", "Drive-Position", ["Drive · Pre", "Drive · Post"])}</div>
       <p className="filter-hint">Keytrack: 100 % = eine Oktave je 12 Halbtöne, Referenz C4.{comb ? " Feedback HP und Saturation wirken nur im Feedback-Modus. Wet gain verstärkt den gesamten Comb-Wet-Pfad, auch bei Feedback 0." : " Classic erhält die bisherige Abstimmung. 2× reduziert Ladder-/Acid-Aliasing mit zusätzlicher CPU-Last und 31 Samples Latenz. Notch / Peak verwenden resonante Biquads."}</p>
     </details>
-    <div className="filter-envelope-title"><label onContextMenu={(e) => { e.preventDefault(); onLearn("filterAmount"); }} title="Filter-Hüllkurventiefe in Oktaven · Rechtsklick: MIDI Learn">ENV DEPTH<input aria-label="Filter Env depth" type="range" min="-6" max="6" step=".01" value={p.filterAmount} onPointerDown={onCheckpoint} onKeyDown={(e) => { if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) onCheckpoint(); }} onChange={(e) => onParam("filterAmount", +e.target.value)} /><output>{p.filterAmount > 0 ? "+" : ""}{p.filterAmount.toFixed(2)} oct</output></label></div>
+    <div className="filter-envelope-title"><label onContextMenu={(e) => { e.preventDefault(); onLearn("filterAmount"); }} title="Filter-Hüllkurventiefe in Oktaven · Rechtsklick: MIDI Learn">ENV DEPTH<Slider aria-label="Filter Env depth" parameterId="filterAmount" min={-6} max={6} step={.01} value={p.filterAmount} format={v=>`${v>0?"+":""}${v.toFixed(2)} oct`} onPointerDown={onCheckpoint} onKeyDown={(e) => { if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) onCheckpoint(); }} onChange={v => onParam("filterAmount", v)} /><output>{p.filterAmount > 0 ? "+" : ""}{p.filterAmount.toFixed(2)} oct</output></label></div>
     <EnvelopeGraph kind="filter" env={{ attack: p.filterAttack, decay: p.filterDecay, sustain: p.filterSustain, release: p.filterRelease }}
       curves={{ attack: p.filterAttackCurve, decay: p.filterDecayCurve, release: p.filterReleaseCurve }} />
     <div className="filter-knob-grid filter-adsr-grid">{(["filterAttack", "filterDecay", "filterSustain", "filterRelease"] as const).map((key, i) => knob(key, ["Attack", "Decay", "Sustain", "Release"][i], i === 2 ? percent : formatTime, i !== 2))}</div>

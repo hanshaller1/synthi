@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import { getParameter, PARAMETER_REGISTRY, setParameters } from "./parameters";
 import { useEffectiveFxValues } from "./modulation-ui";
 import { ArrowLeft, ArrowRight, Power, Sparkles } from "lucide-react";
@@ -400,31 +401,10 @@ function FxModule({
     values = fxValues(p, mode),
     enabled = p.fxEnabled[slot],
     prefix = `fx.${slot}.${mode}.`;
-  const effective = useEffectiveFxValues(
-    { ...values, __tempo: tempo, __bypass: Number(!enabled) },
-    slot,
-    mode,
-  );
-  const liveEnabled = effective.live
-    ? effective.values.__bypass < 0.5
-    : enabled;
-  const label = (id: string) =>
-    FX_OPTIONS[slot].find((o) => o.id === id)?.label ?? id;
-  const previous =
-    FX_OPTIONS[slot][Math.round(effective.values.__previousMode ?? -1)];
-  const timing =
-    slot === "delayMode"
-      ? delayTiming(
-          effective.mode,
-          effective.values,
-          effective.values.__tempo || tempo,
-        )
-      : null;
-  const baseTiming =
-    slot === "delayMode" ? delayTiming(mode, values, tempo) : null;
+  const label=(id:string)=>FX_OPTIONS[slot].find(o=>o.id===id)?.label??id;
   return (
     <section
-      className={`module effect-module ${liveEnabled ? "" : "fx-bypassed"}`}
+      className={`module effect-module ${enabled ? "" : "fx-bypassed"}`}
       data-slot={slot}
     >
       <div className="fx-slot-header">
@@ -435,7 +415,7 @@ function FxModule({
           className={`fx-power ${enabled ? "on" : ""}`}
           aria-label={`${titles[slot]} Basis-Bypass`}
           aria-pressed={enabled}
-          title={`Basis: ${enabled ? "ON" : "BYPASS"} · ${effective.live ? `DSP: ${liveEnabled ? "ON" : "BYPASS"}` : "kein Live-Status"} · Rechtsklick: MIDI Learn`}
+          title={`Basis: ${enabled ? "ON" : "BYPASS"} · Rechtsklick: MIDI Learn`}
           onContextMenu={(e) => {
             e.preventDefault();
             onLearn(`fx.${slot}.bypass`);
@@ -482,33 +462,7 @@ function FxModule({
           </option>
         ))}
       </Select>
-      <div
-        className={`fx-effective-status ${liveEnabled ? "is-on" : "is-bypassed"}`}
-        role="status"
-      >
-        {effective.live
-          ? `DSP: ${previous ? `${previous.label} → ` : ""}${label(effective.mode)} · ${liveEnabled ? "ON" : "BYPASS"}`
-          : "Basisansicht · kein Live-DSP-Status"}
-      </div>
-      <EffectVisual
-        mode={effective.mode}
-        values={effective.values}
-        live={effective.live}
-      />
-      {timing && (
-        <div
-          className={`fx-time-status ${timing.limited || baseTiming?.limited ? "is-limited" : ""}`}
-        >
-          Max. {FX_DELAY_LIMIT_SECONDS} s pro Kanal/Tap ·{" "}
-          {effective.live ? "DSP-Grundzeiten" : "Grundzeiten"}:{" "}
-          {timing.actual.map((t) => `${t.toFixed(3)} s`).join(" / ")}
-          {timing.limited &&
-            ` · begrenzt (angefordert ${timing.requested.map((t) => `${t.toFixed(3)} s`).join(" / ")})`}
-          {baseTiming?.limited &&
-            !timing.limited &&
-            " · Basis bei diesem Tempo außerhalb des Limits"}
-        </div>
-      )}
+      <FxLivePreview patch={p} slot={slot} tempo={tempo}/>
       <small className="fx-base-controls">Basisparameter: {label(mode)}</small>
       <div className="fx-controls">
         {FX_CONTROLS[mode]
@@ -597,4 +551,68 @@ function FxModule({
       </div>
     </section>
   );
+}
+
+/** Only the live status/preview subscribes to frame updates. The base controls
+ * and their drag handlers do not rerender for every incoming DSP packet. */
+function FxLivePreview({patch:p,slot,tempo}:{patch:Patch;slot:FxSlot;tempo:number}){
+  const anchor=useRef<HTMLDivElement>(null);
+  const mode=p[slot],values=fxValues(p,mode),enabled=p.fxEnabled[slot];
+  const effective = useEffectiveFxValues(
+    { ...values, __tempo: tempo, __bypass: Number(!enabled) },
+    slot,
+    mode,
+  );
+  const liveEnabled = effective.live
+    ? effective.values.__bypass < 0.5
+    : enabled;
+  const label = (id: string) =>
+    FX_OPTIONS[slot].find((o) => o.id === id)?.label ?? id;
+  const previous =
+    FX_OPTIONS[slot][Math.round(effective.values.__previousMode ?? -1)];
+  const timing =
+    slot === "delayMode"
+      ? delayTiming(
+          effective.mode,
+          effective.values,
+          effective.values.__tempo || tempo,
+        )
+      : null;
+  const baseTiming =
+    slot === "delayMode" ? delayTiming(mode, values, tempo) : null;
+  useLayoutEffect(()=>{
+    const module=anchor.current?.closest(".effect-module");
+    module?.classList.toggle("fx-bypassed",!liveEnabled);
+    const button=module?.querySelector<HTMLButtonElement>(".fx-power");
+    if(button)button.title=`Basis: ${enabled?"ON":"BYPASS"} · ${effective.live?`DSP: ${liveEnabled?"ON":"BYPASS"}`:"kein Live-Status"} · Rechtsklick: MIDI Learn`;
+  });
+  return <div ref={anchor} className="fx-live-preview">
+      <div
+        className={`fx-effective-status ${liveEnabled ? "is-on" : "is-bypassed"}`}
+        role="status"
+      >
+        {effective.live
+          ? `DSP: ${previous ? `${previous.label} → ` : ""}${label(effective.mode)} · ${liveEnabled ? "ON" : "BYPASS"}`
+          : "Basisansicht · kein Live-DSP-Status"}
+      </div>
+      <EffectVisual
+        mode={effective.mode}
+        values={effective.values}
+        live={effective.live}
+      />
+      {timing && (
+        <div
+          className={`fx-time-status ${timing.limited || baseTiming?.limited ? "is-limited" : ""}`}
+        >
+          Max. {FX_DELAY_LIMIT_SECONDS} s pro Kanal/Tap ·{" "}
+          {effective.live ? "DSP-Grundzeiten" : "Grundzeiten"}:{" "}
+          {timing.actual.map((t) => `${t.toFixed(3)} s`).join(" / ")}
+          {timing.limited &&
+            ` · begrenzt (angefordert ${timing.requested.map((t) => `${t.toFixed(3)} s`).join(" / ")})`}
+          {baseTiming?.limited &&
+            !timing.limited &&
+            " · Basis bei diesem Tempo außerhalb des Limits"}
+        </div>
+      )}
+  </div>;
 }

@@ -1,4 +1,6 @@
 import type { Param, Patch } from "./model";
+import { MOD_SOURCES } from "./modulation-spec";
+import type { ModSourceMeta } from "./modulation-spec";
 import { DYNAMIC_META } from "./parameter-spec";
 import {
   getParameter,
@@ -23,23 +25,15 @@ export function createModulationRanges(p: Patch) {
   const cache = new Map<string, Interval>(),
     visiting = new Set<string>();
   const sourceRange = (source: string): [number, number] => {
-    if (source.startsWith("lfo")) {
-      const index = +source.slice(-1),
-        depth = range(`lfo.${index}.depth` as Param);
-      const polarity = range(`lfo.${index}.polarity` as Param);
-      return [
-        Math.min(0, depth.min, polarity.min < 0.5 ? -depth.max : 0),
-        Math.max(0, depth.max, polarity.min < 0.5 ? -depth.min : 0),
-      ];
+    const meta=(MOD_SOURCES as Record<string,ModSourceMeta>)[source];
+    if(meta?.depth){
+      const depth=range(meta.depth as Param),polarity=meta.polarity?range(meta.polarity as Param):{min:0};
+      return [Math.min(0,depth.min,polarity.min<.5?-depth.max:0),Math.max(0,depth.max,polarity.min<.5?-depth.min:0)];
     }
-    if (source.startsWith("macro")) {
-      const v = range(source as Param);
-      return [v.min, v.max];
-    }
-    if (["randomNote", "smoothRandom", "pitchbend"].includes(source))
-      return [-1, 1];
-    if (source === "keytrack") return [-60 / 36, 67 / 36];
-    return [0, 1];
+    if(meta?.parameter){const v=range(meta.parameter as Param);return [v.min,v.max];}
+    // Missing future source metadata gives a full conservative parameter span.
+    // Actual markers always come from the audio/control processors.
+    return meta?.range?[...meta.range]:[-Infinity,Infinity];
   };
   function range(id: Param, base = getParameter(p, id)): Interval {
     const key = canonical(id) as Param,
@@ -68,8 +62,9 @@ export function createModulationRanges(p: Patch) {
     }
     visiting.delete(key);
     const scale = meta.trigger && meta.options ? 2 : 1;
-    const effectiveMeta =
-      p.modVersion === 1 ? { ...meta, scale: "linear" as const } : meta;
+    const effectiveMeta = p.modVersion===1
+      ? {...meta,scale:"linear" as const,...(key==="cutoff"?{amountScale:Math.min(6000,base*2)}:{})}
+      : meta;
     let min = modulationValue(base, low * scale, effectiveMeta),
       max = modulationValue(base, high * scale, effectiveMeta);
     if (meta.options && routed) {

@@ -1,3 +1,6 @@
+import { NativeModulationMeter } from "./modulation-meter";
+import type { ModulationReadings } from "./modulation-display";
+import type { ModulationReading } from "./modulation-worklet";
 import { Modulator, ControlPlanner } from "./modulation-worklet";
 import { controlFrame } from "./lfo-phase";
 import { effectiveSwing, triggerEventOrder } from "./swing";
@@ -67,6 +70,12 @@ type Voice = {
   modwheelParams: AudioParam[];
   modulator?: Modulator;
   control?: ControlPlanner;
+  modulationPatch: Patch;
+  sampledModulation: ModulationReading;
+  grainReadings: ModulationReading[];
+  nativeReading: () => ModulationReading | undefined;
+  setModulationReporting: (enabled:boolean) => void;
+  updateModulationMeter: (at:number) => void;
   effectId: number;
   grainTimers: number[];
   cleanupTimer?: number;
@@ -178,6 +187,7 @@ function builtInSample(ctx: Context) {
 }
 
 export class SynthEngine {
+  private observedModulationTrack:number|null=null;
   private lfoClocks=new Map<number,Modulator>();
   private offlineGrains:(()=>void)[]=[];
   finishScheduling(){const plans=this.offlineGrains;this.offlineGrains=[];for(const plan of plans)plan();}
@@ -341,9 +351,9 @@ export class SynthEngine {
       if (previous?.level !== p.level) voice.updateLevel(p.level, t);
       if(voice.patch.modVersion===2&&previous?.pan!==p.pan){voice.panner.pan.cancelScheduledValues(t);voice.panner.pan.setTargetAtTime(p.pan,t,.02);}
       if (voice.time <= t && voice.releaseAt > t) voice.updateFm(p, previous, t);
-      if(voice.modulator||voice.control){
+      if(voice.modulator||voice.control||voice.modulationPatch.mods.length){
         const edits=Object.fromEntries(Object.keys(PARAMS).filter(id=>!PARAMETER_REGISTRY[id as Param].trigger&&(voice.releaseAt>t||PARAMETER_REGISTRY[id as Param].scope!=="voice"||id==="level"||id==="pan")&&getParameter(p,id)!==getParameter(previous??voice.basePatch,id)).map(id=>[id,getParameter(p,id)]));
-        const base=setParameters({...voice.patch,lfos:p.lfos,mods:p.mods},edits);if(voice.modulator)voice.modulator.update(base,t);else voice.control?.update(base,t);voice.patch=base;
+        const base=setParameters({...voice.patch,lfos:p.lfos,mods:p.mods},edits);if(voice.modulator)voice.modulator.update(base,t);else voice.control?.update(base,t);voice.patch=base;voice.modulationPatch={...base,mods:voice.modulator?base.mods:voice.modulationPatch.mods};voice.updateModulationMeter(t);
       }
       if(voice.modulator)voice.modulator.expression("tempo",this.tempo,t);else voice.control?.expression("tempo",this.tempo,t);
       voice.patch.lfos = p.lfos;
@@ -434,7 +444,7 @@ export class SynthEngine {
       for(const t of project.tracks){
         if(!this.lfoClocks.has(t.id)){
           const clock=new Modulator(this.context,t.patch,[],0,60,0,true,t.id+1,undefined,true);
-          clock.node.connect(this.clockSink);clock.expression("tempo",project.tempo);this.lfoClocks.set(t.id,clock);
+          clock.node.connect(this.clockSink);clock.setReporting(this.observedModulationTrack===t.id);clock.expression("tempo",project.tempo);this.lfoClocks.set(t.id,clock);
           this.buses[t.id].setLfoClock(clock);
         }
         this.buses[t.id].prepareEffects(t.patch,project.tempo);
@@ -465,7 +475,7 @@ export class SynthEngine {
       voice.cleanupTimer = undefined;
     }
     for(const timer of voice.grainTimers)window.clearInterval(timer);voice.grainTimers.length=0;
-    voice.modulator?.dispose();voice.control?.dispose();
+    voice.setModulationReporting(false);voice.modulator?.dispose();voice.control?.dispose();
     voice.filter.dispose();
     for (const source of voice.sources) {
       try {
@@ -710,9 +720,16 @@ export class SynthEngine {
       for (const output of routeOutputs[key] ?? []) connectBinding(output, param, weight);
     };
     const routed = (key: string) => p.mods.some((m) => m.target === key && m.amount !== 0);
-    const numberAt = (key: Param, at: number) => modulatedNumber(
-      p, key, at, start, note, velocity, this.modwheel, this.tempo, modulationRelease,{pressure:this.pressures[track],pitchbend:this.bends[track]/200,seed:attackSeed,control:control?.snapshot.bind(control)},
-    );
+    const grainReadings:ModulationReading[]=[];
+    let grainReading:ModulationReading|undefined;
+    const numberAt = (key: Param, at: number) => {
+      const value=modulatedNumber(p,key,at,start,note,velocity,this.modwheel,this.tempo,modulationRelease,{pressure:this.pressures[track],pitchbend:this.bends[track]/200,seed:attackSeed,control:control?.snapshot.bind(control)});
+      if(c instanceof AudioContext&&this.observedModulationTrack===track&&p.mods.some(r=>r.amount&&r.target===key)){
+        if(!grainReading||grainReading.time!==at){grainReading={values:{},bases:{},sources:{},time:at};grainReadings.push(grainReading);}
+        grainReading.values[key]=value;grainReading.bases![key]=getParameter(p,key);
+      }
+      return value;
+    };
     if (!(driveProcessor instanceof WaveShaperNode))
       driveProcessor.parameters.forEach((param, key) => { if (key === "amount") bind("drive", param); });
     let physicalBuffer: AudioBuffer | undefined;
@@ -1264,7 +1281,7 @@ export class SynthEngine {
       amplitude: { params: [tremolo.gain], scale: 0.66 },
       pan: { params: [panner.pan], scale: 1 },
     };
-    const controls = new Map<string, { input: AudioParam; bias: AudioParam; output: GainNode; clamp: WaveShaperNode }>();
+    const controls = new Map<string, { input: AudioParam; bias: AudioParam; output: GainNode; clamp: WaveShaperNode; meterSource: GainNode }>();
     const boundedControl = (key: Param) => {
       const existing = controls.get(key);
       if (existing) return existing;
@@ -1284,7 +1301,7 @@ export class SynthEngine {
       signal.start(start); bias.start(start);
       sources.push(signal, bias);
       nodes.push(clamp, range, output);
-      const control = { input: signal.offset, bias: bias.offset, output, clamp };
+      const control = { input: signal.offset, bias: bias.offset, output, clamp, meterSource:range };
       controls.set(key, control);
       for (const binding of bindings[key]) connectBinding(output, binding.param, binding.weight);
       routeOutputs[key] = [output];
@@ -1337,11 +1354,33 @@ export class SynthEngine {
       else if (bindings[mod.target]) {
         for (const binding of bindings[mod.target]) connectBinding(gain, binding.param, binding.weight);
         (routeOutputs[mod.target] ??= []).push(gain);
-      } else for (const param of target.params) gain.connect(param);
+      } else {for (const param of target.params) gain.connect(param);(routeOutputs[mod.target]??=[]).push(gain);}
       if (mod.target === "pitch") pitchModNodes.push(gain);
     }
     }
+    let nativeMeter:NativeModulationMeter|undefined;
+    const meterConfig=()=>Object.keys(routeOutputs).filter(id=>PARAMETER_REGISTRY[id as Param]).map(id=>{
+      const meta=PARAMETER_REGISTRY[id as Param],bounded=controls.get(id),half=(meta.max-meta.min)/2;
+      // Bounded native controls are tapped before their subtract-base bias.
+      // Their signal includes the exact sum/clamp and their intrinsic base
+      // automation, even when a patch edit only takes effect on the next note.
+      const base=bounded?meta.min+(bounded.input.value+1)*half:getParameter(voice.patch,id);
+      return {id,base,offset:bounded?meta.min+half:base,min:meta.min,max:meta.max};
+    });
+    const meterOutputs=()=>Object.fromEntries(Object.entries(routeOutputs).map(([id,outputs])=>[id,controls.has(id)?[controls.get(id)!.meterSource]:outputs]));
+    const triggerIds=[...new Set(patch.mods.filter(r=>r.amount&&PARAMETER_REGISTRY[r.target as Param]?.trigger&&!Object.hasOwn(DYNAMIC_META,r.target)).map(r=>r.target))];
+    const sampledModulation:ModulationReading={values:Object.fromEntries(triggerIds.map(id=>[id,getParameter(p,id)])),bases:Object.fromEntries(triggerIds.map(id=>[id,getParameter(patch,id)])),sources:{},time:start};
     const voice: Voice = { effectId, modulator, control,
+      modulationPatch:p,sampledModulation,grainReadings,
+      nativeReading:()=>nativeMeter?.reading,
+      updateModulationMeter:at=>nativeMeter?.update(meterConfig(),at),
+      setModulationReporting:enabled=>{
+        modulator?.setReporting(enabled);
+        if(!enabled){nativeMeter?.dispose();nativeMeter=undefined;grainReadings.length=0;grainReading=undefined;}
+        else if(!modulator&&!nativeMeter&&c instanceof AudioContext&&this.combAvailable&&this.clockSink){
+          const config=meterConfig();if(config.length)nativeMeter=new NativeModulationMeter(c,config,meterOutputs(),this.clockSink);
+        }
+      },
       track,
       note,
       velocity,
@@ -1578,7 +1617,7 @@ export class SynthEngine {
         );
       this.queueCleanup(voice);
     };
-    this.voices.push(voice);
+    this.voices.push(voice);voice.setModulationReporting(this.observedModulationTrack===track);
     const releaseAfter = oneShotDuration ?? duration;
     if (releaseAfter !== undefined) voice.release(start + Math.max(1 / c.sampleRate, releaseAfter));
     return voice;
@@ -1625,7 +1664,28 @@ export class SynthEngine {
     if(note===undefined)this.buses[track].effectExpression("pressure",pressure,at);
     for(const voice of this.voices)if(voice.track===track&&(note===undefined||voice.note===note)){if(voice.modulator)voice.modulator.pressure(pressure,at,note);else voice.control?.event({type:"pressure",value:pressure,at,note});}
   }
-  modulationReading(track:number){const voice=this.voices.filter(v=>v.track===track&&v.time<=this.context.currentTime&&v.end>this.context.currentTime).at(-1);return {voice:voice?.modulator?.reading??this.lfoClocks.get(track)?.reading,fx:this.buses[track].effectReading};}
+  private observeModulation(track:number|null){
+    if(this.observedModulationTrack===track||this.disposed&&track!==null)return;
+    this.observedModulationTrack=track;
+    for(const [id,clock]of this.lfoClocks)clock.setReporting(id===track);
+    for(let id=0;id<this.buses.length;id++)this.buses[id].setModulationReporting(id===track);
+    for(const voice of this.voices)voice.setModulationReporting(voice.track===track);
+  }
+  releaseModulationReading(track:number){if(this.observedModulationTrack===track)this.observeModulation(null);}
+  modulationReading(track:number):ModulationReadings{
+    this.observeModulation(track);
+    const now=this.context.currentTime;
+    if(this.disposed||this.context.state==="closed")return {time:now,running:false,voices:[]};
+    const voices=this.voices.filter(v=>v.track===track&&v.time<=now&&v.end>now).map(v=>{
+      v.updateModulationMeter(now);
+      v.grainReadings.sort((a,b)=>a.time-b.time);
+      const grains=v.grainReadings.filter(r=>r.time<=now).at(-1);
+      while(v.grainReadings.length>1&&v.grainReadings[1].time<=now)v.grainReadings.shift();
+      const actual=v.modulator?.reading??v.nativeReading();
+      return {id:v.effectId,note:v.note,released:v.releaseAt<=now,patch:v.modulationPatch,sampledPatch:v.basePatch,reading:actual&&actual.time>=v.time?actual:undefined,sampled:v.sampledModulation,grains};
+    });
+    return {time:now,running:this.context.state==="running",voices,clock:this.lfoClocks.get(track)?.reading,fx:this.buses[track].effectReading};
+  }
   panic(track?: number) {
     for(const [id,clock]of this.lfoClocks)if(track===undefined||id===track){clock.panic(this.context.currentTime);}
     const now = this.context.currentTime;
@@ -1662,6 +1722,7 @@ export class SynthEngine {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.observeModulation(null);
     this.offlineGrains=[];
     this.panic();
     for (const timer of this.cleanupTimers) window.clearTimeout(timer);

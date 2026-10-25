@@ -1,3 +1,4 @@
+import { ModulationProvider } from "./modulation-ui";
 import { parameterEdits, PARAMETER_REGISTRY } from "./parameters";
 import { normalizeTrackSampleLocks } from "./model";
 import { enginePatchEdits, needsEngineWorklet, sampleSliceSelection } from "./engine-config";
@@ -1075,6 +1076,8 @@ export default function App() {
   const closeModal = useCallback(() => setModal(null), []);
 
   return (
+    <ModulationProvider track={track} patch={patch} locks={lockMode&&current.mode==="step"?currentStep.locks:undefined}
+      read={()=>engineRef.current?.modulationReading(track)} release={()=>engineRef.current?.releaseModulationReading(track)}>
     <div className="app-shell studio-viewport">
       {migration && <Modal title={`Track ${migration.track + 1} in Step-Sequencer migrieren?`} subtitle="Vorschau für alle acht Patterns dieses Tracks" onClose={closeMigration}>
         <div className="migration-details">
@@ -1436,7 +1439,6 @@ export default function App() {
               track={track}
               tempo={project.tempo}
               sampleRate={audioInfo.sampleRate || 48000}
-              readModulation={()=>engineRef.current?.modulationReading(track)}
               tab={tab}
               setTab={setTab}
               onPatch={(partial) => {
@@ -2259,6 +2261,7 @@ export default function App() {
         </Modal>
       )}
     </div>
+    </ModulationProvider>
   );
 }
 const tapRef = { current: [] as number[] };

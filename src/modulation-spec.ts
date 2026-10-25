@@ -18,15 +18,23 @@ export const MODULATION_PARAMS = {
   modEnv2Attack: [0,8,.1], modEnv2Decay: [.001,16,.8], modEnv2Sustain: [0,1,.3], modEnv2Release: [.001,16,1],
   modEnv2AttackCurve: [-100,100,0], modEnv2DecayCurve: [-100,100,0], modEnv2ReleaseCurve: [-100,100,0],
 } as const;
+export type ModSourceMeta = {
+  label:string; group:string; range?:readonly [number,number];
+  parameter?:string; depth?:string; polarity?:string;
+};
 export const MOD_SOURCES = {
-  lfo1: {label:"LFO 1",group:"LFO"}, lfo2: {label:"LFO 2",group:"LFO"}, lfo3: {label:"LFO 3",group:"LFO"},
-  velocity: {label:"Velocity",group:"Expression"}, keytrack: {label:"Key tracking",group:"Expression"}, modwheel: {label:"Mod wheel",group:"Expression"},
-  pressure: {label:"Aftertouch / Pressure",group:"Expression"}, pitchbend: {label:"Pitch bend",group:"Expression"},
-  ampEnv: {label:"Amp envelope",group:"Envelopes"}, filterEnv: {label:"Filter envelope",group:"Envelopes"},
-  modEnv1: {label:"Mod envelope 1",group:"Envelopes"}, modEnv2: {label:"Mod envelope 2",group:"Envelopes"},
-  randomNote: {label:"Random per note",group:"Random"}, smoothRandom: {label:"Smooth random",group:"Random"},
-  macro1: {label:"Macro 1",group:"Macros"}, macro2: {label:"Macro 2",group:"Macros"}, macro3: {label:"Macro 3",group:"Macros"}, macro4: {label:"Macro 4",group:"Macros"},
-} as const;
+  lfo1: {label:"LFO 1",group:"LFO",depth:"lfo.1.depth",polarity:"lfo.1.polarity"},
+  lfo2: {label:"LFO 2",group:"LFO",depth:"lfo.2.depth",polarity:"lfo.2.polarity"},
+  lfo3: {label:"LFO 3",group:"LFO",depth:"lfo.3.depth",polarity:"lfo.3.polarity"},
+  velocity: {label:"Velocity",group:"Expression",range:[0,1]}, keytrack: {label:"Key tracking",group:"Expression",range:[-60/36,67/36]},
+  modwheel: {label:"Mod wheel",group:"Expression",range:[0,1]}, pressure: {label:"Aftertouch / Pressure",group:"Expression",range:[0,1]},
+  pitchbend: {label:"Pitch bend",group:"Expression",range:[-1,1]},
+  ampEnv: {label:"Amp envelope",group:"Envelopes",range:[0,1]}, filterEnv: {label:"Filter envelope",group:"Envelopes",range:[0,1]},
+  modEnv1: {label:"Mod envelope 1",group:"Envelopes",range:[0,1]}, modEnv2: {label:"Mod envelope 2",group:"Envelopes",range:[0,1]},
+  randomNote: {label:"Random per note",group:"Random",range:[-1,1]}, smoothRandom: {label:"Smooth random",group:"Random",range:[-1,1]},
+  macro1: {label:"Macro 1",group:"Macros",parameter:"macro1"}, macro2: {label:"Macro 2",group:"Macros",parameter:"macro2"},
+  macro3: {label:"Macro 3",group:"Macros",parameter:"macro3"}, macro4: {label:"Macro 4",group:"Macros",parameter:"macro4"},
+} as const satisfies Record<string,ModSourceMeta>;
 export const LFO_FIELDS = {
   rate: {min:.02,max:30,default:.6,label:"Rate",log:true},
   division: {min:1/24,max:16,default:4,label:"Sync division",options:LFO_SYNC_DIVISIONS,event:true},

@@ -5,7 +5,7 @@ import type { FmOperator } from "./fm-config";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { AudioLines, SlidersHorizontal, Upload } from "lucide-react";
-import { Select, Waveform, formatTime, percent } from "./components";
+import { Select, Slider, Waveform, formatTime, percent } from "./components";
 import { ENGINES } from "./model";
 import type { MidiTarget, Param, Patch, Wave } from "./model";
 import {
@@ -346,15 +346,7 @@ export default function SourceEditor({
         </>}
         <label className="inline-range source-noise">
           NOISE
-          <input
-            aria-label="Noise level"
-            type="range"
-            min="0"
-            max="1"
-            step=".01"
-            value={p.noise}
-            onChange={(e) => onParam("noise", +e.target.value)}
-          />
+          <Slider aria-label="Noise level" parameterId="noise" value={p.noise} min={0} max={1} step={.01} onPointerDown={onCheckpoint} onLearn={()=>onLearn("noise")} onChange={v=>onParam("noise",v)}/>
           <output>{percent(p.noise)}</output>
         </label>
       </section>
@@ -430,15 +422,7 @@ export default function SourceEditor({
               >LEGATO {p.legato ? "ON" : "OFF"}</button>
               <label>
                 GLIDE
-                <input
-                  aria-label="Portamento"
-                  type="range"
-                  min="0"
-                  max="2"
-                  step=".01"
-                  value={p.glide}
-                  onChange={(e) => onParam("glide", +e.target.value)}
-                />
+                <Slider aria-label="Portamento" parameterId="glide" value={p.glide} min={0} max={2} step={.01} format={formatTime} onPointerDown={onCheckpoint} onLearn={()=>onLearn("glide")} onChange={v=>onParam("glide",v)}/>
                 <output>{formatTime(p.glide)}</output>
               </label>
             </div>

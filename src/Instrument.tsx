@@ -1,8 +1,6 @@
-import { ModulationProvider } from "./modulation-ui";
-import type { ModulationReading } from "./modulation-worklet";
 import ModulationEditor from "./ModulationEditor";
 import { MOD_SOURCES } from "./modulation-spec";
-import { getParameter } from "./parameters";
+import { getParameter, setParameters } from "./parameters";
 import { sampleSliceSelection } from "./engine-config";
 import SourceEditor from "./SourceEditor";
 import FxRack from "./FxRack";
@@ -42,7 +40,6 @@ type Props = {
   track: number;
   tempo: number;
   sampleRate: number;
-  readModulation:()=>{voice?:ModulationReading;fx?:ModulationReading}|undefined;
   tab: string;
   setTab: (tab: string) => void;
   onPatch: (patch: Partial<Patch>) => void;
@@ -102,7 +99,7 @@ export default function Instrument(props: Props) {
     </div>
   );
   return (
-    <ModulationProvider patch={p} read={props.readModulation}><section
+    <section
       className="instrument studio-panel"
       style={{ "--track-color": props.color } as React.CSSProperties}
     >
@@ -191,7 +188,7 @@ export default function Instrument(props: Props) {
 
           <div className="module-grid synth-grid">
             <SourceEditor onCheckpoint={props.onCheckpoint} onLearn={props.onLearn}
-              patch={{ ...p, ...props.locks }}
+              patch={setParameters(p,props.locks)}
               onPatch={onPatch}
               onParam={onParam}
               onSample={props.onSample}
@@ -282,6 +279,6 @@ export default function Instrument(props: Props) {
           onCheckpoint={props.onCheckpoint}
         />
       )}
-    </section></ModulationProvider>
+    </section>
   );
 }

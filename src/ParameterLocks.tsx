@@ -1,10 +1,11 @@
+import { ModulationPatchScope } from "./modulation-ui";
 import { getParameter, PARAMETER_REGISTRY } from "./parameters";
 import { ENGINE_DISCRETE, sampleSliceSelection } from "./engine-config";
 import { FILTER_DISCRETE } from "./filter-config";
 import { FM_KEYS, visibleFmTarget } from "./fm-config";
 import { useEffect, useRef, useState } from "react";
 import { LockKeyhole, X } from "lucide-react";
-import { IconButton, Select } from "./components";
+import { IconButton, Select, Slider } from "./components";
 import { LOCK_PARAMS, PARAMS, PARAM_LABELS, clamp } from "./model";
 import type { Numbers, Param, Patch } from "./model";
 
@@ -37,15 +38,14 @@ export function LockControls({ locks, patch, onSet }: {
   const [addLock, setAddLock] = useState<Param>("cutoff");
   const available = LOCK_PARAMS.filter(visibleFmTarget);
   const group = (key: Param) => PARAMETER_REGISTRY[key].group;
-  return <>
+  return <ModulationPatchScope patch={patch} locks={locks}>
     <span className="lock-heading"><LockKeyhole size={13} /> PARAMETER LOCKS</span>
     {Object.entries(locks).map(([name, value]) => {
       const key = name as Param, min = PARAMS[key][0], max = key === "sampleSlice" ? sampleSliceSelection(locks.sampleSlices ?? patch.sampleSlices, 0).sampleSlices - 1 : PARAMS[key][1];
       const log = min > 0 && max / min >= 100 && !integral.has(key);
-      const normalized = max === min ? 0 : log ? Math.log(value! / min) / Math.log(max / min) : (value! - min) / (max - min);
       const set = (v:number) => {const options=PARAMETER_REGISTRY[key].options;let next=clamp(integral.has(key)?Math.round(v):+v.toFixed(4),min,max);if(options)next=options.reduce((best,o)=>Math.abs(o.value-next)<Math.abs(best-next)?o.value:best,options[0].value);onSet(key,next);};
       return <div className="lock-chip" key={key}>
-        <label>{PARAM_LABELS[key]}<input aria-label={`${PARAM_LABELS[key]} per Maus ändern`} type="range" min="0" max="1" step=".001" value={normalized} onChange={(e) => set(log ? min * (max / min) ** +e.target.value : min + +e.target.value * (max - min))} /></label>
+        <label>{PARAM_LABELS[key]}<Slider aria-label={`${PARAM_LABELS[key]} per Maus ändern`} parameterId={key} min={min} max={max} log={log} step={integral.has(key)?1:0} value={value!} format={v=>String(+v.toFixed(4))} onChange={set} /></label>
         {PARAMETER_REGISTRY[key].options ? <Select label={`${PARAM_LABELS[key]} Lock-Wert`} value={value!} onChange={(v) => set(+v)}>{PARAMETER_REGISTRY[key].options!.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</Select> : <LockValue label={PARAM_LABELS[key]} value={value!} min={min} max={max} integral={integral.has(key)} onChange={set} />}
         <IconButton label={`${PARAM_LABELS[key]} Lock entfernen`} onClick={() => onSet(key, null)}><X size={12} /></IconButton>
       </div>;
@@ -56,5 +56,5 @@ export function LockControls({ locks, patch, onSet }: {
       </Select>
       <button className="small-button" onClick={() => onSet(addLock, getParameter(patch,addLock))}>+ Lock</button>
     </div>
-  </>;
+  </ModulationPatchScope>;
 }
